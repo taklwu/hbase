@@ -98,8 +98,8 @@ public class ExportSnapshot extends AbstractHBaseTool implements Tool {
 
   private static final Logger LOG = LoggerFactory.getLogger(ExportSnapshot.class);
 
-  private static final String MR_NUM_MAPS = "mapreduce.job.maps";
-  private static final String CONF_NUM_SPLITS = "snapshot.export.format.splits";
+  static final String MR_NUM_MAPS = "mapreduce.job.maps";
+  static final String CONF_NUM_SPLITS = "snapshot.export.format.splits";
   private static final String CONF_SNAPSHOT_NAME = "snapshot.export.format.snapshot.name";
   private static final String CONF_SNAPSHOT_DIR = "snapshot.export.format.snapshot.dir";
   private static final String CONF_FILES_USER = "snapshot.export.files.attributes.user";
@@ -682,6 +682,7 @@ public class ExportSnapshot extends AbstractHBaseTool implements Tool {
       if (mappers == 0 && snapshotFiles.size() > 0) {
         mappers = 1 + (snapshotFiles.size() / conf.getInt(CONF_MAP_GROUP, 10));
         mappers = Math.min(mappers, snapshotFiles.size());
+        LOG.info("mappers = {}, snapshotFiles.size() = {}", mappers, snapshotFiles.size());
         conf.setInt(CONF_NUM_SPLITS, mappers);
         conf.setInt(MR_NUM_MAPS, mappers);
       }
@@ -807,6 +808,8 @@ public class ExportSnapshot extends AbstractHBaseTool implements Tool {
       conf.setInt(CONF_NUM_SPLITS, mappers);
       conf.setInt(MR_NUM_MAPS, mappers);
     }
+    LOG.info("job configuration mappers = {}", mappers);
+
     conf.setInt(CONF_FILES_MODE, filesMode);
     conf.setBoolean(CONF_CHECKSUM_VERIFY, verifyChecksum);
     conf.set(CONF_OUTPUT_ROOT, outputRoot.toString());
@@ -816,7 +819,7 @@ public class ExportSnapshot extends AbstractHBaseTool implements Tool {
     conf.set(CONF_SNAPSHOT_DIR, snapshotDir.toString());
 
     String jobname = conf.get(CONF_MR_JOB_NAME, "ExportSnapshot-" + snapshotName);
-    Job job = new Job(conf);
+    Job job = Job.getInstance(conf, jobname);
     job.setJobName(jobname);
     job.setJarByClass(ExportSnapshot.class);
     TableMapReduceUtil.addDependencyJars(job);
@@ -826,6 +829,8 @@ public class ExportSnapshot extends AbstractHBaseTool implements Tool {
     job.setMapSpeculativeExecution(false);
     job.setNumReduceTasks(0);
 
+    LOG.info("job configuration done");
+
     // Acquire the delegation Tokens
     Configuration srcConf = HBaseConfiguration.createClusterConf(conf, null, CONF_SOURCE_PREFIX);
     TokenCache.obtainTokensForNamenodes(job.getCredentials(),
@@ -833,6 +838,8 @@ public class ExportSnapshot extends AbstractHBaseTool implements Tool {
     Configuration destConf = HBaseConfiguration.createClusterConf(conf, null, CONF_DEST_PREFIX);
     TokenCache.obtainTokensForNamenodes(job.getCredentials(),
         new Path[] { outputRoot }, destConf);
+
+    LOG.info("Submitted MR job and waiting for completion");
 
     // Run the MR Job
     if (!job.waitForCompletion(true)) {
@@ -1054,6 +1061,7 @@ public class ExportSnapshot extends AbstractHBaseTool implements Tool {
         }
       }
     }
+    LOG.info("passed Copy Snapshot Manifest from");
 
     // Write a new .snapshotinfo if the target name is different from the source name
     if (!targetName.equals(snapshotName)) {
@@ -1072,6 +1080,8 @@ public class ExportSnapshot extends AbstractHBaseTool implements Tool {
           SnapshotDescriptionUtils.SNAPSHOTINFO_FILE), new FsPermission((short)filesMode));
       }
     }
+
+    LOG.info("Start MR Job to copy files");
 
     // Step 2 - Start MR Job to copy files
     // The snapshot references must be copied before the files otherwise the files gets removed

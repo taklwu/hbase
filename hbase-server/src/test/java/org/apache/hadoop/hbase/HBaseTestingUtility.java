@@ -145,6 +145,10 @@ import org.apache.hadoop.mapred.JobConf;
 import org.apache.hadoop.mapred.MiniMRCluster;
 import org.apache.hadoop.mapred.TaskLog;
 import org.apache.hadoop.minikdc.MiniKdc;
+import org.apache.hadoop.yarn.conf.YarnConfiguration;
+import org.apache.hadoop.yarn.server.MiniYARNCluster;
+import org.apache.hadoop.yarn.server.resourcemanager.scheduler.ResourceScheduler;
+import org.apache.hadoop.yarn.server.resourcemanager.scheduler.fifo.FifoScheduler;
 import org.apache.log4j.LogManager;
 import org.apache.yetus.audience.InterfaceAudience;
 import org.apache.zookeeper.WatchedEvent;
@@ -200,7 +204,7 @@ public class HBaseTestingUtility extends HBaseZKTestingUtility {
   private MiniDFSCluster dfsCluster = null;
 
   private volatile HBaseCluster hbaseCluster = null;
-  private MiniMRCluster mrCluster = null;
+  private MiniYARNCluster mrCluster = null;
 
   /** If there is a mini cluster running for this testing utility instance. */
   private volatile boolean miniClusterRunning;
@@ -2731,11 +2735,16 @@ public class HBaseTestingUtility extends HBaseZKTestingUtility {
    *
    * @throws IOException When starting the cluster fails.
    */
-  public MiniMRCluster startMiniMapReduceCluster() throws IOException {
+  public MiniYARNCluster startMiniMapReduceCluster() throws IOException {
     // Set a very high max-disk-utilization percentage to avoid the NodeManagers from failing.
     conf.setIfUnset(
         "yarn.nodemanager.disk-health-checker.max-disk-utilization-per-disk-percentage",
         "99.0");
+    conf.setIfUnset(
+        "yarn.scheduler.capacity.maximum-am-resource-percent",
+        "0.5");
+    conf.setInt(YarnConfiguration.RM_SCHEDULER_MINIMUM_ALLOCATION_MB, 64);
+    conf.setClass(YarnConfiguration.RM_SCHEDULER, FifoScheduler.class, ResourceScheduler.class);
     startMiniMapReduceCluster(2);
     return mrCluster;
   }
@@ -2795,13 +2804,13 @@ public class HBaseTestingUtility extends HBaseZKTestingUtility {
     ////
 
     // Allow the user to override FS URI for this map-reduce cluster to use.
-    mrCluster = new MiniMRCluster(servers,
-      FS_URI != null ? FS_URI : FileSystem.get(conf).getUri().toString(), 1,
-      null, null, new JobConf(this.conf));
-    JobConf jobConf = MapreduceTestingShim.getJobConf(mrCluster);
-    if (jobConf == null) {
-      jobConf = mrCluster.createJobConf();
-    }
+//    mrCluster = new MiniMRCluster(servers,
+//      FS_URI != null ? FS_URI : FileSystem.get(conf).getUri().toString(), 1,
+//      null, null, new JobConf(this.conf));
+    mrCluster = new MiniYARNCluster("miniYARNCluster", servers, 1, 1);
+    mrCluster.init(conf);
+    mrCluster.start();
+    JobConf jobConf = new JobConf(mrCluster.getConfig());
 
     jobConf.set("mapreduce.cluster.local.dir",
       conf.get("mapreduce.cluster.local.dir")); //Hadoop MiniMR overwrites this while it should not
@@ -2845,7 +2854,7 @@ public class HBaseTestingUtility extends HBaseZKTestingUtility {
   public void shutdownMiniMapReduceCluster() {
     if (mrCluster != null) {
       LOG.info("Stopping mini mapreduce cluster...");
-      mrCluster.shutdown();
+      mrCluster.stop();
       mrCluster = null;
       LOG.info("Mini mapreduce cluster stopped");
     }
