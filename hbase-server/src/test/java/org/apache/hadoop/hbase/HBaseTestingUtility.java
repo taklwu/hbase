@@ -2735,7 +2735,7 @@ public class HBaseTestingUtility extends HBaseZKTestingUtility {
    *
    * @throws IOException When starting the cluster fails.
    */
-  public MiniYARNCluster startMiniMapReduceCluster() throws IOException {
+  public MiniYARNCluster startMiniMapReduceCluster() throws Exception {
     // Set a very high max-disk-utilization percentage to avoid the NodeManagers from failing.
     conf.setIfUnset(
         "yarn.nodemanager.disk-health-checker.max-disk-utilization-per-disk-percentage",
@@ -2782,7 +2782,7 @@ public class HBaseTestingUtility extends HBaseZKTestingUtility {
    * @param servers  The number of <code>TaskTracker</code>'s to start.
    * @throws IOException When starting the cluster fails.
    */
-  private void startMiniMapReduceCluster(final int servers) throws IOException {
+  private void startMiniMapReduceCluster(final int servers) throws Exception {
     if (mrCluster != null) {
       throw new IllegalStateException("MiniMRCluster is already running");
     }
@@ -2808,7 +2808,7 @@ public class HBaseTestingUtility extends HBaseZKTestingUtility {
 //      FS_URI != null ? FS_URI : FileSystem.get(conf).getUri().toString(), 1,
 //      null, null, new JobConf(this.conf));
     mrCluster = new MiniYARNCluster("miniYARNCluster", servers, 1, 1);
-    mrCluster.init(conf);
+    mrCluster.serviceInit(conf);
     mrCluster.start();
     JobConf jobConf = new JobConf(mrCluster.getConfig());
 
