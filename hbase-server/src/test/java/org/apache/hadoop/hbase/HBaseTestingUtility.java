@@ -2736,6 +2736,8 @@ public class HBaseTestingUtility extends HBaseZKTestingUtility {
     conf.setIfUnset(
         "yarn.nodemanager.disk-health-checker.max-disk-utilization-per-disk-percentage",
         "99.0");
+    // Make sure we have enough disk space for log-dirs and local-dirs
+    conf.setIfUnset("yarn.nodemanager.disk-health-checker.min-free-space-per-disk-mb", "128");
     startMiniMapReduceCluster(2);
     return mrCluster;
   }
