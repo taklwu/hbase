@@ -37,15 +37,19 @@ import org.apache.hadoop.fs.FSDataInputStream;
 import org.apache.hadoop.fs.FSDataOutputStream;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.hbase.CellBuilderType;
 import org.apache.hadoop.hbase.CellComparatorImpl;
 import org.apache.hadoop.hbase.CellUtil;
+import org.apache.hadoop.hbase.ExtendedCellBuilderFactory;
 import org.apache.hadoop.hbase.HBaseClassTestRule;
 import org.apache.hadoop.hbase.HBaseCommonTestingUtility;
 import org.apache.hadoop.hbase.HBaseTestingUtility;
+import org.apache.hadoop.hbase.HConstants;
 import org.apache.hadoop.hbase.KeyValue;
 import org.apache.hadoop.hbase.KeyValueUtil;
 import org.apache.hadoop.hbase.PrivateCellUtil;
 import org.apache.hadoop.hbase.fs.HFileSystem;
+import org.apache.hadoop.hbase.io.ByteBuffAllocator;
 import org.apache.hadoop.hbase.io.compress.Compression;
 import org.apache.hadoop.hbase.io.compress.Compression.Algorithm;
 import org.apache.hadoop.hbase.io.encoding.DataBlockEncoding;
@@ -175,10 +179,6 @@ public class TestHFileBlockIndex {
     }
 
     @Override
-    public void returnBlock(HFileBlock block) {
-    }
-
-    @Override
     public HFileBlock readBlock(long offset, long onDiskSize,
         boolean cacheBlock, boolean pread, boolean isCompaction,
         boolean updateCacheMetrics, BlockType expectedBlockType,
@@ -191,7 +191,7 @@ public class TestHFileBlockIndex {
       }
 
       missCount += 1;
-      prevBlock = realReader.readBlockData(offset, onDiskSize, pread, false);
+      prevBlock = realReader.readBlockData(offset, onDiskSize, pread, false, true);
       prevOffset = offset;
       prevOnDiskSize = onDiskSize;
       prevPread = pread;
@@ -211,13 +211,14 @@ public class TestHFileBlockIndex {
                         .withIncludesTags(useTags)
                         .withCompression(compr)
                         .build();
-    HFileBlock.FSReader blockReader = new HFileBlock.FSReaderImpl(istream, fs.getFileStatus(path)
-        .getLen(), meta);
+    ReaderContext context = new ReaderContextBuilder().withFileSystemAndPath(fs, path).build();
+    HFileBlock.FSReader blockReader = new HFileBlock.FSReaderImpl(context, meta,
+        ByteBuffAllocator.HEAP);
 
     BlockReaderWrapper brw = new BlockReaderWrapper(blockReader);
     HFileBlockIndex.BlockIndexReader indexReader =
         new HFileBlockIndex.CellBasedKeyBlockIndexReader(
-            CellComparatorImpl.COMPARATOR, numLevels, brw);
+            CellComparatorImpl.COMPARATOR, numLevels);
 
     indexReader.readRootIndex(blockReader.blockRange(rootIndexOffset,
         fileSize).nextBlockWithBlockType(BlockType.ROOT_INDEX), numRootEntries);
@@ -233,7 +234,7 @@ public class TestHFileBlockIndex {
       KeyValue.KeyOnlyKeyValue keyOnlyKey = new KeyValue.KeyOnlyKeyValue(key, 0, key.length);
       HFileBlock b =
           indexReader.seekToDataBlock(keyOnlyKey, null, true,
-            true, false, null);
+            true, false, null, brw);
       if (PrivateCellUtil.compare(CellComparatorImpl.COMPARATOR, keyOnlyKey, firstKeyInFile, 0,
         firstKeyInFile.length) < 0) {
         assertTrue(b == null);
@@ -766,7 +767,13 @@ public class TestHFileBlockIndex {
       byte[] b = Bytes.toBytes(i);
       System.arraycopy(b, 0, rowkey, rowkey.length - b.length, b.length);
       keys.add(rowkey);
-      hfw.append(CellUtil.createCell(rowkey));
+      hfw.append(ExtendedCellBuilderFactory.create(CellBuilderType.DEEP_COPY)
+        .setRow(rowkey).setFamily(HConstants.EMPTY_BYTE_ARRAY)
+        .setQualifier(HConstants.EMPTY_BYTE_ARRAY)
+        .setTimestamp(HConstants.LATEST_TIMESTAMP)
+        .setType(KeyValue.Type.Maximum.getCode())
+        .setValue(HConstants.EMPTY_BYTE_ARRAY)
+        .build());
     }
     hfw.close();
 
@@ -774,7 +781,13 @@ public class TestHFileBlockIndex {
     // Scanner doesn't do Cells yet.  Fix.
     HFileScanner scanner = reader.getScanner(true, true);
     for (int i = 0; i < keys.size(); ++i) {
-      scanner.seekTo(CellUtil.createCell(keys.get(i)));
+      scanner.seekTo(ExtendedCellBuilderFactory.create(CellBuilderType.DEEP_COPY)
+        .setRow(keys.get(i)).setFamily(HConstants.EMPTY_BYTE_ARRAY)
+        .setQualifier(HConstants.EMPTY_BYTE_ARRAY)
+        .setTimestamp(HConstants.LATEST_TIMESTAMP)
+        .setType(KeyValue.Type.Maximum.getCode())
+        .setValue(HConstants.EMPTY_BYTE_ARRAY)
+        .build());
     }
     reader.close();
   }

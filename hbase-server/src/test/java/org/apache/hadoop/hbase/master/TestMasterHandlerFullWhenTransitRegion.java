@@ -63,13 +63,13 @@ public class TestMasterHandlerFullWhenTransitRegion {
     UTIL.createTable(TableName.valueOf(TABLENAME), "fa");
   }
 
-  @Test(timeout = 30000)
+  @Test
   public void test() throws Exception {
     RegionInfo regionInfo = UTIL.getAdmin().getRegions(TableName.valueOf(TABLENAME)).get(0);
     //See HBASE-21754
     //There is Only one handler, if ReportRegionStateTransitionRequest executes in the same kind
     // of thread with moveRegion, it will lock each other. Making the move operation can not finish.
-    UTIL.getAdmin().move(regionInfo.getEncodedNameAsBytes(), null);
+    UTIL.getAdmin().move(regionInfo.getEncodedNameAsBytes());
     LOG.info("Region move complete");
   }
 

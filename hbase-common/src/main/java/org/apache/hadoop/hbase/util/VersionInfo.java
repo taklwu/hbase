@@ -135,7 +135,7 @@ public class VersionInfo {
 
   /**
    * Returns the version components as String objects
-   * Examples: "1.2.3" returns ["1", "2", "3"], "4.5.6-SNAPSHOT" returns ["4", "5", "6", "-1"]
+   * Examples: "1.4.3" returns ["1", "4", "3"], "4.5.6-SNAPSHOT" returns ["4", "5", "6", "-1"]
    * "4.5.6-beta" returns ["4", "5", "6", "-2"], "4.5.6-alpha" returns ["4", "5", "6", "-3"]
    * "4.5.6-UNKNOW" returns ["4", "5", "6", "-4"]
    * @return the components of the version string
@@ -164,6 +164,10 @@ public class VersionInfo {
       }
     }
     return comps;
+  }
+
+  public static int getMajorVersion(String version) {
+    return Integer.parseInt(version.split("\\.")[0]);
   }
 
   public static void main(String[] args) {

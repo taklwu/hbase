@@ -24,7 +24,6 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
-
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.hbase.master.HMaster;
@@ -42,9 +41,6 @@ import org.apache.yetus.audience.InterfaceAudience;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import org.apache.hadoop.hbase.shaded.protobuf.generated.AdminProtos.AdminService;
-import org.apache.hadoop.hbase.shaded.protobuf.generated.ClientProtos.ClientService;
-import org.apache.hadoop.hbase.shaded.protobuf.generated.MasterProtos.MasterService;
 import org.apache.hadoop.hbase.shaded.protobuf.generated.RegionServerStatusProtos.RegionServerStartupResponse;
 
 /**
@@ -114,7 +110,7 @@ public class MiniHBaseCluster extends HBaseCluster {
     CompatibilityFactory.getInstance(MetricsAssertHelper.class).init();
 
     init(numMasters, numRegionServers, rsPorts, masterClass, regionserverClass);
-    this.initialClusterStatus = getClusterStatus();
+    this.initialClusterStatus = getClusterMetrics();
   }
 
   public Configuration getConfiguration() {
@@ -269,7 +265,9 @@ public class MiniHBaseCluster extends HBaseCluster {
 
   @Override
   public void startRegionServer(String hostname, int port) throws IOException {
-    this.startRegionServer();
+    final Configuration newConf = HBaseConfiguration.create(conf);
+    newConf.setInt(HConstants.REGIONSERVER_PORT, port);
+    startRegionServer(newConf);
   }
 
   @Override
@@ -291,6 +289,16 @@ public class MiniHBaseCluster extends HBaseCluster {
   @Override
   public void stopRegionServer(ServerName serverName) throws IOException {
     stopRegionServer(getRegionServerIndex(serverName));
+  }
+
+  @Override
+  public void suspendRegionServer(ServerName serverName) throws IOException {
+    suspendRegionServer(getRegionServerIndex(serverName));
+  }
+
+  @Override
+  public void resumeRegionServer(ServerName serverName) throws IOException {
+    resumeRegionServer(getRegionServerIndex(serverName));
   }
 
   @Override
@@ -404,12 +412,17 @@ public class MiniHBaseCluster extends HBaseCluster {
   public JVMClusterUtil.RegionServerThread startRegionServer()
       throws IOException {
     final Configuration newConf = HBaseConfiguration.create(conf);
+    return startRegionServer(newConf);
+  }
+
+  private JVMClusterUtil.RegionServerThread startRegionServer(Configuration configuration)
+      throws IOException {
     User rsUser =
-        HBaseTestingUtility.getDifferentUser(newConf, ".hfs."+index++);
+        HBaseTestingUtility.getDifferentUser(configuration, ".hfs."+index++);
     JVMClusterUtil.RegionServerThread t =  null;
     try {
       t = hbaseCluster.addRegionServer(
-          newConf, hbaseCluster.getRegionServers().size(), rsUser);
+          configuration, hbaseCluster.getRegionServers().size(), rsUser);
       t.start();
       t.waitForServerOnline();
     } catch (InterruptedException ie) {
@@ -432,9 +445,9 @@ public class MiniHBaseCluster extends HBaseCluster {
     ServerName rsServerName = t.getRegionServer().getServerName();
 
     long start = System.currentTimeMillis();
-    ClusterStatus clusterStatus = getClusterStatus();
+    ClusterMetrics clusterStatus = getClusterMetrics();
     while ((System.currentTimeMillis() - start) < timeout) {
-      if (clusterStatus != null && clusterStatus.getServers().contains(rsServerName)) {
+      if (clusterStatus != null && clusterStatus.getLiveServerMetrics().containsKey(rsServerName)) {
         return t;
       }
       Threads.sleep(100);
@@ -487,6 +500,32 @@ public class MiniHBaseCluster extends HBaseCluster {
   }
 
   /**
+   * Suspend the specified region server
+   * @param serverNumber Used as index into a list.
+   * @return
+   */
+  public JVMClusterUtil.RegionServerThread suspendRegionServer(int serverNumber) {
+    JVMClusterUtil.RegionServerThread server =
+        hbaseCluster.getRegionServers().get(serverNumber);
+    LOG.info("Suspending {}", server.toString());
+    server.suspend();
+    return server;
+  }
+
+  /**
+   * Resume the specified region server
+   * @param serverNumber Used as index into a list.
+   * @return
+   */
+  public JVMClusterUtil.RegionServerThread resumeRegionServer(int serverNumber) {
+    JVMClusterUtil.RegionServerThread server =
+        hbaseCluster.getRegionServers().get(serverNumber);
+    LOG.info("Resuming {}", server.toString());
+    server.resume();
+    return server;
+  }
+
+  /**
    * Wait for the specified region server to stop. Removes this thread from list
    * of running threads.
    * @param serverNumber
@@ -515,15 +554,6 @@ public class MiniHBaseCluster extends HBaseCluster {
       throw new IOException("Interrupted adding master to cluster", ie);
     }
     return t;
-  }
-
-  /**
-   * Returns the current active master, if available.
-   * @return the active HMaster, null if none is active.
-   */
-  @Override
-  public MasterService.BlockingInterface getMasterAdminService() {
-    return this.hbaseCluster.getActiveMaster().getMasterRpcServices();
   }
 
   /**
@@ -665,16 +695,6 @@ public class MiniHBaseCluster extends HBaseCluster {
   public void close() throws IOException {
   }
 
-  /**
-   * @deprecated As of release 2.0.0, this will be removed in HBase 3.0.0
-   *             Use {@link #getClusterMetrics()} instead.
-   */
-  @Deprecated
-  public ClusterStatus getClusterStatus() throws IOException {
-    HMaster master = getMaster();
-    return master == null ? null : new ClusterStatus(master.getClusterMetrics());
-  }
-
   @Override
   public ClusterMetrics getClusterMetrics() throws IOException {
     HMaster master = getMaster();
@@ -742,6 +762,13 @@ public class MiniHBaseCluster extends HBaseCluster {
         }
       }
     }
+  }
+
+  /**
+   * @return Number of live region servers in the cluster currently.
+   */
+  public int getNumLiveRegionServers() {
+    return this.hbaseCluster.getLiveRegionServers().size();
   }
 
   /**
@@ -920,16 +947,5 @@ public class MiniHBaseCluster extends HBaseCluster {
       }
     }
     return -1;
-  }
-
-  @Override
-  public AdminService.BlockingInterface getAdminProtocol(ServerName serverName) throws IOException {
-    return getRegionServer(getRegionServerIndex(serverName)).getRSRpcServices();
-  }
-
-  @Override
-  public ClientService.BlockingInterface getClientProtocol(ServerName serverName)
-  throws IOException {
-    return getRegionServer(getRegionServerIndex(serverName)).getRSRpcServices();
   }
 }

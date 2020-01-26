@@ -32,11 +32,11 @@ import org.apache.hadoop.hbase.backup.impl.BackupAdminImpl;
 import org.apache.hadoop.hbase.backup.impl.BackupSystemTable;
 import org.apache.hadoop.hbase.backup.impl.TableBackupClient;
 import org.apache.hadoop.hbase.backup.impl.TableBackupClient.Stage;
+import org.apache.hadoop.hbase.client.Admin;
 import org.apache.hadoop.hbase.client.Connection;
 import org.apache.hadoop.hbase.client.ConnectionFactory;
-import org.apache.hadoop.hbase.client.HBaseAdmin;
-import org.apache.hadoop.hbase.client.HTable;
 import org.apache.hadoop.hbase.client.Put;
+import org.apache.hadoop.hbase.client.Table;
 import org.apache.hadoop.hbase.testclassification.LargeTests;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.util.ToolRunner;
@@ -90,8 +90,7 @@ public class TestIncrementalBackupWithFailures extends TestBackupBase {
     int NB_ROWS_FAM3 = 6;
     insertIntoTable(conn, table1, fam3Name, 3, NB_ROWS_FAM3).close();
 
-    HBaseAdmin admin = null;
-    admin = (HBaseAdmin) conn.getAdmin();
+    Admin admin = conn.getAdmin();
     BackupAdminImpl client = new BackupAdminImpl(conn);
 
     BackupRequest request = createBackupRequest(BackupType.FULL, tables, BACKUP_ROOT_DIR);
@@ -100,14 +99,14 @@ public class TestIncrementalBackupWithFailures extends TestBackupBase {
     assertTrue(checkSucceeded(backupIdFull));
 
     // #2 - insert some data to table
-    HTable t1 = insertIntoTable(conn, table1, famName, 1, ADD_ROWS);
+    Table t1 = insertIntoTable(conn, table1, famName, 1, ADD_ROWS);
     LOG.debug("writing " + ADD_ROWS + " rows to " + table1);
 
     Assert.assertEquals(TEST_UTIL.countRows(t1), NB_ROWS_IN_BATCH + ADD_ROWS + NB_ROWS_FAM3);
     t1.close();
     LOG.debug("written " + ADD_ROWS + " rows to " + table1);
 
-    HTable t2 = (HTable) conn.getTable(table2);
+    Table t2 = conn.getTable(table2);
     Put p2;
     for (int i = 0; i < 5; i++) {
       p2 = new Put(Bytes.toBytes("row-t2" + i));

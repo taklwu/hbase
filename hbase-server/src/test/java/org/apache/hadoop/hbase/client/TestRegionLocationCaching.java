@@ -15,7 +15,6 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 package org.apache.hadoop.hbase.client;
 
 import static org.junit.Assert.assertNotEquals;
@@ -104,7 +103,8 @@ public class TestRegionLocationCaching {
   private void checkRegionLocationIsCached(final TableName tableName, final Connection conn)
       throws InterruptedException, IOException {
     for (int count = 0; count < 50; count++) {
-      int number = ((ConnectionImplementation) conn).getNumberOfCachedRegionLocations(tableName);
+      int number = ((AsyncConnectionImpl) conn.toAsyncConnection()).getLocator()
+        .getNumberOfCachedRegionLocations(tableName);
       assertNotEquals("Expected non-zero number of cached region locations", 0, number);
       Thread.sleep(100);
     }

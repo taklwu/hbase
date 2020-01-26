@@ -151,7 +151,18 @@ possible configurations would overwhelm and obscure the important.
     so put the cleaner that prunes the most files in front. To
     implement your own BaseHFileCleanerDelegate, just put it in HBase's classpath
     and add the fully qualified class name here. Always add the above
-    default log cleaners in the list as they will be overwritten in
+    default hfile cleaners in the list as they will be overwritten in
+    hbase-site.xml.</description>
+  </property>
+  <property>
+    <name>hbase.procedure.store.region.hfilecleaner.plugins</name>
+    <value>org.apache.hadoop.hbase.master.cleaner.TimeToLiveHFileCleaner</value>
+    <description>A comma-separated list of BaseHFileCleanerDelegate invoked by
+    the RegionProcedureStore HFileCleaner service. These HFiles cleaners are
+    called in order, so put the cleaner that prunes the most files in front. To
+    implement your own BaseHFileCleanerDelegate, just put it in HBase's classpath
+    and add the fully qualified class name here. Always add the above
+    default hfile cleaners in the list as they will be overwritten in
     hbase-site.xml.</description>
   </property>
   <property>
@@ -374,13 +385,13 @@ possible configurations would overwhelm and obscure the important.
     <description>ZooKeeper session timeout in milliseconds. It is used in two different ways.
       First, this value is used in the ZK client that HBase uses to connect to the ensemble.
       It is also used by HBase when it starts a ZK server and it is passed as the 'maxSessionTimeout'.
-      See http://hadoop.apache.org/zookeeper/docs/current/zookeeperProgrammers.html#ch_zkSessions.
+      See https://zookeeper.apache.org/doc/current/zookeeperProgrammers.html#ch_zkSessions.
       For example, if an HBase region server connects to a ZK ensemble that's also managed
       by HBase, then the session timeout will be the one specified by this configuration.
       But, a region server that connects to an ensemble managed with a different configuration
       will be subjected that ensemble's maxSessionTimeout. So, even though HBase might propose
       using 90 seconds, the ensemble can have a max timeout lower than this and it will take
-      precedence. The current default that ZK ships with is 40 seconds, which is lower than
+      precedence. The current default maxSessionTimeout that ZK ships with is 40 seconds, which is lower than
       HBase's.
     </description>
   </property>
@@ -419,14 +430,14 @@ possible configurations would overwhelm and obscure the important.
     <name>hbase.zookeeper.peerport</name>
     <value>2888</value>
     <description>Port used by ZooKeeper peers to talk to each other.
-    See http://hadoop.apache.org/zookeeper/docs/r3.1.1/zookeeperStarted.html#sc_RunningReplicatedZooKeeper
+    See https://zookeeper.apache.org/doc/r3.4.10/zookeeperStarted.html#sc_RunningReplicatedZooKeeper
     for more information.</description>
   </property>
   <property>
     <name>hbase.zookeeper.leaderport</name>
     <value>3888</value>
     <description>Port used by ZooKeeper for leader election.
-    See http://hadoop.apache.org/zookeeper/docs/r3.1.1/zookeeperStarted.html#sc_RunningReplicatedZooKeeper
+    See https://zookeeper.apache.org/doc/r3.4.10/zookeeperStarted.html#sc_RunningReplicatedZooKeeper
     for more information.</description>
   </property>
   <!-- End of properties used to generate ZooKeeper host:port quorum list. -->
@@ -606,8 +617,7 @@ possible configurations would overwhelm and obscure the important.
       Then the cluster's availability is at least 99% when balancing.</description>
   </property>
   <property>
-    <name>hbase.balancer.period
-    </name>
+    <name>hbase.balancer.period</name>
     <value>300000</value>
     <description>Period at which the region balancer runs in the Master.</description>
   </property>
@@ -622,6 +632,12 @@ possible configurations would overwhelm and obscure the important.
     <description>configure the minimum number of regions</description>
   </property>
   <property>
+    <name>hbase.normalizer.min.region.merge.age</name>
+    <value>3</value>
+    <description>configure the minimum age in days for region before it is considered for merge while
+      normalizing</description>
+  </property>
+  <property>
     <name>hbase.regions.slop</name>
     <value>0.001</value>
     <description>Rebalance if any regionserver has average + (average * slop) regions.
@@ -631,8 +647,27 @@ possible configurations would overwhelm and obscure the important.
   <property>
     <name>hbase.server.thread.wakefrequency</name>
     <value>10000</value>
-    <description>Time to sleep in between searches for work (in milliseconds).
-    Used as sleep interval by service threads such as log roller.</description>
+    <description>In master side, this config is the period used for FS related behaviors:
+      checking if hdfs is out of safe mode, setting or checking hbase.version file,
+      setting or checking hbase.id file. Using default value should be fine.
+      In regionserver side, this config is used in several places: flushing check interval,
+      compaction check interval, wal rolling check interval. Specially, admin can tune
+      flushing and compaction check interval by hbase.regionserver.flush.check.period
+      and hbase.regionserver.compaction.check.period. (in milliseconds)</description>
+  </property>
+  <property>
+    <name>hbase.regionserver.flush.check.period</name>
+    <value>${hbase.server.thread.wakefrequency}</value>
+    <description>It determines the flushing check period of PeriodicFlusher in regionserver.
+      If unset, it uses hbase.server.thread.wakefrequency as default value.
+      (in milliseconds)</description>
+  </property>
+  <property>
+    <name>hbase.regionserver.compaction.check.period</name>
+    <value>${hbase.server.thread.wakefrequency}</value>
+    <description>It determines the compaction check period of CompactionChecker in regionserver.
+      If unset, it uses hbase.server.thread.wakefrequency as default value.
+      (in milliseconds)</description>
   </property>
   <property>
     <name>hbase.server.versionfile.writeattempts</name>
@@ -696,7 +731,30 @@ possible configurations would overwhelm and obscure the important.
       Enables the MemStore-Local Allocation Buffer,
       a feature which works to prevent heap fragmentation under
       heavy write loads. This can reduce the frequency of stop-the-world
-      GC pauses on large heaps.</description>
+      GC pauses on large heaps.
+    </description>
+  </property>
+  <property>
+    <name>hbase.hregion.memstore.mslab.chunksize</name>
+    <value>2097152</value>
+    <description>The maximum byte size of a chunk in the MemStoreLAB. Unit: bytes</description>
+  </property>
+  <property>
+    <name>hbase.regionserver.offheap.global.memstore.size</name>
+    <value>0</value>
+    <description>The amount of off-heap memory all MemStores in a RegionServer may use.
+      A value of 0 means that no off-heap memory will be used and all chunks in MSLAB
+      will be HeapByteBuffer, otherwise the non-zero value means how many megabyte of
+      off-heap memory will be used for chunks in MSLAB and all chunks in MSLAB will be
+      DirectByteBuffer. Unit: megabytes.
+    </description>
+  </property>
+  <property>
+    <name>hbase.hregion.memstore.mslab.max.allocation</name>
+    <value>262144</value>
+    <description>The maximal size of one allocation in the MemStoreLAB, if the desired byte
+      size exceed this threshold then it will be just allocated from JVM heap rather than MemStoreLAB.
+    </description>
   </property>
   <property>
     <name>hbase.hregion.max.filesize</name>
@@ -901,6 +959,11 @@ possible configurations would overwhelm and obscure the important.
       The default thread pool size if parallel-seeking feature enabled.</description>
   </property>
   <property>
+    <name>hfile.block.cache.policy</name>
+    <value>LRU</value>
+    <description>The eviction policy for the L1 block cache (LRU or TinyLFU).</description>
+  </property>
+  <property>
     <name>hfile.block.cache.size</name>
     <value>0.4</value>
     <description>Percentage of maximum heap (-Xmx setting) to allocate to block cache
@@ -925,10 +988,30 @@ possible configurations would overwhelm and obscure the important.
     <name>hbase.bucketcache.ioengine</name>
     <value></value>
     <description>Where to store the contents of the bucketcache. One of: offheap,
-    file, files or mmap. If a file or files, set it to file(s):PATH_TO_FILE.
-    mmap means the content will be in an mmaped file. Use mmap:PATH_TO_FILE.
+    file, files, mmap or pmem. If a file or files, set it to file(s):PATH_TO_FILE.
+    mmap means the content will be in an mmaped file. Use mmap:PATH_TO_FILE. 'pmem'
+    is bucket cache over a file on the persistent memory device.
+    Use pmem:PATH_TO_FILE.
     See http://hbase.apache.org/book.html#offheap.blockcache for more information.
     </description>
+  </property>
+  <property>
+    <name>hbase.hstore.compaction.throughput.lower.bound</name>
+    <value>52428800</value>
+    <description>The target lower bound on aggregate compaction throughput, in bytes/sec. Allows
+    you to tune the minimum available compaction throughput when the
+    PressureAwareCompactionThroughputController throughput controller is active. (It is active by
+    default.)</description>
+  </property>
+  <property>
+    <name>hbase.hstore.compaction.throughput.higher.bound</name>
+    <value>104857600</value>
+    <description>The target upper bound on aggregate compaction throughput, in bytes/sec. Allows
+    you to control aggregate compaction throughput demand when the
+    PressureAwareCompactionThroughputController throughput controller is active. (It is active by
+    default.) The maximum throughput will be tuned between the lower and upper bounds when
+    compaction pressure is within the range [0.0, 1.0]. If compaction pressure is 1.0 or greater
+    the higher bound will be ignored until pressure returns to the normal range.</description>
   </property>
   <property>
     <name>hbase.bucketcache.size</name>
@@ -1815,5 +1898,59 @@ possible configurations would overwhelm and obscure the important.
     <value>30</value>
     <description>Default is 5 minutes. Make it 30 seconds for tests. See
     HBASE-19794 for some context.</description>
+  </property>
+  <property>
+    <name>hbase.master.cleaner.snapshot.interval</name>
+    <value>1800000</value>
+    <description>
+      Snapshot Cleanup chore interval in milliseconds.
+      The cleanup thread keeps running at this interval
+      to find all snapshots that are expired based on TTL
+      and delete them.
+    </description>
+  </property>
+  <property>
+    <name>hbase.master.snapshot.ttl</name>
+    <value>0</value>
+    <description>
+      Default Snapshot TTL to be considered when the user does not specify TTL while
+      creating snapshot. Default value 0 indicates FOREVERE - snapshot should not be
+      automatically deleted until it is manually deleted
+    </description>
+  </property>
+  <property>
+    <name>hbase.master.regions.recovery.check.interval</name>
+    <value>1200000</value>
+    <description>
+      Regions Recovery Chore interval in milliseconds.
+      This chore keeps running at this interval to
+      find all regions with configurable max store file ref count
+      and reopens them.
+    </description>
+  </property>
+  <property>
+    <name>hbase.regions.recovery.store.file.ref.count</name>
+    <value>-1</value>
+    <description>
+      Very large number of ref count on a compacted
+      store file indicates that it is a ref leak
+      on that object(compacted store file).
+      Such files can not be removed after
+      it is invalidated via compaction.
+      Only way to recover in such scenario is to
+      reopen the region which can release
+      all resources, like the refcount,
+      leases, etc. This config represents Store files Ref
+      Count threshold value considered for reopening
+      regions. Any region with compacted store files
+      ref count > this value would be eligible for
+      reopening by master. Here, we get the max
+      refCount among all refCounts on all
+      compacted away store files that belong to a
+      particular region. Default value -1 indicates
+      this feature is turned off. Only positive
+      integer value should be provided to
+      enable this feature.
+    </description>
   </property>
 </configuration>

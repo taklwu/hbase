@@ -66,14 +66,15 @@ import org.apache.hadoop.hbase.client.Table;
 import org.apache.hadoop.hbase.client.TableDescriptor;
 import org.apache.hadoop.hbase.client.TableDescriptorBuilder;
 import org.apache.hadoop.hbase.procedure2.store.wal.WALProcedureStore;
-import org.apache.hadoop.hbase.shaded.protobuf.generated.BackupProtos;
-import org.apache.hadoop.hbase.shaded.protobuf.generated.HBaseProtos;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.hbase.util.EnvironmentEdgeManager;
 import org.apache.hadoop.hbase.util.Pair;
 import org.apache.yetus.audience.InterfaceAudience;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import org.apache.hadoop.hbase.shaded.protobuf.generated.BackupProtos;
+import org.apache.hadoop.hbase.shaded.protobuf.generated.HBaseProtos;
 
 /**
  * This class provides API to access backup system table<br>
@@ -1404,7 +1405,7 @@ public final class BackupSystemTable implements Closeable {
   private Get createGetForBackupInfo(String backupId) throws IOException {
     Get get = new Get(rowkey(BACKUP_INFO_PREFIX, backupId));
     get.addFamily(BackupSystemTable.SESSIONS_FAMILY);
-    get.setMaxVersions(1);
+    get.readVersions(1);
     return get;
   }
 
@@ -1439,7 +1440,7 @@ public final class BackupSystemTable implements Closeable {
   private Get createGetForStartCode(String rootPath) throws IOException {
     Get get = new Get(rowkey(START_CODE_ROW, rootPath));
     get.addFamily(BackupSystemTable.META_FAMILY);
-    get.setMaxVersions(1);
+    get.readVersions(1);
     return get;
   }
 
@@ -1462,7 +1463,7 @@ public final class BackupSystemTable implements Closeable {
   private Get createGetForIncrBackupTableSet(String backupRoot) throws IOException {
     Get get = new Get(rowkey(INCR_BACKUP_SET, backupRoot));
     get.addFamily(BackupSystemTable.META_FAMILY);
-    get.setMaxVersions(1);
+    get.readVersions(1);
     return get;
   }
 

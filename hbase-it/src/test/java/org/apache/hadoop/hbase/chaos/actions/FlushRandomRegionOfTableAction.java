@@ -19,22 +19,25 @@
 package org.apache.hadoop.hbase.chaos.actions;
 
 import java.util.List;
-
 import org.apache.hadoop.hbase.HBaseTestingUtility;
-import org.apache.hadoop.hbase.HRegionInfo;
 import org.apache.hadoop.hbase.TableName;
 import org.apache.hadoop.hbase.chaos.monkies.PolicyBasedChaosMonkey;
 import org.apache.hadoop.hbase.client.Admin;
+import org.apache.hadoop.hbase.client.RegionInfo;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
 * Action that tries to flush a random region of a table.
 */
 public class FlushRandomRegionOfTableAction extends Action {
+  private static final Logger LOG =
+      LoggerFactory.getLogger(FlushRandomRegionOfTableAction.class);
   private final long sleepTime;
   private final TableName tableName;
 
   public FlushRandomRegionOfTableAction(TableName tableName) {
-   this (-1, tableName);
+    this (-1, tableName);
   }
 
   public FlushRandomRegionOfTableAction(int sleepTime, TableName tableName) {
@@ -48,14 +51,14 @@ public class FlushRandomRegionOfTableAction extends Action {
     Admin admin = util.getAdmin();
 
     LOG.info("Performing action: Flush random region of table " + tableName);
-    List<HRegionInfo> regions = admin.getTableRegions(tableName);
+    List<RegionInfo> regions = admin.getRegions(tableName);
     if (regions == null || regions.isEmpty()) {
       LOG.info("Table " + tableName + " doesn't have regions to flush");
       return;
     }
 
-    HRegionInfo region = PolicyBasedChaosMonkey.selectRandomItem(
-      regions.toArray(new HRegionInfo[regions.size()]));
+    RegionInfo region = PolicyBasedChaosMonkey.selectRandomItem(
+      regions.toArray(new RegionInfo[regions.size()]));
     LOG.debug("Flushing region " + region.getRegionNameAsString());
     try {
       admin.flushRegion(region.getRegionName());

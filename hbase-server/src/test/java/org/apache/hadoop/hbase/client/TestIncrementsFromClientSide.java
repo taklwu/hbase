@@ -30,8 +30,9 @@ import java.util.List;
 import java.util.Map;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hbase.Cell;
-import org.apache.hadoop.hbase.CellUtil;
+import org.apache.hadoop.hbase.CellBuilderType;
 import org.apache.hadoop.hbase.DoNotRetryIOException;
+import org.apache.hadoop.hbase.ExtendedCellBuilderFactory;
 import org.apache.hadoop.hbase.HBaseClassTestRule;
 import org.apache.hadoop.hbase.HBaseTestingUtility;
 import org.apache.hadoop.hbase.HConstants;
@@ -53,7 +54,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Run Increment tests that use the HBase clients; {@link HTable}.
+ * Run Increment tests that use the HBase clients; {@link TableBuilder}.
  *
  * Test is parameterized to run the slow and fast increment code paths. If fast, in the @before, we
  * do a rolling restart of the single regionserver so that it can pick up the go fast configuration.
@@ -83,7 +84,6 @@ public class TestIncrementsFromClientSide {
     Configuration conf = TEST_UTIL.getConfiguration();
     conf.setStrings(CoprocessorHost.REGION_COPROCESSOR_CONF_KEY,
         MultiRowMutationEndpoint.class.getName());
-    conf.setBoolean("hbase.table.sanity.checks", true); // enable for below tests
     // We need more than one region server in this test
     TEST_UTIL.startMiniCluster(SLAVES);
   }
@@ -103,8 +103,8 @@ public class TestIncrementsFromClientSide {
   public void testDuplicateIncrement() throws Exception {
     HTableDescriptor hdt = TEST_UTIL.createTableDescriptor(TableName.valueOf(name.getMethodName()));
     Map<String, String> kvs = new HashMap<>();
-    kvs.put(HConnectionTestingUtility.SleepAtFirstRpcCall.SLEEP_TIME_CONF_KEY, "2000");
-    hdt.addCoprocessor(HConnectionTestingUtility.SleepAtFirstRpcCall.class.getName(), null, 1, kvs);
+    kvs.put(SleepAtFirstRpcCall.SLEEP_TIME_CONF_KEY, "2000");
+    hdt.addCoprocessor(SleepAtFirstRpcCall.class.getName(), null, 1, kvs);
     TEST_UTIL.createTable(hdt, new byte[][] { ROW }).close();
 
     Configuration c = new Configuration(TEST_UTIL.getConfiguration());
@@ -112,30 +112,22 @@ public class TestIncrementsFromClientSide {
     // Client will retry beacuse rpc timeout is small than the sleep time of first rpc call
     c.setInt(HConstants.HBASE_RPC_TIMEOUT_KEY, 1500);
 
-    Connection connection = ConnectionFactory.createConnection(c);
-    Table t = connection.getTable(TableName.valueOf(name.getMethodName()));
-    if (t instanceof HTable) {
-      HTable table = (HTable) t;
-      table.setOperationTimeout(3 * 1000);
+    try (Connection connection = ConnectionFactory.createConnection(c);
+        Table table = connection.getTableBuilder(TableName.valueOf(name.getMethodName()), null)
+          .setOperationTimeout(3 * 1000).build()) {
+      Increment inc = new Increment(ROW);
+      inc.addColumn(HBaseTestingUtility.fam1, QUALIFIER, 1);
+      Result result = table.increment(inc);
 
-      try {
-        Increment inc = new Increment(ROW);
-        inc.addColumn(TEST_UTIL.fam1, QUALIFIER, 1);
-        Result result = table.increment(inc);
+      Cell[] cells = result.rawCells();
+      assertEquals(1, cells.length);
+      assertIncrementKey(cells[0], ROW, HBaseTestingUtility.fam1, QUALIFIER, 1);
 
-        Cell [] cells = result.rawCells();
-        assertEquals(1, cells.length);
-        assertIncrementKey(cells[0], ROW, TEST_UTIL.fam1, QUALIFIER, 1);
-
-        // Verify expected result
-        Result readResult = table.get(new Get(ROW));
-        cells = readResult.rawCells();
-        assertEquals(1, cells.length);
-        assertIncrementKey(cells[0], ROW, TEST_UTIL.fam1, QUALIFIER, 1);
-      } finally {
-        table.close();
-        connection.close();
-      }
+      // Verify expected result
+      Result readResult = table.get(new Get(ROW));
+      cells = readResult.rawCells();
+      assertEquals(1, cells.length);
+      assertIncrementKey(cells[0], ROW, HBaseTestingUtility.fam1, QUALIFIER, 1);
     }
   }
 
@@ -216,38 +208,36 @@ public class TestIncrementsFromClientSide {
   public void testIncrementInvalidArguments() throws Exception {
     LOG.info("Starting " + this.name.getMethodName());
     final TableName TABLENAME =
-        TableName.valueOf(filterStringSoTableNameSafe(this.name.getMethodName()));
+      TableName.valueOf(filterStringSoTableNameSafe(this.name.getMethodName()));
     Table ht = TEST_UTIL.createTable(TABLENAME, FAMILY);
     final byte[] COLUMN = Bytes.toBytes("column");
     try {
       // try null row
       ht.incrementColumnValue(null, FAMILY, COLUMN, 5);
-      fail("Should have thrown IOException");
-    } catch (IOException iox) {
+      fail("Should have thrown NPE/IOE");
+    } catch (NullPointerException | IOException error) {
       // success
     }
     try {
       // try null family
       ht.incrementColumnValue(ROW, null, COLUMN, 5);
-      fail("Should have thrown IOException");
-    } catch (IOException iox) {
+      fail("Should have thrown NPE/IOE");
+    } catch (NullPointerException | IOException error) {
       // success
     }
     // try null row
     try {
-      Increment incNoRow = new Increment((byte [])null);
+      Increment incNoRow = new Increment((byte[]) null);
       incNoRow.addColumn(FAMILY, COLUMN, 5);
-      fail("Should have thrown IllegalArgumentException");
-    } catch (IllegalArgumentException iax) {
-      // success
-    } catch (NullPointerException npe) {
+      fail("Should have thrown IAE/NPE");
+    } catch (IllegalArgumentException | NullPointerException error) {
       // success
     }
     // try null family
     try {
       Increment incNoFamily = new Increment(ROW);
       incNoFamily.addColumn(null, COLUMN, 5);
-      fail("Should have thrown IllegalArgumentException");
+      fail("Should have thrown IAE");
     } catch (IllegalArgumentException iax) {
       // success
     }
@@ -476,7 +466,14 @@ public class TestIncrementsFromClientSide {
     Table table = TEST_UTIL.createTable(TABLENAME, FAMILY);
     long timestamp = 999;
     Increment increment = new Increment(ROW);
-    increment.add(CellUtil.createCell(ROW, FAMILY, QUALIFIER, timestamp, KeyValue.Type.Put.getCode(), Bytes.toBytes(100L)));
+    increment.add(ExtendedCellBuilderFactory.create(CellBuilderType.DEEP_COPY)
+      .setRow(ROW)
+      .setFamily(FAMILY)
+      .setQualifier(QUALIFIER)
+      .setTimestamp(timestamp)
+      .setType(KeyValue.Type.Put.getCode())
+      .setValue(Bytes.toBytes(100L))
+      .build());
     Result r = table.increment(increment);
     assertEquals(1, r.size());
     assertEquals(timestamp, r.rawCells()[0].getTimestamp());

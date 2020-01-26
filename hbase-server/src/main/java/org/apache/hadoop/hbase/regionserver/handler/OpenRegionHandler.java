@@ -27,8 +27,8 @@ import org.apache.hadoop.hbase.client.RegionInfo;
 import org.apache.hadoop.hbase.client.TableDescriptor;
 import org.apache.hadoop.hbase.executor.EventHandler;
 import org.apache.hadoop.hbase.executor.EventType;
+import org.apache.hadoop.hbase.procedure2.Procedure;
 import org.apache.hadoop.hbase.regionserver.HRegion;
-import org.apache.hadoop.hbase.regionserver.Region;
 import org.apache.hadoop.hbase.regionserver.RegionServerServices;
 import org.apache.hadoop.hbase.regionserver.RegionServerServices.PostOpenDeployContext;
 import org.apache.hadoop.hbase.regionserver.RegionServerServices.RegionStateTransitionContext;
@@ -156,15 +156,14 @@ public class OpenRegionHandler extends EventHandler {
     }
   }
 
-  private void doCleanUpOnFailedOpen(HRegion region)
-      throws IOException {
+  private void doCleanUpOnFailedOpen(HRegion region) throws IOException {
     try {
       if (region != null) {
         cleanupFailedOpen(region);
       }
     } finally {
       rsServices.reportRegionStateTransition(new RegionStateTransitionContext(
-          TransitionCode.FAILED_OPEN, HConstants.NO_SEQNUM, -1, regionInfo));
+        TransitionCode.FAILED_OPEN, HConstants.NO_SEQNUM, Procedure.NO_PROC_ID, -1, regionInfo));
     }
   }
 
@@ -224,7 +223,8 @@ public class OpenRegionHandler extends EventHandler {
 
   /**
    * Thread to run region post open tasks. Call {@link #getException()} after the thread finishes
-   * to check for exceptions running {@link RegionServerServices#postOpenDeployTasks(Region)}.
+   * to check for exceptions running
+   * {@link RegionServerServices#postOpenDeployTasks(PostOpenDeployContext)}
    */
   static class PostOpenDeployTasksThread extends Thread {
     private Throwable exception = null;
@@ -248,19 +248,19 @@ public class OpenRegionHandler extends EventHandler {
     @Override
     public void run() {
       try {
-        this.services.postOpenDeployTasks(new PostOpenDeployContext(region, masterSystemTime));
+        this.services.postOpenDeployTasks(
+          new PostOpenDeployContext(region, Procedure.NO_PROC_ID, masterSystemTime));
       } catch (Throwable e) {
         String msg = "Exception running postOpenDeployTasks; region=" +
           this.region.getRegionInfo().getEncodedName();
         this.exception = e;
-        if (e instanceof IOException
-            && isRegionStillOpening(region.getRegionInfo(), services)) {
+        if (e instanceof IOException && isRegionStillOpening(region.getRegionInfo(), services)) {
           server.abort(msg, e);
         } else {
           LOG.warn(msg, e);
         }
       }
-      // We're done.  Set flag then wake up anyone waiting on thread to complete.
+      // We're done. Set flag then wake up anyone waiting on thread to complete.
       this.signaller.set(true);
       synchronized (this.signaller) {
         this.signaller.notify();

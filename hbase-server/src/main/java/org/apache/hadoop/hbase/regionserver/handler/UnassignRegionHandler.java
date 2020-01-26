@@ -25,8 +25,8 @@ import org.apache.hadoop.hbase.ServerName;
 import org.apache.hadoop.hbase.executor.EventHandler;
 import org.apache.hadoop.hbase.executor.EventType;
 import org.apache.hadoop.hbase.regionserver.HRegion;
+import org.apache.hadoop.hbase.regionserver.HRegionServer;
 import org.apache.hadoop.hbase.regionserver.Region;
-import org.apache.hadoop.hbase.regionserver.RegionServerServices;
 import org.apache.hadoop.hbase.regionserver.RegionServerServices.RegionStateTransitionContext;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.hbase.util.RetryCounter;
@@ -49,30 +49,34 @@ public class UnassignRegionHandler extends EventHandler {
   private static final Logger LOG = LoggerFactory.getLogger(UnassignRegionHandler.class);
 
   private final String encodedName;
+
+  private final long closeProcId;
   // If true, the hosting server is aborting. Region close process is different
   // when we are aborting.
+  // TODO: not used yet, we still use the old CloseRegionHandler when aborting
   private final boolean abort;
 
   private final ServerName destination;
 
   private final RetryCounter retryCounter;
 
-  public UnassignRegionHandler(RegionServerServices server, String encodedName, boolean abort,
-      @Nullable ServerName destination, EventType eventType) {
+  public UnassignRegionHandler(HRegionServer server, String encodedName, long closeProcId,
+      boolean abort, @Nullable ServerName destination, EventType eventType) {
     super(server, eventType);
     this.encodedName = encodedName;
+    this.closeProcId = closeProcId;
     this.abort = abort;
     this.destination = destination;
     this.retryCounter = HandlerUtil.getRetryCounter();
   }
 
-  private RegionServerServices getServer() {
-    return (RegionServerServices) server;
+  private HRegionServer getServer() {
+    return (HRegionServer) server;
   }
 
   @Override
   public void process() throws IOException {
-    RegionServerServices rs = getServer();
+    HRegionServer rs = getServer();
     byte[] encodedNameBytes = Bytes.toBytes(encodedName);
     Boolean previous = rs.getRegionsInTransitionInRS().putIfAbsent(encodedNameBytes, Boolean.FALSE);
     if (previous != null) {
@@ -90,7 +94,7 @@ public class UnassignRegionHandler extends EventHandler {
       }
       return;
     }
-    HRegion region = (HRegion) rs.getRegion(encodedName);
+    HRegion region = rs.getRegion(encodedName);
     if (region == null) {
       LOG.debug(
         "Received CLOSE for a region {} which is not online, and we're not opening/closing.",
@@ -117,27 +121,30 @@ public class UnassignRegionHandler extends EventHandler {
     }
     rs.removeRegion(region, destination);
     if (!rs.reportRegionStateTransition(new RegionStateTransitionContext(TransitionCode.CLOSED,
-      HConstants.NO_SEQNUM, -1, region.getRegionInfo()))) {
+      HConstants.NO_SEQNUM, closeProcId, -1, region.getRegionInfo()))) {
       throw new IOException("Failed to report close to master: " + regionName);
     }
+    // Cache the close region procedure id after report region transition succeed.
+    rs.finishRegionProcedure(closeProcId);
     rs.getRegionsInTransitionInRS().remove(encodedNameBytes, Boolean.FALSE);
     LOG.info("Closed {}", regionName);
   }
 
   @Override
   protected void handleException(Throwable t) {
-    LOG.warn("Fatal error occured while closing region {}, aborting...", encodedName, t);
+    LOG.warn("Fatal error occurred while closing region {}, aborting...", encodedName, t);
     getServer().abort("Failed to close region " + encodedName + " and can not recover", t);
   }
 
-  public static UnassignRegionHandler create(RegionServerServices server, String encodedName,
-      boolean abort, @Nullable ServerName destination) {
+  public static UnassignRegionHandler create(HRegionServer server, String encodedName,
+      long closeProcId, boolean abort, @Nullable ServerName destination) {
     // Just try our best to determine whether it is for closing meta. It is not the end of the world
     // if we put the handler into a wrong executor.
     Region region = server.getRegion(encodedName);
     EventType eventType =
       region != null && region.getRegionInfo().isMetaRegion() ? EventType.M_RS_CLOSE_META
         : EventType.M_RS_CLOSE_REGION;
-    return new UnassignRegionHandler(server, encodedName, abort, destination, eventType);
+    return new UnassignRegionHandler(server, encodedName, closeProcId, abort, destination,
+      eventType);
   }
 }

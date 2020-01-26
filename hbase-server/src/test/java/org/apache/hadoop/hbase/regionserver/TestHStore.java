@@ -17,6 +17,7 @@
  */
 package org.apache.hadoop.hbase.regionserver;
 
+import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
@@ -165,6 +166,7 @@ public class TestHStore {
    */
   @Before
   public void setUp() throws IOException {
+    qualifiers.clear();
     qualifiers.add(qf1);
     qualifiers.add(qf3);
     qualifiers.add(qf5);
@@ -230,7 +232,7 @@ public class TestHStore {
       ColumnFamilyDescriptor hcd, MyStoreHook hook, boolean switchToPread) throws IOException {
     initHRegion(methodName, conf, builder, hcd, hook, switchToPread);
     if (hook == null) {
-      store = new HStore(region, hcd, conf);
+      store = new HStore(region, hcd, conf, false);
     } else {
       store = new MyStore(region, hcd, conf, hook, switchToPread);
     }
@@ -331,7 +333,7 @@ public class TestHStore {
 
     // Verify that compression and encoding settings are respected
     HFile.Reader reader = HFile.createReader(fs, path, new CacheConfig(conf), true, conf);
-    assertEquals(hcd.getCompressionType(), reader.getCompressionAlgorithm());
+    assertEquals(hcd.getCompressionType(), reader.getTrailer().getCompressionCodec());
     assertEquals(hcd.getDataBlockEncoding(), reader.getDataBlockEncoding());
     reader.close();
   }
@@ -495,7 +497,8 @@ public class TestHStore {
     w.close();
     this.store.close();
     // Reopen it... should pick up two files
-    this.store = new HStore(this.store.getHRegion(), this.store.getColumnFamilyDescriptor(), c);
+    this.store =
+        new HStore(this.store.getHRegion(), this.store.getColumnFamilyDescriptor(), c, false);
     assertEquals(2, this.store.getStorefilesCount());
 
     result = HBaseTestingUtility.getFromStoreFile(store,
@@ -793,7 +796,7 @@ public class TestHStore {
    * @param numRows
    * @param qualifier
    * @param family
-   * @return
+   * @return the rows key-value list
    */
   List<Cell> getKeyValueSet(long[] timestamps, int numRows,
       byte[] qualifier, byte[] family) {
@@ -1525,7 +1528,7 @@ public class TestHStore {
     ColumnFamilyDescriptor hcd = ColumnFamilyDescriptorBuilder.of(family);
     initHRegion(name.getMethodName(), conf,
       TableDescriptorBuilder.newBuilder(TableName.valueOf(table)), hcd, null, false);
-    HStore store = new HStore(region, hcd, conf) {
+    HStore store = new HStore(region, hcd, conf, false) {
 
       @Override
       protected StoreEngine<?, ?, ?, ?> createStoreEngine(HStore store, Configuration conf,
@@ -1567,7 +1570,7 @@ public class TestHStore {
 
     MyStore(final HRegion region, final ColumnFamilyDescriptor family, final Configuration
         confParam, MyStoreHook hook, boolean switchToPread) throws IOException {
-      super(region, family, confParam);
+      super(region, family, confParam, false);
       this.hook = hook;
     }
 
@@ -1701,6 +1704,16 @@ public class TestHStore {
     store.updateSpaceQuotaAfterFileReplacement(sizeStore, regionInfo2, null, Arrays.asList(sf4));
 
     assertEquals(8192L, sizeStore.getRegionSize(regionInfo2).getSize());
+  }
+
+  @Test
+  public void testHFileContextSetWithCFAndTable() throws Exception {
+    init(this.name.getMethodName());
+    StoreFileWriter writer = store.createWriterInTmp(10000L,
+        Compression.Algorithm.NONE, false, true, false, true);
+    HFileContext hFileContext = writer.getHFileWriter().getFileContext();
+    assertArrayEquals(family, hFileContext.getColumnFamily());
+    assertArrayEquals(table, hFileContext.getTableName());
   }
 
   private HStoreFile mockStoreFileWithLength(long length) {

@@ -24,12 +24,13 @@ import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.function.BiConsumer;
+import org.apache.hadoop.hbase.exceptions.TimeoutIOException;
 import org.apache.yetus.audience.InterfaceAudience;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import org.apache.hbase.thirdparty.com.google.common.base.Throwables;
 
 /**
  * Helper class for processing futures.
@@ -119,6 +120,41 @@ public final class FutureUtils {
     return error;
   }
 
+  // This method is used to record the stack trace that calling the FutureUtils.get method. As in
+  // async client, the retry will be done in the retry timer thread, so the exception we get from
+  // the CompletableFuture will have a stack trace starting from the root of the retry timer. If we
+  // just throw this exception out when calling future.get(by unwrapping the ExecutionException),
+  // the upper layer even can not know where is the exception thrown...
+  // See HBASE-22316.
+  private static void setStackTrace(Throwable error) {
+    StackTraceElement[] localStackTrace = Thread.currentThread().getStackTrace();
+    StackTraceElement[] originalStackTrace = error.getStackTrace();
+    StackTraceElement[] newStackTrace =
+      new StackTraceElement[localStackTrace.length + originalStackTrace.length + 1];
+    System.arraycopy(localStackTrace, 0, newStackTrace, 0, localStackTrace.length);
+    newStackTrace[localStackTrace.length] =
+      new StackTraceElement("--------Future", "get--------", null, -1);
+    System.arraycopy(originalStackTrace, 0, newStackTrace, localStackTrace.length + 1,
+      originalStackTrace.length);
+    error.setStackTrace(newStackTrace);
+  }
+
+  private static IOException rethrow(ExecutionException error) throws IOException {
+    Throwable cause = error.getCause();
+    if (cause instanceof IOException) {
+      setStackTrace(cause);
+      throw (IOException) cause;
+    } else if (cause instanceof RuntimeException) {
+      setStackTrace(cause);
+      throw (RuntimeException) cause;
+    } else if (cause instanceof Error) {
+      setStackTrace(cause);
+      throw (Error) cause;
+    } else {
+      throw new IOException(cause);
+    }
+  }
+
   /**
    * A helper class for getting the result of a Future, and convert the error to an
    * {@link IOException}.
@@ -129,9 +165,23 @@ public final class FutureUtils {
     } catch (InterruptedException e) {
       throw (IOException) new InterruptedIOException().initCause(e);
     } catch (ExecutionException e) {
-      Throwable cause = e.getCause();
-      Throwables.propagateIfPossible(cause, IOException.class);
-      throw new IOException(cause);
+      throw rethrow(e);
+    }
+  }
+
+  /**
+   * A helper class for getting the result of a Future with timeout, and convert the error to an
+   * {@link IOException}.
+   */
+  public static <T> T get(Future<T> future, long timeout, TimeUnit unit) throws IOException {
+    try {
+      return future.get(timeout, unit);
+    } catch (InterruptedException e) {
+      throw (IOException) new InterruptedIOException().initCause(e);
+    } catch (ExecutionException e) {
+      throw rethrow(e);
+    } catch (TimeoutException e) {
+      throw new TimeoutIOException(e);
     }
   }
 

@@ -26,16 +26,18 @@ import static org.mockito.Mockito.verify;
 
 import java.io.IOException;
 import java.lang.reflect.Field;
+
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hbase.HBaseClassTestRule;
 import org.apache.hadoop.hbase.HBaseTestingUtility;
 import org.apache.hadoop.hbase.HColumnDescriptor;
+import org.apache.hadoop.hbase.HConstants;
 import org.apache.hadoop.hbase.HTableDescriptor;
 import org.apache.hadoop.hbase.TableName;
-import org.apache.hadoop.hbase.master.HMaster;
 import org.apache.hadoop.hbase.testclassification.ClientTests;
 import org.apache.hadoop.hbase.testclassification.LargeTests;
 import org.apache.hadoop.hbase.util.Bytes;
+import org.apache.hadoop.hbase.util.TableDescriptorChecker;
 import org.junit.AfterClass;
 import org.junit.BeforeClass;
 import org.junit.ClassRule;
@@ -53,7 +55,7 @@ public class TestIllegalTableDescriptor {
       HBaseClassTestRule.forClass(TestIllegalTableDescriptor.class);
 
   // NOTE: Increment tests were moved to their own class, TestIncrementsFromClientSide.
-  private static final Logger masterLogger;
+  private static final Logger LOGGER;
 
   protected final static HBaseTestingUtility TEST_UTIL = new HBaseTestingUtility();
 
@@ -63,19 +65,17 @@ public class TestIllegalTableDescriptor {
   public TestName name = new TestName();
 
   static {
-    masterLogger = mock(Logger.class);
+    LOGGER = mock(Logger.class);
   }
 
   @BeforeClass
   public static void setUpBeforeClass() throws Exception {
     // replacing HMaster.LOG with our mock logger for verifying logging
-    Field field = HMaster.class.getDeclaredField("LOG");
+    Field field = TableDescriptorChecker.class.getDeclaredField("LOG");
     field.setAccessible(true);
-    field.set(null, masterLogger);
-
+    field.set(null, LOGGER);
     Configuration conf = TEST_UTIL.getConfiguration();
-    conf.setBoolean("hbase.table.sanity.checks", true); // enable for below tests
-    // We need more than one region server in this test
+    conf.setBoolean(TableDescriptorChecker.TABLE_SANITY_CHECKS, true); // enable for below tests
     TEST_UTIL.startMiniCluster(1);
   }
 
@@ -111,6 +111,11 @@ public class TestIllegalTableDescriptor {
     htd.setRegionSplitPolicyClassName("nonexisting.foo.class");
     checkTableIsIllegal(htd);
     htd.setRegionSplitPolicyClassName(null);
+    checkTableIsLegal(htd);
+
+    htd.setValue(HConstants.HBASE_REGION_SPLIT_POLICY_KEY, "nonexisting.foo.class");
+    checkTableIsIllegal(htd);
+    htd.remove(HConstants.HBASE_REGION_SPLIT_POLICY_KEY);
     checkTableIsLegal(htd);
 
     hcd.setBlocksize(0);
@@ -152,6 +157,11 @@ public class TestIllegalTableDescriptor {
     hcd.setScope(0);
     checkTableIsLegal(htd);
 
+    hcd.setValue(ColumnFamilyDescriptorBuilder.IN_MEMORY_COMPACTION, "INVALID");
+    checkTableIsIllegal(htd);
+    hcd.setValue(ColumnFamilyDescriptorBuilder.IN_MEMORY_COMPACTION, "NONE");
+    checkTableIsLegal(htd);
+
     try {
       hcd.setDFSReplication((short) -1);
       fail("Illegal value for setDFSReplication did not throw");
@@ -172,10 +182,10 @@ public class TestIllegalTableDescriptor {
     htd.setMemStoreFlushSize(0);
 
     // Check that logs warn on invalid table but allow it.
-    htd.setConfiguration("hbase.table.sanity.checks", Boolean.FALSE.toString());
+    htd.setConfiguration(TableDescriptorChecker.TABLE_SANITY_CHECKS, Boolean.FALSE.toString());
     checkTableIsLegal(htd);
 
-    verify(masterLogger).warn(contains("MEMSTORE_FLUSHSIZE for table "
+    verify(LOGGER).warn(contains("MEMSTORE_FLUSHSIZE for table "
         + "descriptor or \"hbase.hregion.memstore.flush.size\" (0) is too small, which might "
         + "cause very frequent flushing."));
   }

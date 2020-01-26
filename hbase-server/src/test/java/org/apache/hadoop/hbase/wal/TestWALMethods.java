@@ -39,9 +39,7 @@ import org.apache.hadoop.hbase.testclassification.RegionServerTests;
 import org.apache.hadoop.hbase.testclassification.SmallTests;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.hbase.util.FSUtils;
-import org.apache.hadoop.hbase.wal.WALSplitter.EntryBuffers;
 import org.apache.hadoop.hbase.wal.WALSplitter.PipelineController;
-import org.apache.hadoop.hbase.wal.WALSplitter.RegionEntryBuffer;
 import org.junit.ClassRule;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
@@ -89,17 +87,17 @@ public class TestWALMethods {
     Path regiondir = util.getDataTestDir("regiondir");
     fs.delete(regiondir, true);
     fs.mkdirs(regiondir);
-    Path recoverededits = WALSplitter.getRegionDirRecoveredEditsDir(regiondir);
-    String first = WALSplitter.formatRecoveredEditsFileName(-1);
+    Path recoverededits = WALSplitUtil.getRegionDirRecoveredEditsDir(regiondir);
+    String first = WALSplitUtil.formatRecoveredEditsFileName(-1);
     createFile(fs, recoverededits, first);
-    createFile(fs, recoverededits, WALSplitter.formatRecoveredEditsFileName(0));
-    createFile(fs, recoverededits, WALSplitter.formatRecoveredEditsFileName(1));
-    createFile(fs, recoverededits, WALSplitter
+    createFile(fs, recoverededits, WALSplitUtil.formatRecoveredEditsFileName(0));
+    createFile(fs, recoverededits, WALSplitUtil.formatRecoveredEditsFileName(1));
+    createFile(fs, recoverededits, WALSplitUtil
         .formatRecoveredEditsFileName(11));
-    createFile(fs, recoverededits, WALSplitter.formatRecoveredEditsFileName(2));
-    createFile(fs, recoverededits, WALSplitter
+    createFile(fs, recoverededits, WALSplitUtil.formatRecoveredEditsFileName(2));
+    createFile(fs, recoverededits, WALSplitUtil
         .formatRecoveredEditsFileName(50));
-    String last = WALSplitter.formatRecoveredEditsFileName(Long.MAX_VALUE);
+    String last = WALSplitUtil.formatRecoveredEditsFileName(Long.MAX_VALUE);
     createFile(fs, recoverededits, last);
     createFile(fs, recoverededits,
       Long.toString(Long.MAX_VALUE) + "." + System.currentTimeMillis());
@@ -108,21 +106,21 @@ public class TestWALMethods {
     FSUtils.setRootDir(walConf, regiondir);
     (new WALFactory(walConf, "dummyLogName")).getWAL(null);
 
-    NavigableSet<Path> files = WALSplitter.getSplitEditFilesSorted(fs, regiondir);
+    NavigableSet<Path> files = WALSplitUtil.getSplitEditFilesSorted(fs, regiondir);
     assertEquals(7, files.size());
     assertEquals(files.pollFirst().getName(), first);
     assertEquals(files.pollLast().getName(), last);
     assertEquals(files.pollFirst().getName(),
-      WALSplitter
+        WALSplitUtil
         .formatRecoveredEditsFileName(0));
     assertEquals(files.pollFirst().getName(),
-      WALSplitter
+        WALSplitUtil
         .formatRecoveredEditsFileName(1));
     assertEquals(files.pollFirst().getName(),
-      WALSplitter
+        WALSplitUtil
         .formatRecoveredEditsFileName(2));
     assertEquals(files.pollFirst().getName(),
-      WALSplitter
+        WALSplitUtil
         .formatRecoveredEditsFileName(11));
   }
 
@@ -135,7 +133,7 @@ public class TestWALMethods {
 
   @Test
   public void testRegionEntryBuffer() throws Exception {
-    WALSplitter.RegionEntryBuffer reb = new WALSplitter.RegionEntryBuffer(
+    EntryBuffers.RegionEntryBuffer reb = new EntryBuffers.RegionEntryBuffer(
         TEST_TABLE, TEST_REGION);
     assertEquals(0, reb.heapSize());
 
@@ -154,7 +152,7 @@ public class TestWALMethods {
     assertTrue(sink.totalBuffered > 0);
     long amountInChunk = sink.totalBuffered;
     // Get a chunk
-    RegionEntryBuffer chunk = sink.getChunkToWrite();
+    EntryBuffers.RegionEntryBuffer chunk = sink.getChunkToWrite();
     assertEquals(chunk.heapSize(), amountInChunk);
 
     // Make sure it got marked that a thread is "working on this"
@@ -173,7 +171,7 @@ public class TestWALMethods {
     // to get the second
     sink.doneWriting(chunk);
 
-    RegionEntryBuffer chunk2 = sink.getChunkToWrite();
+    EntryBuffers.RegionEntryBuffer chunk2 = sink.getChunkToWrite();
     assertNotNull(chunk2);
     assertNotSame(chunk, chunk2);
     long amountInChunk2 = sink.totalBuffered;

@@ -1,6 +1,6 @@
-<project xmlns="http://maven.apache.org/POM/4.0.0"
-         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+<project xmlns="https://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="https://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="https://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
     <!--
       /**
        * Licensed to the Apache Software Foundation (ASF) under one
@@ -266,6 +266,38 @@
               </exclusions>
             </dependency>
             <dependency>
+              <groupId>org.codehaus.jackson</groupId>
+              <artifactId>jackson-jaxrs</artifactId>
+              <version>1.9.13</version>
+              <scope>provided</scope>
+              <exclusions>
+                <exclusion>
+                  <groupId>org.codehaus.jackson</groupId>
+                  <artifactId>jackson-mapper-asl</artifactId>
+                </exclusion>
+                <exclusion>
+                  <groupId>org.codehaus.jackson</groupId>
+                  <artifactId>jackson-core-asl</artifactId>
+                </exclusion>
+              </exclusions>
+            </dependency>
+            <dependency>
+              <groupId>org.codehaus.jackson</groupId>
+              <artifactId>jackson-xc</artifactId>
+              <version>1.9.13</version>
+              <scope>provided</scope>
+              <exclusions>
+                <exclusion>
+                  <groupId>org.codehaus.jackson</groupId>
+                  <artifactId>jackson-mapper-asl</artifactId>
+                </exclusion>
+                <exclusion>
+                  <groupId>org.codehaus.jackson</groupId>
+                  <artifactId>jackson-core-asl</artifactId>
+                </exclusion>
+              </exclusions>
+            </dependency>
+            <dependency>
               <groupId>org.apache.hadoop</groupId>
               <artifactId>hadoop-auth</artifactId>
               <scope>provided</scope>
@@ -303,6 +335,49 @@
               <groupId>org.apache.hadoop</groupId>
               <artifactId>hadoop-auth</artifactId>
               <scope>provided</scope>
+            </dependency>
+            <dependency>
+              <groupId>org.apache.hadoop</groupId>
+              <artifactId>hadoop-mapreduce-client-core</artifactId>
+              <scope>provided</scope>
+              <exclusions>
+                <exclusion>
+                  <groupId>com.google.guava</groupId>
+                  <artifactId>guava</artifactId>
+                </exclusion>
+              </exclusions>
+            </dependency>
+            <dependency>
+              <groupId>org.codehaus.jackson</groupId>
+              <artifactId>jackson-jaxrs</artifactId>
+              <version>1.9.13</version>
+              <scope>provided</scope>
+              <exclusions>
+                <exclusion>
+                  <groupId>org.codehaus.jackson</groupId>
+                  <artifactId>jackson-mapper-asl</artifactId>
+                </exclusion>
+                <exclusion>
+                  <groupId>org.codehaus.jackson</groupId>
+                  <artifactId>jackson-core-asl</artifactId>
+                </exclusion>
+              </exclusions>
+            </dependency>
+            <dependency>
+              <groupId>org.codehaus.jackson</groupId>
+              <artifactId>jackson-xc</artifactId>
+              <version>1.9.13</version>
+              <scope>provided</scope>
+              <exclusions>
+                <exclusion>
+                  <groupId>org.codehaus.jackson</groupId>
+                  <artifactId>jackson-mapper-asl</artifactId>
+                </exclusion>
+                <exclusion>
+                  <groupId>org.codehaus.jackson</groupId>
+                  <artifactId>jackson-core-asl</artifactId>
+                </exclusion>
+              </exclusions>
             </dependency>
           </dependencies>
         </profile>

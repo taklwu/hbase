@@ -54,7 +54,6 @@ import org.apache.hadoop.hbase.testclassification.MediumTests;
 import org.apache.hadoop.hbase.testclassification.RegionServerTests;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.hbase.util.JVMClusterUtil;
-import org.apache.hadoop.hbase.util.Threads;
 import org.apache.hadoop.hbase.wal.WAL;
 import org.apache.hadoop.hbase.wal.WALEdit;
 import org.apache.hadoop.hdfs.DFSConfigKeys;
@@ -163,7 +162,7 @@ public class TestRegionServerAbort {
    */
   @Test
   public void testStopOverrideFromCoprocessor() throws Exception {
-    Admin admin = testUtil.getHBaseAdmin();
+    Admin admin = testUtil.getAdmin();
     HRegionServer regionserver = cluster.getRegionServer(0);
     admin.stopRegionServer(regionserver.getServerName().getHostAndPort());
 

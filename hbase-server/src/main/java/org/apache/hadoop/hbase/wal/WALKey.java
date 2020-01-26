@@ -34,7 +34,6 @@ import java.util.UUID;
 
 /**
  * Key for WAL Entry.
- * Read-only. No Setters. For limited audience such as Coprocessors.
  */
 @InterfaceAudience.LimitedPrivate({HBaseInterfaceAudience.REPLICATION,
     HBaseInterfaceAudience.COPROC})
@@ -87,6 +86,28 @@ public interface WALKey extends SequenceId, Comparable<WALKey> {
   long getOrigLogSeqNum();
 
   /**
+   * Add a named String value to this WALKey to be persisted into the WAL
+   * @param attributeKey Name of the attribute
+   * @param attributeValue Value of the attribute
+   */
+  void addExtendedAttribute(String attributeKey, byte[] attributeValue);
+
+    /**
+     * Return a named String value injected into the WALKey during processing, such as by a
+     * coprocessor
+     * @param attributeKey The key of a key / value pair
+     */
+  default byte[] getExtendedAttribute(String attributeKey){
+    return null;
+  }
+
+    /**
+     * Returns a map of all extended attributes injected into this WAL key.
+     */
+  default Map<String, byte[]> getExtendedAttributes() {
+    return new HashMap<>();
+  }
+  /**
    * Produces a string map for this key. Useful for programmatic use and
    * manipulation of the data stored in an WALKeyImpl, for example, printing
    * as JSON.
@@ -98,6 +119,12 @@ public interface WALKey extends SequenceId, Comparable<WALKey> {
     stringMap.put("table", getTableName());
     stringMap.put("region", Bytes.toStringBinary(getEncodedRegionName()));
     stringMap.put("sequence", getSequenceId());
+    Map<String, byte[]> extendedAttributes = getExtendedAttributes();
+    if (extendedAttributes != null){
+      for (Map.Entry<String, byte[]> entry : extendedAttributes.entrySet()){
+        stringMap.put(entry.getKey(), Bytes.toStringBinary(entry.getValue()));
+      }
+    }
     return stringMap;
   }
 }

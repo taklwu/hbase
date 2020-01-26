@@ -20,20 +20,19 @@ package org.apache.hadoop.hbase.client;
 import static org.apache.hadoop.hbase.HConstants.RPC_CODEC_CONF_KEY;
 import static org.apache.hadoop.hbase.client.TestFromClientSide3.generateHugeValue;
 import static org.apache.hadoop.hbase.ipc.RpcClient.DEFAULT_CODEC_CLASS;
+import static org.hamcrest.CoreMatchers.instanceOf;
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.TimeUnit;
-import java.util.function.Consumer;
-import java.util.stream.IntStream;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hbase.Cell;
 import org.apache.hadoop.hbase.CompareOperator;
@@ -41,11 +40,13 @@ import org.apache.hadoop.hbase.HBaseClassTestRule;
 import org.apache.hadoop.hbase.HBaseTestingUtility;
 import org.apache.hadoop.hbase.HColumnDescriptor;
 import org.apache.hadoop.hbase.HConstants;
-import org.apache.hadoop.hbase.HRegionInfo;
 import org.apache.hadoop.hbase.HRegionLocation;
 import org.apache.hadoop.hbase.HTestConst;
 import org.apache.hadoop.hbase.KeyValue;
 import org.apache.hadoop.hbase.MiniHBaseCluster;
+import org.apache.hadoop.hbase.exceptions.DeserializationException;
+import org.apache.hadoop.hbase.filter.FilterBase;
+import org.apache.hadoop.hbase.testclassification.MediumTests;
 import org.apache.hadoop.hbase.TableName;
 import org.apache.hadoop.hbase.TableNotFoundException;
 import org.apache.hadoop.hbase.filter.BinaryComparator;
@@ -54,7 +55,6 @@ import org.apache.hadoop.hbase.filter.ColumnRangeFilter;
 import org.apache.hadoop.hbase.filter.QualifierFilter;
 import org.apache.hadoop.hbase.regionserver.HRegionServer;
 import org.apache.hadoop.hbase.testclassification.ClientTests;
-import org.apache.hadoop.hbase.testclassification.MediumTests;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.hbase.util.EnvironmentEdgeManager;
 import org.junit.After;
@@ -90,9 +90,6 @@ public class TestScannersFromClientSide {
   @Rule
   public TestName name = new TestName();
 
-  /**
-   * @throws java.lang.Exception
-   */
   @BeforeClass
   public static void setUpBeforeClass() throws Exception {
     Configuration conf = TEST_UTIL.getConfiguration();
@@ -100,17 +97,11 @@ public class TestScannersFromClientSide {
     TEST_UTIL.startMiniCluster(3);
   }
 
-  /**
-   * @throws java.lang.Exception
-   */
   @AfterClass
   public static void tearDownAfterClass() throws Exception {
     TEST_UTIL.shutdownMiniCluster();
   }
 
-  /**
-   * @throws java.lang.Exception
-   */
   @Before
   public void setUp() throws Exception {
     // Nothing to do.
@@ -126,8 +117,6 @@ public class TestScannersFromClientSide {
 
   /**
    * Test from client side for batch of scan
-   *
-   * @throws Exception
    */
   @Test
   public void testScanBatch() throws Exception {
@@ -236,17 +225,15 @@ public class TestScannersFromClientSide {
     // Create a scan with the default configuration.
     Scan scan = new Scan();
 
-    ResultScanner scanner = ht.getScanner(scan);
-    assertTrue(scanner instanceof ClientScanner);
-    ClientScanner clientScanner = (ClientScanner) scanner;
-
-    // Call next to issue a single RPC to the server
-    scanner.next();
-
-    // The scanner should have, at most, a single result in its cache. If there more results exists
-    // in the cache it means that more than the expected max result size was fetched.
-    assertTrue("The cache contains: " + clientScanner.getCacheSize() + " results",
-      clientScanner.getCacheSize() <= 1);
+    try (ResultScanner scanner = ht.getScanner(scan)) {
+      assertThat(scanner, instanceOf(AsyncTableResultScanner.class));
+      scanner.next();
+      AsyncTableResultScanner s = (AsyncTableResultScanner) scanner;
+      // The scanner should have, at most, a single result in its cache. If there more results
+      // exists
+      // in the cache it means that more than the expected max result size was fetched.
+      assertTrue("The cache contains: " + s.getCacheSize() + " results", s.getCacheSize() <= 1);
+    }
   }
 
   /**
@@ -304,11 +291,6 @@ public class TestScannersFromClientSide {
 
   /**
    * Run through a variety of test configurations with a small scan
-   * @param table
-   * @param reversed
-   * @param rows
-   * @param columns
-   * @throws Exception
    */
   private void testSmallScan(Table table, boolean reversed, int rows, int columns) throws Exception {
     Scan baseScan = new Scan();
@@ -349,8 +331,6 @@ public class TestScannersFromClientSide {
 
   /**
    * Test from client side for get with maxResultPerCF set
-   *
-   * @throws Exception
    */
   @Test
   public void testGetMaxResults() throws Exception {
@@ -469,8 +449,6 @@ public class TestScannersFromClientSide {
 
   /**
    * Test from client side for scan with maxResultPerCF set
-   *
-   * @throws Exception
    */
   @Test
   public void testScanMaxResults() throws Exception {
@@ -519,8 +497,6 @@ public class TestScannersFromClientSide {
 
   /**
    * Test from client side for get with rowOffset
-   *
-   * @throws Exception
    */
   @Test
   public void testGetRowOffset() throws Exception {
@@ -639,8 +615,6 @@ public class TestScannersFromClientSide {
   /**
    * Test from client side for scan while the region is reopened
    * on the same region server.
-   *
-   * @throws Exception
    */
   @Test
   public void testScanOnReopenedRegion() throws Exception {
@@ -672,7 +646,7 @@ public class TestScannersFromClientSide {
     try (RegionLocator locator = TEST_UTIL.getConnection().getRegionLocator(tableName)) {
       loc = locator.getRegionLocation(ROW);
     }
-    HRegionInfo hri = loc.getRegionInfo();
+    RegionInfo hri = loc.getRegion();
     MiniHBaseCluster cluster = TEST_UTIL.getMiniHBaseCluster();
     byte[] regionName = hri.getRegionName();
     int i = cluster.getServerWith(regionName);
@@ -711,125 +685,6 @@ public class TestScannersFromClientSide {
     kvListExp.add(new KeyValue(ROW, FAMILY, QUALIFIERS[1], 1, VALUE));
     result = scanner.next();
     verifyResult(result, kvListExp, toLog, "Testing scan on re-opened region");
-  }
-
-  @Test
-  public void testAsyncScannerWithSmallData() throws Exception {
-    testAsyncScanner(TableName.valueOf(name.getMethodName()),
-      2,
-      3,
-      10,
-      -1,
-      null);
-  }
-
-  @Test
-  public void testAsyncScannerWithManyRows() throws Exception {
-    testAsyncScanner(TableName.valueOf(name.getMethodName()),
-      30000,
-      1,
-      1,
-      -1,
-      null);
-  }
-
-  @Test
-  public void testAsyncScannerWithoutCaching() throws Exception {
-    testAsyncScanner(TableName.valueOf(name.getMethodName()),
-      5,
-      1,
-      1,
-      1,
-      (b) -> {
-        try {
-          TimeUnit.MILLISECONDS.sleep(500);
-        } catch (InterruptedException ex) {
-        }
-      });
-  }
-
-  private void testAsyncScanner(TableName table, int rowNumber, int familyNumber,
-      int qualifierNumber, int caching, Consumer<Boolean> listener) throws Exception {
-    assert rowNumber > 0;
-    assert familyNumber > 0;
-    assert qualifierNumber > 0;
-    byte[] row = Bytes.toBytes("r");
-    byte[] family = Bytes.toBytes("f");
-    byte[] qualifier = Bytes.toBytes("q");
-    byte[][] rows = makeNAsciiWithZeroPrefix(row, rowNumber);
-    byte[][] families = makeNAsciiWithZeroPrefix(family, familyNumber);
-    byte[][] qualifiers = makeNAsciiWithZeroPrefix(qualifier, qualifierNumber);
-
-    Table ht = TEST_UTIL.createTable(table, families);
-
-    boolean toLog = true;
-    List<Cell> kvListExp = new ArrayList<>();
-
-    List<Put> puts = new ArrayList<>();
-    for (byte[] r : rows) {
-      Put put = new Put(r);
-      for (byte[] f : families) {
-        for (byte[] q : qualifiers) {
-          KeyValue kv = new KeyValue(r, f, q, 1, VALUE);
-          put.add(kv);
-          kvListExp.add(kv);
-        }
-      }
-      puts.add(put);
-      if (puts.size() > 1000) {
-        ht.put(puts);
-        puts.clear();
-      }
-    }
-    if (!puts.isEmpty()) {
-      ht.put(puts);
-      puts.clear();
-    }
-
-    Scan scan = new Scan();
-    scan.setAsyncPrefetch(true);
-    if (caching > 0) {
-      scan.setCaching(caching);
-    }
-    try (ResultScanner scanner = ht.getScanner(scan)) {
-      assertTrue("Not instance of async scanner",scanner instanceof ClientAsyncPrefetchScanner);
-      ((ClientAsyncPrefetchScanner) scanner).setPrefetchListener(listener);
-      List<Cell> kvListScan = new ArrayList<>();
-      Result result;
-      boolean first = true;
-      int actualRows = 0;
-      while ((result = scanner.next()) != null) {
-        ++actualRows;
-        // waiting for cache. see HBASE-17376
-        if (first) {
-          TimeUnit.SECONDS.sleep(1);
-          first = false;
-        }
-        for (Cell kv : result.listCells()) {
-          kvListScan.add(kv);
-        }
-      }
-      assertEquals(rowNumber, actualRows);
-      // These cells may have different rows but it is ok. The Result#getRow
-      // isn't used in the verifyResult()
-      result = Result.create(kvListScan);
-      verifyResult(result, kvListExp, toLog, "Testing async scan");
-    }
-
-    TEST_UTIL.deleteTable(table);
-  }
-
-  private static byte[][] makeNAsciiWithZeroPrefix(byte[] base, int n) {
-    int maxLength = Integer.toString(n).length();
-    byte [][] ret = new byte[n][];
-    for (int i = 0; i < n; i++) {
-      int length = Integer.toString(i).length();
-      StringBuilder buf = new StringBuilder(Integer.toString(i));
-      IntStream.range(0, maxLength - length).forEach(v -> buf.insert(0, "0"));
-      byte[] tail = Bytes.toBytes(buf.toString());
-      ret[i] = Bytes.add(base, tail);
-    }
-    return ret;
   }
 
   static void verifyResult(Result result, List<Cell> expKvList, boolean toLog,
@@ -945,7 +800,7 @@ public class TestScannersFromClientSide {
     final byte[] LARGE_VALUE = generateHugeValue(128 * 1024);
 
     try (Table table = TEST_UTIL.createTable(tableName, FAMILY);
-        Admin admin = TEST_UTIL.getAdmin()) {
+      Admin admin = TEST_UTIL.getAdmin()) {
       List<Put> putList = new ArrayList<>();
       for (long i = 0; i < ROWS_TO_INSERT; i++) {
         Put put = new Put(Bytes.toBytes(i));
@@ -975,7 +830,78 @@ public class TestScannersFromClientSide {
         }
       }
       assertEquals("Expected " + ROWS_TO_INSERT + " rows in the table but it is " + count,
-          ROWS_TO_INSERT, count);
+        ROWS_TO_INSERT, count);
+    }
+  }
+
+  @Test
+  public void testScannerWithPartialResults() throws Exception {
+    TableName tableName = TableName.valueOf("testScannerWithPartialResults");
+    try (Table table = TEST_UTIL.createMultiRegionTable(tableName,
+      Bytes.toBytes("c"), 4)) {
+      List<Put> puts = new ArrayList<>();
+      byte[] largeArray = new byte[10000];
+      Put put = new Put(Bytes.toBytes("aaaa0"));
+      put.addColumn(Bytes.toBytes("c"), Bytes.toBytes("1"), Bytes.toBytes("1"));
+      put.addColumn(Bytes.toBytes("c"), Bytes.toBytes("2"), Bytes.toBytes("2"));
+      put.addColumn(Bytes.toBytes("c"), Bytes.toBytes("3"), Bytes.toBytes("3"));
+      put.addColumn(Bytes.toBytes("c"), Bytes.toBytes("4"), Bytes.toBytes("4"));
+      puts.add(put);
+      put = new Put(Bytes.toBytes("aaaa1"));
+      put.addColumn(Bytes.toBytes("c"), Bytes.toBytes("1"), Bytes.toBytes("1"));
+      put.addColumn(Bytes.toBytes("c"), Bytes.toBytes("2"), largeArray);
+      put.addColumn(Bytes.toBytes("c"), Bytes.toBytes("3"), largeArray);
+      puts.add(put);
+      table.put(puts);
+      Scan scan = new Scan();
+      scan.addFamily(Bytes.toBytes("c"));
+      scan.setAttribute(Scan.SCAN_ATTRIBUTES_TABLE_NAME, tableName.getName());
+      scan.setMaxResultSize(10001);
+      scan.setStopRow(Bytes.toBytes("bbbb"));
+      scan.setFilter(new LimitKVsReturnFilter());
+      ResultScanner rs = table.getScanner(scan);
+      Result result;
+      int expectedKvNumber = 6;
+      int returnedKvNumber = 0;
+      while((result = rs.next()) != null) {
+        returnedKvNumber += result.listCells().size();
+      }
+      rs.close();
+      assertEquals(expectedKvNumber, returnedKvNumber);
+    }
+  }
+
+  public static class LimitKVsReturnFilter extends FilterBase {
+
+    private int cellCount = 0;
+
+    @Override
+    public ReturnCode filterCell(Cell v) throws IOException {
+      if (cellCount >= 6) {
+        cellCount++;
+        return ReturnCode.SKIP;
+      }
+      cellCount++;
+      return ReturnCode.INCLUDE;
+    }
+
+    @Override
+    public boolean filterAllRemaining() throws IOException {
+      if (cellCount < 7) {
+        return false;
+      }
+      cellCount++;
+      return true;
+    }
+
+    @Override
+    public String toString() {
+      return this.getClass().getSimpleName();
+    }
+
+    public static LimitKVsReturnFilter parseFrom(final byte [] pbBytes)
+        throws DeserializationException {
+      return new LimitKVsReturnFilter();
     }
   }
 }

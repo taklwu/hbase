@@ -32,7 +32,6 @@ import org.slf4j.LoggerFactory;
 import org.apache.hadoop.hbase.shaded.protobuf.generated.ClientProtos.Action;
 import org.apache.hadoop.hbase.shaded.protobuf.generated.ClientProtos.MultiRequest;
 import org.apache.hadoop.hbase.shaded.protobuf.generated.ClientProtos.MutateRequest;
-import org.apache.hadoop.hbase.shaded.protobuf.ProtobufUtil;
 import org.apache.hadoop.hbase.shaded.protobuf.generated.RegionServerStatusProtos;
 import org.apache.hadoop.hbase.shaded.protobuf.generated.ClientProtos.RegionAction;
 import org.apache.hadoop.hbase.shaded.protobuf.generated.ClientProtos.ScanRequest;
@@ -72,8 +71,8 @@ public class RWQueueRpcExecutor extends RpcExecutor {
       final PriorityFunction priority, final Configuration conf, final Abortable abortable) {
     super(name, handlerCount, maxQueueLength, priority, conf, abortable);
 
-    float callqReadShare = conf.getFloat(CALL_QUEUE_READ_SHARE_CONF_KEY, 0);
-    float callqScanShare = conf.getFloat(CALL_QUEUE_SCAN_SHARE_CONF_KEY, 0);
+    float callqReadShare = getReadShare(conf);
+    float callqScanShare = getScanShare(conf);
 
     numWriteQueues = calcNumWriters(this.numCallQueues, callqReadShare);
     writeHandlersCount = Math.max(numWriteQueues, calcNumWriters(handlerCount, callqReadShare));
@@ -196,7 +195,7 @@ public class RWQueueRpcExecutor extends RpcExecutor {
     return activeScanHandlerCount.get();
   }
 
-  private boolean isWriteRequest(final RequestHeader header, final Message param) {
+  protected boolean isWriteRequest(final RequestHeader header, final Message param) {
     // TODO: Is there a better way to do this?
     if (param instanceof MultiRequest) {
       MultiRequest multi = (MultiRequest)param;
@@ -230,12 +229,15 @@ public class RWQueueRpcExecutor extends RpcExecutor {
   }
 
   private boolean isScanRequest(final RequestHeader header, final Message param) {
-    if (param instanceof ScanRequest) {
-      // The first scan request will be executed as a "short read"
-      ScanRequest request = (ScanRequest)param;
-      return request.hasScannerId();
-    }
-    return false;
+    return param instanceof ScanRequest;
+  }
+
+  protected float getReadShare(final Configuration conf) {
+    return conf.getFloat(CALL_QUEUE_READ_SHARE_CONF_KEY, 0);
+  }
+
+  protected float getScanShare(final Configuration conf) {
+    return conf.getFloat(CALL_QUEUE_SCAN_SHARE_CONF_KEY, 0);
   }
 
   /*

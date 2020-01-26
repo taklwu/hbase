@@ -17,7 +17,7 @@
  */
 package org.apache.hadoop.hbase.client;
 
-import static org.apache.hadoop.hbase.client.AsyncProcess.START_LOG_ERRORS_AFTER_COUNT_KEY;
+import static org.apache.hadoop.hbase.client.AsyncConnectionConfiguration.START_LOG_ERRORS_AFTER_COUNT_KEY;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
@@ -265,6 +265,7 @@ public class TestAsyncClusterAdminApi extends TestAsyncAdminBase {
 
     // Check RegionLoad matches the regionLoad from ClusterStatus
     ClusterMetrics clusterStatus = admin.getClusterMetrics(EnumSet.of(Option.LIVE_SERVERS)).get();
+    assertEquals(servers.size(), clusterStatus.getLiveServerMetrics().size());
     for (Map.Entry<ServerName, ServerMetrics> entry :
       clusterStatus.getLiveServerMetrics().entrySet()) {
       ServerName sn = entry.getKey();

@@ -23,8 +23,11 @@ import java.io.IOException;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
-import org.apache.hadoop.hbase.*;
+import org.apache.hadoop.hbase.Cell;
+import org.apache.hadoop.hbase.CellUtil;
 import org.apache.hadoop.hbase.HBaseClassTestRule;
+import org.apache.hadoop.hbase.HBaseTestingUtility;
+import org.apache.hadoop.hbase.TableName;
 import org.apache.hadoop.hbase.testclassification.ClientTests;
 import org.apache.hadoop.hbase.testclassification.LargeTests;
 import org.apache.hadoop.hbase.util.Bytes;
@@ -115,7 +118,7 @@ public class TestMultipleTimestamps {
     ResultScanner scanner = scan(ht, FAMILY, scanRows, scanColumns,
         scanTimestamps, scanMaxVersions);
 
-    Cell [] kvs;
+    Cell[] kvs;
 
     kvs = scanner.next().rawCells();
     assertEquals(2, kvs.length);
@@ -437,7 +440,7 @@ public class TestMultipleTimestamps {
     byte column[] = Bytes.toBytes("column:" + colIdx);
     Get get = new Get(row);
     get.addColumn(cf, column);
-    get.setMaxVersions();
+    get.readAllVersions();
     get.setTimeRange(Collections.min(versions), Collections.max(versions)+1);
     Result result = ht.get(get);
 
@@ -448,7 +451,6 @@ public class TestMultipleTimestamps {
       Integer[] rowIndexes, Integer[] columnIndexes,
       Long[] versions, int maxVersions)
   throws IOException {
-    Arrays.asList(rowIndexes);
     byte startRow[] = Bytes.toBytes("row:" +
         Collections.min( Arrays.asList(rowIndexes)));
     byte endRow[] = Bytes.toBytes("row:" +

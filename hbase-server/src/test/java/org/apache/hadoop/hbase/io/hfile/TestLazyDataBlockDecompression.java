@@ -124,9 +124,15 @@ public class TestLazyDataBlockDecompression {
     long fileSize = fs.getFileStatus(path).getLen();
     FixedFileTrailer trailer =
       FixedFileTrailer.readFromStream(fsdis.getStream(false), fileSize);
-    HFile.Reader reader = new HFileReaderImpl(path, trailer, fsdis, fileSize, cacheConfig,
-      fsdis.getHfs(), conf);
-    reader.loadFileInfo();
+    ReaderContext context = new ReaderContextBuilder()
+        .withFilePath(path)
+        .withFileSize(fileSize)
+        .withFileSystem(fsdis.getHfs())
+        .withInputStreamWrapper(fsdis)
+        .build();
+    HFileInfo fileInfo = new HFileInfo(context, conf);
+    HFile.Reader reader = new HFilePreadReader(context, fileInfo, cacheConfig, conf);
+    fileInfo.initMetaAndIndex(reader);
     long offset = trailer.getFirstDataBlockOffset(),
       max = trailer.getLastDataBlockOffset();
     List<HFileBlock> blocks = new ArrayList<>(4);
@@ -138,6 +144,7 @@ public class TestLazyDataBlockDecompression {
       blocks.add(block);
     }
     LOG.info("read " + Iterables.toString(blocks));
+    reader.close();
   }
 
   @Test
@@ -160,7 +167,7 @@ public class TestLazyDataBlockDecompression {
     CacheConfig cc = new CacheConfig(lazyCompressDisabled,
         new LruBlockCache(maxSize, HConstants.DEFAULT_BLOCKSIZE, false, lazyCompressDisabled));
     assertFalse(cc.shouldCacheDataCompressed());
-    assertTrue(cc.getBlockCache().get() instanceof LruBlockCache);
+    assertFalse(cc.isCombinedBlockCache());
     LruBlockCache disabledBlockCache = (LruBlockCache) cc.getBlockCache().get();
     LOG.info("disabledBlockCache=" + disabledBlockCache);
     assertEquals("test inconsistency detected.", maxSize, disabledBlockCache.getMaxSize());

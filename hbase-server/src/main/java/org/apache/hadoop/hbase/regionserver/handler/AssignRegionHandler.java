@@ -26,8 +26,8 @@ import org.apache.hadoop.hbase.client.TableDescriptor;
 import org.apache.hadoop.hbase.executor.EventHandler;
 import org.apache.hadoop.hbase.executor.EventType;
 import org.apache.hadoop.hbase.regionserver.HRegion;
+import org.apache.hadoop.hbase.regionserver.HRegionServer;
 import org.apache.hadoop.hbase.regionserver.Region;
-import org.apache.hadoop.hbase.regionserver.RegionServerServices;
 import org.apache.hadoop.hbase.regionserver.RegionServerServices.PostOpenDeployContext;
 import org.apache.hadoop.hbase.regionserver.RegionServerServices.RegionStateTransitionContext;
 import org.apache.hadoop.hbase.util.RetryCounter;
@@ -51,32 +51,35 @@ public class AssignRegionHandler extends EventHandler {
 
   private final RegionInfo regionInfo;
 
+  private final long openProcId;
+
   private final TableDescriptor tableDesc;
 
   private final long masterSystemTime;
 
   private final RetryCounter retryCounter;
 
-  public AssignRegionHandler(RegionServerServices server, RegionInfo regionInfo,
+  public AssignRegionHandler(HRegionServer server, RegionInfo regionInfo, long openProcId,
       @Nullable TableDescriptor tableDesc, long masterSystemTime, EventType eventType) {
     super(server, eventType);
     this.regionInfo = regionInfo;
+    this.openProcId = openProcId;
     this.tableDesc = tableDesc;
     this.masterSystemTime = masterSystemTime;
     this.retryCounter = HandlerUtil.getRetryCounter();
   }
 
-  private RegionServerServices getServer() {
-    return (RegionServerServices) server;
+  private HRegionServer getServer() {
+    return (HRegionServer) server;
   }
 
   private void cleanUpAndReportFailure(IOException error) throws IOException {
     LOG.warn("Failed to open region {}, will report to master", regionInfo.getRegionNameAsString(),
       error);
-    RegionServerServices rs = getServer();
+    HRegionServer rs = getServer();
     rs.getRegionsInTransitionInRS().remove(regionInfo.getEncodedNameAsBytes(), Boolean.TRUE);
     if (!rs.reportRegionStateTransition(new RegionStateTransitionContext(TransitionCode.FAILED_OPEN,
-      HConstants.NO_SEQNUM, masterSystemTime, regionInfo))) {
+      HConstants.NO_SEQNUM, openProcId, masterSystemTime, regionInfo))) {
       throw new IOException(
         "Failed to report failed open to master: " + regionInfo.getRegionNameAsString());
     }
@@ -84,7 +87,7 @@ public class AssignRegionHandler extends EventHandler {
 
   @Override
   public void process() throws IOException {
-    RegionServerServices rs = getServer();
+    HRegionServer rs = getServer();
     String encodedName = regionInfo.getEncodedName();
     byte[] encodedNameBytes = regionInfo.getEncodedNameAsBytes();
     String regionName = regionInfo.getRegionNameAsString();
@@ -98,7 +101,6 @@ public class AssignRegionHandler extends EventHandler {
       // reportRegionStateTransition any more.
       return;
     }
-    LOG.info("Open {}", regionName);
     Boolean previous = rs.getRegionsInTransitionInRS().putIfAbsent(encodedNameBytes, Boolean.TRUE);
     if (previous != null) {
       if (previous) {
@@ -118,6 +120,7 @@ public class AssignRegionHandler extends EventHandler {
       }
       return;
     }
+    LOG.info("Open {}", regionName);
     HRegion region;
     try {
       TableDescriptor htd =
@@ -133,9 +136,11 @@ public class AssignRegionHandler extends EventHandler {
       cleanUpAndReportFailure(e);
       return;
     }
-    rs.postOpenDeployTasks(new PostOpenDeployContext(region, masterSystemTime));
+    rs.postOpenDeployTasks(new PostOpenDeployContext(region, openProcId, masterSystemTime));
     rs.addRegion(region);
     LOG.info("Opened {}", regionName);
+    // Cache the open region procedure id after report region transition succeed.
+    rs.finishRegionProcedure(openProcId);
     Boolean current = rs.getRegionsInTransitionInRS().remove(regionInfo.getEncodedNameAsBytes());
     if (current == null) {
       // Should NEVER happen, but let's be paranoid.
@@ -149,14 +154,14 @@ public class AssignRegionHandler extends EventHandler {
 
   @Override
   protected void handleException(Throwable t) {
-    LOG.warn("Fatal error occured while opening region {}, aborting...",
+    LOG.warn("Fatal error occurred while opening region {}, aborting...",
       regionInfo.getRegionNameAsString(), t);
     getServer().abort(
       "Failed to open region " + regionInfo.getRegionNameAsString() + " and can not recover", t);
   }
 
-  public static AssignRegionHandler create(RegionServerServices server, RegionInfo regionInfo,
-      TableDescriptor tableDesc, long masterSystemTime) {
+  public static AssignRegionHandler create(HRegionServer server, RegionInfo regionInfo,
+      long openProcId, TableDescriptor tableDesc, long masterSystemTime) {
     EventType eventType;
     if (regionInfo.isMetaRegion()) {
       eventType = EventType.M_RS_CLOSE_META;
@@ -166,6 +171,7 @@ public class AssignRegionHandler extends EventHandler {
     } else {
       eventType = EventType.M_RS_OPEN_REGION;
     }
-    return new AssignRegionHandler(server, regionInfo, tableDesc, masterSystemTime, eventType);
+    return new AssignRegionHandler(server, regionInfo, openProcId, tableDesc, masterSystemTime,
+      eventType);
   }
 }

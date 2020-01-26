@@ -19,32 +19,33 @@ package org.apache.hadoop.hbase.util;
 import static org.apache.hadoop.hbase.util.test.LoadTestDataGenerator.INCREMENT;
 import static org.apache.hadoop.hbase.util.test.LoadTestDataGenerator.MUTATE_INFO;
 
-import org.apache.hbase.thirdparty.com.google.common.base.Preconditions;
-
 import java.io.IOException;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
-
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hbase.Cell;
 import org.apache.hadoop.hbase.CellUtil;
 import org.apache.hadoop.hbase.HRegionLocation;
-import org.apache.hadoop.hbase.RegionLocations;
 import org.apache.hadoop.hbase.TableName;
-import org.apache.hadoop.hbase.client.ClusterConnection;
+import org.apache.hadoop.hbase.client.Connection;
 import org.apache.hadoop.hbase.client.ConnectionFactory;
+import org.apache.hadoop.hbase.client.RegionLocator;
 import org.apache.hadoop.hbase.client.Result;
-import org.apache.hadoop.hbase.shaded.protobuf.generated.ClientProtos.MutationProto.MutationType;
 import org.apache.hadoop.hbase.util.test.LoadTestDataGenerator;
 import org.apache.hadoop.util.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import org.apache.hbase.thirdparty.com.google.common.base.Preconditions;
+
+import org.apache.hadoop.hbase.shaded.protobuf.generated.ClientProtos.MutationProto.MutationType;
 
 /**
  * Common base class for reader and writer parts of multi-thread HBase load
@@ -55,7 +56,7 @@ public abstract class MultiThreadedAction {
 
   protected final TableName tableName;
   protected final Configuration conf;
-  protected final ClusterConnection connection; // all reader / writer threads will share this connection
+  protected final Connection connection; // all reader / writer threads will share this connection
 
   protected int numThreads = 1;
 
@@ -143,14 +144,13 @@ public abstract class MultiThreadedAction {
 
   public static final int REPORTING_INTERVAL_MS = 5000;
 
-  public MultiThreadedAction(LoadTestDataGenerator dataGen, Configuration conf,
-                             TableName tableName,
-                             String actionLetter) throws IOException {
+  public MultiThreadedAction(LoadTestDataGenerator dataGen, Configuration conf, TableName tableName,
+      String actionLetter) throws IOException {
     this.conf = conf;
     this.dataGenerator = dataGen;
     this.tableName = tableName;
     this.actionLetter = actionLetter;
-    this.connection = (ClusterConnection) ConnectionFactory.createConnection(conf);
+    this.connection = ConnectionFactory.createConnection(conf);
   }
 
   public void start(long startKey, long endKey, int numThreads) throws IOException {
@@ -320,7 +320,8 @@ public abstract class MultiThreadedAction {
    * @param verifyCfAndColumnIntegrity verify that cf/column set in the result is complete. Note
    *                                   that to use this multiPut should be used, or verification
    *                                   has to happen after writes, otherwise there can be races.
-   * @return
+   * @return true if the values of row result makes sense for row/cf/column combination and true if
+   *         the cf/column set in the result is complete, false otherwise.
    */
   public boolean verifyResultAgainstDataGenerator(Result result, boolean verifyValues,
       boolean verifyCfAndColumnIntegrity) {
@@ -491,7 +492,6 @@ public abstract class MultiThreadedAction {
   }
 
   private void printLocations(Result r) {
-    RegionLocations rl = null;
     if (r == null) {
       LOG.info("FAILED FOR null Result");
       return;
@@ -500,14 +500,13 @@ public abstract class MultiThreadedAction {
     if (r.getRow() == null) {
       return;
     }
-    try {
-      rl = ((ClusterConnection)connection).locateRegion(tableName, r.getRow(), true, true);
+    try (RegionLocator locator = connection.getRegionLocator(tableName)) {
+      List<HRegionLocation> locs = locator.getRegionLocations(r.getRow());
+      for (HRegionLocation h : locs) {
+        LOG.info("LOCATION " + h);
+      }
     } catch (IOException e) {
       LOG.warn("Couldn't get locations for row " + Bytes.toString(r.getRow()));
-    }
-    HRegionLocation locations[] = rl.getRegionLocations();
-    for (HRegionLocation h : locations) {
-      LOG.info("LOCATION " + h);
     }
   }
 

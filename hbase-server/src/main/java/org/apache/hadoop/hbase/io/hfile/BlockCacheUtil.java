@@ -228,7 +228,11 @@ public class BlockCacheUtil {
    */
   public static boolean shouldReplaceExistingCacheBlock(BlockCache blockCache,
       BlockCacheKey cacheKey, Cacheable newBlock) {
+    // NOTICE: The getBlock has retained the existingBlock inside.
     Cacheable existingBlock = blockCache.getBlock(cacheKey, false, false, false);
+    if (existingBlock == null) {
+      return true;
+    }
     try {
       int comparison = BlockCacheUtil.validateBlockAddition(existingBlock, newBlock, cacheKey);
       if (comparison < 0) {
@@ -246,8 +250,8 @@ public class BlockCacheUtil {
         return false;
       }
     } finally {
-      // return the block since we need to decrement the count
-      blockCache.returnBlock(cacheKey, existingBlock);
+      // Release this block to decrement the reference count.
+      existingBlock.release();
     }
   }
 

@@ -32,15 +32,17 @@ import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hbase.HBaseClassTestRule;
 import org.apache.hadoop.hbase.HBaseConfiguration;
 import org.apache.hadoop.hbase.HBaseTestingUtility;
-import org.apache.hadoop.hbase.HColumnDescriptor;
 import org.apache.hadoop.hbase.HConstants;
+import org.apache.hadoop.hbase.client.ColumnFamilyDescriptor;
+import org.apache.hadoop.hbase.client.ColumnFamilyDescriptorBuilder;
+import org.apache.hadoop.hbase.io.ByteBuffAllocator;
 import org.apache.hadoop.hbase.io.hfile.BlockType.BlockCategory;
-import org.apache.hadoop.hbase.io.hfile.Cacheable.MemoryType;
 import org.apache.hadoop.hbase.io.hfile.bucket.BucketCache;
 import org.apache.hadoop.hbase.io.util.MemorySizeUtil;
 import org.apache.hadoop.hbase.nio.ByteBuff;
 import org.apache.hadoop.hbase.testclassification.IOTests;
 import org.apache.hadoop.hbase.testclassification.LargeTests;
+import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.hbase.util.Threads;
 import org.junit.Before;
 import org.junit.ClassRule;
@@ -76,18 +78,13 @@ public class TestCacheConfig {
     }
 
     @Override
-    public int getDeserialiserIdentifier() {
+    public int getDeserializerIdentifier() {
       return deserializedIdentifier;
     }
 
     @Override
-    public Cacheable deserialize(ByteBuff b, boolean reuse, MemoryType memType) throws IOException {
-      LOG.info("Deserialized " + b + ", reuse=" + reuse);
-      return cacheable;
-    }
-
-    @Override
-    public Cacheable deserialize(ByteBuff b) throws IOException {
+    public Cacheable deserialize(ByteBuff b, ByteBuffAllocator alloc)
+        throws IOException {
       LOG.info("Deserialized " + b);
       return cacheable;
     }
@@ -147,11 +144,6 @@ public class TestCacheConfig {
     @Override
     public BlockType getBlockType() {
       return BlockType.DATA;
-    }
-
-    @Override
-    public MemoryType getMemoryType() {
-      return MemoryType.EXCLUSIVE;
     }
   }
 
@@ -247,10 +239,13 @@ public class TestCacheConfig {
     conf.setBoolean(CacheConfig.CACHE_DATA_ON_READ_KEY, true);
     conf.setBoolean(CacheConfig.CACHE_BLOCKS_ON_WRITE_KEY, false);
 
-    HColumnDescriptor family = new HColumnDescriptor("testDisableCacheDataBlock");
-    family.setBlockCacheEnabled(false);
+    ColumnFamilyDescriptor columnFamilyDescriptor =
+      ColumnFamilyDescriptorBuilder
+        .newBuilder(Bytes.toBytes("testDisableCacheDataBlock"))
+        .setBlockCacheEnabled(false)
+        .build();
 
-    cacheConfig = new CacheConfig(conf, family, null);
+    cacheConfig = new CacheConfig(conf, columnFamilyDescriptor, null, ByteBuffAllocator.HEAP);
     assertFalse(cacheConfig.shouldCacheBlockOnRead(BlockCategory.DATA));
     assertFalse(cacheConfig.shouldCacheCompressed(BlockCategory.DATA));
     assertFalse(cacheConfig.shouldCacheDataCompressed());
@@ -336,7 +331,7 @@ public class TestCacheConfig {
     assertTrue(blockCache instanceof CombinedBlockCache);
     // TODO: Assert sizes allocated are right and proportions.
     CombinedBlockCache cbc = (CombinedBlockCache) blockCache;
-    LruBlockCache lbc = cbc.onHeapCache;
+    FirstLevelBlockCache lbc = cbc.l1Cache;
     assertEquals(lruExpectedSize, lbc.getMaxSize());
     BlockCache bc = cbc.l2Cache;
     // getMaxSize comes back in bytes but we specified size in MB
@@ -350,7 +345,7 @@ public class TestCacheConfig {
     assertEquals(initialL1BlockCount + 1, lbc.getBlockCount());
     assertEquals(initialL2BlockCount, bc.getBlockCount());
     // Force evictions by putting in a block too big.
-    final long justTooBigSize = lbc.acceptableSize() + 1;
+    final long justTooBigSize = ((LruBlockCache)lbc).acceptableSize() + 1;
     lbc.cacheBlock(new BlockCacheKey("bck2", 0), new DataCacheEntry() {
       @Override
       public long heapSize() {

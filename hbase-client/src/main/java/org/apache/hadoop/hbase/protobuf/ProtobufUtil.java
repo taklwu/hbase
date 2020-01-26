@@ -38,6 +38,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.NavigableSet;
+import java.util.Objects;
 import java.util.function.Function;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hbase.Cell;
@@ -261,13 +262,12 @@ public final class ProtobufUtil {
    * just {@link ServiceException}. Prefer this method to
    * {@link #getRemoteException(ServiceException)} because trying to
    * contain direct protobuf references.
-   * @param e
    */
-  public static IOException handleRemoteException(Exception e) {
+  public static IOException handleRemoteException(Throwable e) {
     return makeIOExceptionOfException(e);
   }
 
-  private static IOException makeIOExceptionOfException(Exception e) {
+  private static IOException makeIOExceptionOfException(Throwable e) {
     Throwable t = e;
     if (e instanceof ServiceException ||
         e instanceof org.apache.hbase.thirdparty.com.google.protobuf.ServiceException) {
@@ -381,7 +381,7 @@ public final class ProtobufUtil {
       get.setCacheBlocks(proto.getCacheBlocks());
     }
     if (proto.hasMaxVersions()) {
-      get.setMaxVersions(proto.getMaxVersions());
+      get.readVersions(proto.getMaxVersions());
     }
     if (proto.hasStoreLimit()) {
       get.setMaxResultsPerColumnFamily(proto.getStoreLimit());
@@ -688,8 +688,12 @@ public final class ProtobufUtil {
           if (qv.hasTags()) {
             tags = qv.getTags().toByteArray();
           }
-          consumer.accept(mutation, CellUtil.createCell(mutation.getRow(), family, qualifier, qv.getTimestamp(),
-                  KeyValue.Type.Put, value, tags));
+          consumer.accept(mutation, ExtendedCellBuilderFactory.create(CellBuilderType.DEEP_COPY)
+            .setRow(mutation.getRow()).setFamily(family)
+            .setQualifier(qualifier).setTimestamp(qv.getTimestamp())
+            .setType(KeyValue.Type.Put.getCode()).setValue(value)
+            .setTags(tags).setSequenceId(0)
+            .build());
         }
       }
     }
@@ -1591,14 +1595,13 @@ public final class ProtobufUtil {
   }
 
   /**
-   * Unwraps an exception from a protobuf service into the underlying (expected) IOException.
-   * This method will <strong>always</strong> throw an exception.
+   * Unwraps an exception from a protobuf service into the underlying (expected) IOException. This
+   * method will <strong>always</strong> throw an exception.
    * @param se the {@code ServiceException} instance to convert into an {@code IOException}
+   * @throws NullPointerException if {@code se} is {@code null}
    */
   public static void toIOException(ServiceException se) throws IOException {
-    if (se == null) {
-      throw new NullPointerException("Null service exception passed!");
-    }
+    Objects.requireNonNull(se, "Service exception cannot be null");
 
     Throwable cause = se.getCause();
     if (cause != null && cause instanceof IOException) {

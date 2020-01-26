@@ -22,9 +22,9 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
 import org.apache.hadoop.hbase.HBaseClassTestRule;
-import org.apache.hadoop.hbase.HColumnDescriptor;
 import org.apache.hadoop.hbase.HRegionLocation;
 import org.apache.hadoop.hbase.client.Admin;
+import org.apache.hadoop.hbase.client.ColumnFamilyDescriptor;
 import org.apache.hadoop.hbase.client.RegionLocator;
 import org.apache.hadoop.hbase.client.Result;
 import org.apache.hadoop.hbase.client.ResultScanner;
@@ -45,9 +45,8 @@ import org.junit.runners.Parameterized.Parameters;
 /**
  * Uses the load tester
  */
-@Category({IOTests.class, MediumTests.class})
-public class TestLoadAndSwitchEncodeOnDisk extends
-    TestMiniClusterLoadSequential {
+@Category({ IOTests.class, MediumTests.class })
+public class TestLoadAndSwitchEncodeOnDisk extends TestMiniClusterLoadSequential {
 
   @ClassRule
   public static final HBaseClassTestRule CLASS_RULE =
@@ -80,7 +79,7 @@ public class TestLoadAndSwitchEncodeOnDisk extends
     compression = Compression.Algorithm.GZ; // used for table setup
     super.loadTest();
 
-    HColumnDescriptor hcd = getColumnDesc(admin);
+    ColumnFamilyDescriptor hcd = getColumnDesc(admin);
     System.err.println("\nDisabling encode-on-disk. Old column descriptor: " + hcd + "\n");
     Table t = TEST_UTIL.getConnection().getTable(TABLE);
     assertAllOnLine(t);
@@ -116,7 +115,7 @@ public class TestLoadAndSwitchEncodeOnDisk extends
       regions = rl.getAllRegionLocations();
     }
     for (HRegionLocation e: regions) {
-      byte [] startkey = e.getRegionInfo().getStartKey();
+      byte [] startkey = e.getRegion().getStartKey();
       Scan s = new Scan(startkey);
       ResultScanner scanner = t.getScanner(s);
       Result r = scanner.next();

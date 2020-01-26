@@ -306,9 +306,9 @@ struct THRegionLocation {
 
 /**
  * Thrift wrapper around
- * org.apache.hadoop.hbase.filter.CompareFilter$CompareOp.
+ * org.apache.hadoop.hbase.CompareOperator.
  */
-enum TCompareOp {
+enum TCompareOperator {
   LESS = 0,
   LESS_OR_EQUAL = 1,
   EQUAL = 2,
@@ -474,6 +474,14 @@ exception TIOError {
  */
 exception TIllegalArgument {
   1: optional string message
+}
+
+/**
+ * Specify type of thrift server: thrift and thrift2
+ */
+enum TThriftServerType {
+  ONE = 1,
+  TWO = 2
 }
 
 service THBaseService {
@@ -784,7 +792,7 @@ service THBaseService {
     4: required binary qualifier,
 
     /** comparison to make on the value */
-    5: required TCompareOp compareOp,
+    5: required TCompareOperator compareOperator,
 
     /** the expected value to be compared against, if not provided the
         check is for the non-existence of the column in question */
@@ -940,6 +948,10 @@ service THBaseService {
    * region gets splitted, the api may return false.
    *
    * @return true if table is available, false if not
+   *
+   * @deprecated Since 2.2.0. Because the same method in Table interface has been deprecated
+   * since 2.0.0, we will remove it in 3.0.0 release.
+   * Use {@link #isTableAvailable(TTableName tableName)} instead
   **/
   bool isTableAvailableWithSplit(
     /** the tablename to check */
@@ -1028,4 +1040,17 @@ service THBaseService {
   **/
   list<TNamespaceDescriptor> listNamespaceDescriptors(
   ) throws (1: TIOError io)
+
+  /**
+  * @return all namespace names
+  **/
+  list<string> listNamespaces(
+  ) throws (1: TIOError io)
+
+  /**
+   * Get the type of this thrift server.
+   *
+   * @return the type of this thrift server
+   */
+  TThriftServerType getThriftServerType()
 }

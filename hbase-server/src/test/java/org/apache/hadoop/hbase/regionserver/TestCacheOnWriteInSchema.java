@@ -182,7 +182,7 @@ public class TestCacheOnWriteInSchema {
 
     region = TEST_UTIL.createLocalHRegion(info, htd, walFactory.getWAL(info));
     region.setBlockCache(BlockCacheFactory.createBlockCache(conf));
-    store = new HStore(region, hcd, conf);
+    store = new HStore(region, hcd, conf, false);
   }
 
   @After
@@ -243,7 +243,10 @@ public class TestCacheOnWriteInSchema {
           offset);
         boolean isCached = cache.getBlock(blockCacheKey, true, false, true) != null;
         boolean shouldBeCached = cowType.shouldBeCached(block.getBlockType());
-        if (shouldBeCached != isCached) {
+        final BlockType blockType = block.getBlockType();
+
+        if (shouldBeCached != isCached &&
+            (cowType.blockType1.equals(blockType) || cowType.blockType2.equals(blockType))) {
           throw new AssertionError(
             "shouldBeCached: " + shouldBeCached+ "\n" +
             "isCached: " + isCached + "\n" +

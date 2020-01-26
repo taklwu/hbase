@@ -78,6 +78,7 @@ public class TestFromClientSideScanExcpetion {
   @BeforeClass
   public static void setUpBeforeClass() throws Exception {
     Configuration conf = TEST_UTIL.getConfiguration();
+    conf.setInt(HConstants.HBASE_CLIENT_RETRIES_NUMBER, 3);
     conf.setLong(HConstants.HBASE_CLIENT_SCANNER_TIMEOUT_PERIOD, 6000000);
     conf.setClass(HConstants.REGION_IMPL, MyHRegion.class, HRegion.class);
     conf.setBoolean("hbase.client.log.scanner.activity", true);
@@ -116,16 +117,17 @@ public class TestFromClientSideScanExcpetion {
     }
 
     @Override
-    protected HStore instantiateHStore(ColumnFamilyDescriptor family) throws IOException {
-      return new MyHStore(this, family, conf);
+    protected HStore instantiateHStore(ColumnFamilyDescriptor family, boolean warmup)
+        throws IOException {
+      return new MyHStore(this, family, conf, warmup);
     }
   }
 
   public static final class MyHStore extends HStore {
 
-    public MyHStore(HRegion region, ColumnFamilyDescriptor family, Configuration confParam)
-        throws IOException {
-      super(region, family, confParam);
+    public MyHStore(HRegion region, ColumnFamilyDescriptor family, Configuration confParam,
+        boolean warmup) throws IOException {
+      super(region, family, confParam, warmup);
     }
 
     @Override
@@ -222,7 +224,6 @@ public class TestFromClientSideScanExcpetion {
   @Test
   public void testScannerFailsAfterRetriesWhenCoprocessorThrowsIOE()
       throws IOException, InterruptedException {
-    TEST_UTIL.getConfiguration().setInt(HConstants.HBASE_CLIENT_RETRIES_NUMBER, 3);
     TableName tableName = TableName.valueOf(name.getMethodName());
     reset();
     THROW_ONCE.set(false); // throw exceptions in every retry
@@ -232,11 +233,12 @@ public class TestFromClientSideScanExcpetion {
       inject();
       TEST_UTIL.countRows(t, new Scan().addColumn(FAMILY, FAMILY));
       fail("Should have thrown an exception");
-    } catch (DoNotRetryIOException expected) {
-      assertThat(expected, instanceOf(ScannerResetException.class));
+    } catch (ScannerResetException expected) {
       // expected
+    } catch (RetriesExhaustedException e) {
+      // expected
+      assertThat(e.getCause(), instanceOf(ScannerResetException.class));
     }
     assertTrue(REQ_COUNT.get() >= 3);
   }
-
 }

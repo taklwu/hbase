@@ -30,13 +30,10 @@ import java.util.List;
 import java.util.Random;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
-import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hbase.ClusterMetrics.Option;
 import org.apache.hadoop.hbase.HBaseClassTestRule;
-import org.apache.hadoop.hbase.HBaseTestingUtility;
 import org.apache.hadoop.hbase.HColumnDescriptor;
 import org.apache.hadoop.hbase.HConstants;
-import org.apache.hadoop.hbase.HRegionLocation;
 import org.apache.hadoop.hbase.HTableDescriptor;
 import org.apache.hadoop.hbase.MiniHBaseCluster;
 import org.apache.hadoop.hbase.ServerName;
@@ -47,9 +44,7 @@ import org.apache.hadoop.hbase.TableNotEnabledException;
 import org.apache.hadoop.hbase.TableNotFoundException;
 import org.apache.hadoop.hbase.UnknownRegionException;
 import org.apache.hadoop.hbase.Waiter.Predicate;
-import org.apache.hadoop.hbase.ZooKeeperConnectionException;
 import org.apache.hadoop.hbase.constraint.ConstraintException;
-import org.apache.hadoop.hbase.ipc.HBaseRpcController;
 import org.apache.hadoop.hbase.master.HMaster;
 import org.apache.hadoop.hbase.master.assignment.AssignmentManager;
 import org.apache.hadoop.hbase.regionserver.HRegion;
@@ -58,22 +53,17 @@ import org.apache.hadoop.hbase.regionserver.HStore;
 import org.apache.hadoop.hbase.testclassification.ClientTests;
 import org.apache.hadoop.hbase.testclassification.LargeTests;
 import org.apache.hadoop.hbase.util.Bytes;
-import org.apache.hadoop.hbase.util.Pair;
+import org.apache.hadoop.hbase.util.FutureUtils;
 import org.apache.hadoop.hbase.wal.AbstractFSWALProvider;
-import org.junit.After;
-import org.junit.AfterClass;
 import org.junit.Assert;
-import org.junit.Before;
-import org.junit.BeforeClass;
 import org.junit.ClassRule;
-import org.junit.Rule;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
-import org.junit.rules.TestName;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import org.apache.hadoop.hbase.shaded.protobuf.ProtobufUtil;
+import org.apache.hadoop.hbase.shaded.protobuf.RequestConverter;
 
 /**
  * Class to test HBaseAdmin.
@@ -81,52 +71,19 @@ import org.apache.hadoop.hbase.shaded.protobuf.ProtobufUtil;
  * Add any testing of HBaseAdmin functionality here.
  */
 @Category({LargeTests.class, ClientTests.class})
-public class TestAdmin2 {
+public class TestAdmin2 extends TestAdminBase {
 
   @ClassRule
   public static final HBaseClassTestRule CLASS_RULE =
       HBaseClassTestRule.forClass(TestAdmin2.class);
 
   private static final Logger LOG = LoggerFactory.getLogger(TestAdmin2.class);
-  private final static HBaseTestingUtility TEST_UTIL = new HBaseTestingUtility();
-  private Admin admin;
-
-  @Rule
-  public TestName name = new TestName();
-
-  @BeforeClass
-  public static void setUpBeforeClass() throws Exception {
-    TEST_UTIL.getConfiguration().setInt("hbase.regionserver.msginterval", 100);
-    TEST_UTIL.getConfiguration().setInt("hbase.client.pause", 250);
-    TEST_UTIL.getConfiguration().setInt("hbase.client.retries.number", 6);
-    TEST_UTIL.getConfiguration().setInt(HConstants.REGION_SERVER_HIGH_PRIORITY_HANDLER_COUNT, 30);
-    TEST_UTIL.getConfiguration().setInt(HConstants.REGION_SERVER_HANDLER_COUNT, 30);
-    TEST_UTIL.getConfiguration().setBoolean("hbase.master.enabletable.roundrobin", true);
-    TEST_UTIL.startMiniCluster(3);
-  }
-
-  @AfterClass
-  public static void tearDownAfterClass() throws Exception {
-    TEST_UTIL.shutdownMiniCluster();
-  }
-
-  @Before
-  public void setUp() throws Exception {
-    this.admin = TEST_UTIL.getHBaseAdmin();
-  }
-
-  @After
-  public void tearDown() throws Exception {
-    for (HTableDescriptor htd : this.admin.listTables()) {
-      TEST_UTIL.deleteTable(htd.getTableName());
-    }
-  }
 
   @Test
   public void testCreateBadTables() throws IOException {
     String msg = null;
     try {
-      this.admin.createTable(new HTableDescriptor(TableName.META_TABLE_NAME));
+      ADMIN.createTable(new HTableDescriptor(TableName.META_TABLE_NAME));
     } catch(TableExistsException e) {
       msg = e.toString();
     }
@@ -141,7 +98,7 @@ public class TestAdmin2 {
     Thread [] threads = new Thread [count];
     final AtomicInteger successes = new AtomicInteger(0);
     final AtomicInteger failures = new AtomicInteger(0);
-    final Admin localAdmin = this.admin;
+    final Admin localAdmin = ADMIN;
     for (int i = 0; i < count; i++) {
       threads[i] = new Thread(Integer.toString(i)) {
         @Override
@@ -186,8 +143,8 @@ public class TestAdmin2 {
     HTableDescriptor htd2 = new HTableDescriptor(TableName.valueOf(name));
     htd1.addFamily(new HColumnDescriptor(HConstants.CATALOG_FAMILY));
     htd2.addFamily(new HColumnDescriptor(HConstants.CATALOG_FAMILY));
-    admin.createTable(htd1);
-    admin.createTable(htd2);
+    ADMIN.createTable(htd1);
+    ADMIN.createTable(htd2);
     // Before fix, below would fail throwing a NoServerForRegionException.
     TEST_UTIL.getConnection().getTable(htd2.getTableName()).close();
   }
@@ -197,7 +154,6 @@ public class TestAdmin2 {
    * Thus creating of table with lots of regions can cause RPC timeout
    * After the fix to make createTable truly async, RPC timeout shouldn't be an
    * issue anymore
-   * @throws Exception
    */
   @Test
   public void testCreateTableRPCTimeOut() throws Exception {
@@ -210,7 +166,7 @@ public class TestAdmin2 {
       // Use 80 bit numbers to make sure we aren't limited
       byte [] startKey = { 1, 1, 1, 1, 1, 1, 1, 1, 1, 1 };
       byte [] endKey =   { 9, 9, 9, 9, 9, 9, 9, 9, 9, 9 };
-      Admin hbaseadmin = TEST_UTIL.getHBaseAdmin();
+      Admin hbaseadmin = TEST_UTIL.getAdmin();
       HTableDescriptor htd = new HTableDescriptor(TableName.valueOf(name));
       htd.addFamily(new HColumnDescriptor(HConstants.CATALOG_FAMILY));
       hbaseadmin.createTable(htd, startKey, endKey, expectedRegions);
@@ -238,7 +194,6 @@ public class TestAdmin2 {
   /**
    * Test that user table names can contain '-' and '.' so long as they do not
    * start with same. HBASE-771
-   * @throws IOException
    */
   @Test
   public void testTableNames() throws IOException {
@@ -267,7 +222,6 @@ public class TestAdmin2 {
 
   /**
    * For HADOOP-2579
-   * @throws IOException
    */
   @Test (expected=TableExistsException.class)
   public void testTableExistsExceptionWithATable() throws IOException {
@@ -278,41 +232,35 @@ public class TestAdmin2 {
 
   /**
    * Can't disable a table if the table isn't in enabled state
-   * @throws IOException
    */
   @Test (expected=TableNotEnabledException.class)
   public void testTableNotEnabledExceptionWithATable() throws IOException {
     final TableName name = TableName.valueOf(this.name.getMethodName());
     TEST_UTIL.createTable(name, HConstants.CATALOG_FAMILY).close();
-    this.admin.disableTable(name);
-    this.admin.disableTable(name);
+    ADMIN.disableTable(name);
+    ADMIN.disableTable(name);
   }
 
   /**
    * Can't enable a table if the table isn't in disabled state
-   * @throws IOException
    */
-  @Test (expected=TableNotDisabledException.class)
+  @Test(expected = TableNotDisabledException.class)
   public void testTableNotDisabledExceptionWithATable() throws IOException {
     final TableName name = TableName.valueOf(this.name.getMethodName());
-    Table t = TEST_UTIL.createTable(name, HConstants.CATALOG_FAMILY);
-    try {
-    this.admin.enableTable(name);
-    }finally {
-       t.close();
+    try (Table t = TEST_UTIL.createTable(name, HConstants.CATALOG_FAMILY)) {
+      ADMIN.enableTable(name);
     }
   }
 
   /**
    * For HADOOP-2579
-   * @throws IOException
    */
-  @Test (expected=TableNotFoundException.class)
+  @Test(expected = TableNotFoundException.class)
   public void testTableNotFoundExceptionWithoutAnyTables() throws IOException {
-    TableName tableName = TableName
-        .valueOf("testTableNotFoundExceptionWithoutAnyTables");
-    Table ht = TEST_UTIL.getConnection().getTable(tableName);
-    ht.get(new Get(Bytes.toBytes("e")));
+    TableName tableName = TableName.valueOf("testTableNotFoundExceptionWithoutAnyTables");
+    try (Table ht = TEST_UTIL.getConnection().getTable(tableName)) {
+      ht.get(new Get(Bytes.toBytes("e")));
+    }
   }
 
   @Test
@@ -326,7 +274,7 @@ public class TestAdmin2 {
     for (RegionInfo regionInfo : onlineRegions) {
       if (!regionInfo.getTable().isSystemTable()) {
         info = regionInfo;
-        admin.unassign(regionInfo.getRegionName(), true);
+        ADMIN.unassign(regionInfo.getRegionName(), true);
       }
     }
     boolean isInList = ProtobufUtil.getOnlineRegions(
@@ -356,7 +304,7 @@ public class TestAdmin2 {
         if (regionInfo.getRegionNameAsString().contains(name)) {
           info = regionInfo;
           try {
-            admin.unassign(Bytes.toBytes("sample"), true);
+            ADMIN.unassign(Bytes.toBytes("sample"), true);
           } catch (UnknownRegionException nsre) {
             // expected, ignore it
           }
@@ -380,7 +328,7 @@ public class TestAdmin2 {
       if (!regionInfo.isMetaRegion()) {
         if (regionInfo.getRegionNameAsString().contains("TestHBACloseRegion2")) {
           info = regionInfo;
-          admin.unassign(regionInfo.getRegionName(), true);
+          ADMIN.unassign(regionInfo.getRegionName(), true);
         }
       }
     }
@@ -398,14 +346,16 @@ public class TestAdmin2 {
       isInList);
   }
 
-  private HBaseAdmin createTable(TableName tableName) throws IOException {
-    HBaseAdmin admin = TEST_UTIL.getHBaseAdmin();
+  private Admin createTable(TableName tableName) throws IOException {
+    Admin admin = TEST_UTIL.getAdmin();
 
-    HTableDescriptor htd = new HTableDescriptor(tableName);
-    HColumnDescriptor hcd = new HColumnDescriptor("value");
+    TableDescriptorBuilder tableDescriptorBuilder =
+      TableDescriptorBuilder.newBuilder(tableName);
+    ColumnFamilyDescriptor columnFamilyDescriptor =
+      ColumnFamilyDescriptorBuilder.newBuilder(Bytes.toBytes("value")).build();
 
-    htd.addFamily(hcd);
-    admin.createTable(htd, null);
+    tableDescriptorBuilder.setColumnFamily(columnFamilyDescriptor);
+    admin.createTable(tableDescriptorBuilder.build());
     return admin;
   }
 
@@ -414,16 +364,17 @@ public class TestAdmin2 {
   }
 
   private void createTableWithDefaultConf(TableName TABLENAME) throws IOException {
-    HTableDescriptor htd = new HTableDescriptor(TABLENAME);
-    HColumnDescriptor hcd = new HColumnDescriptor("value");
-    htd.addFamily(hcd);
+    TableDescriptorBuilder tableDescriptorBuilder =
+      TableDescriptorBuilder.newBuilder(TABLENAME);
+    ColumnFamilyDescriptor columnFamilyDescriptor =
+      ColumnFamilyDescriptorBuilder.newBuilder(Bytes.toBytes("value")).build();
+    tableDescriptorBuilder.setColumnFamily(columnFamilyDescriptor);
 
-    admin.createTable(htd, null);
+    ADMIN.createTable(tableDescriptorBuilder.build());
   }
 
   /**
    * For HBASE-2556
-   * @throws IOException
    */
   @Test
   public void testGetTableRegions() throws IOException {
@@ -438,9 +389,9 @@ public class TestAdmin2 {
 
     HTableDescriptor desc = new HTableDescriptor(tableName);
     desc.addFamily(new HColumnDescriptor(HConstants.CATALOG_FAMILY));
-    admin.createTable(desc, startKey, endKey, expectedRegions);
+    ADMIN.createTable(desc, startKey, endKey, expectedRegions);
 
-    List<RegionInfo> RegionInfos = admin.getRegions(tableName);
+    List<RegionInfo> RegionInfos = ADMIN.getRegions(tableName);
 
     assertEquals("Tried to create " + expectedRegions + " regions " +
         "but only found " + RegionInfos.size(),
@@ -457,7 +408,7 @@ public class TestAdmin2 {
     RegionInfo hri = tableRegions.get(0);
     AssignmentManager am = master.getAssignmentManager();
     ServerName server = am.getRegionStates().getRegionServerOfRegion(hri);
-    localAdmin.move(hri.getEncodedNameAsBytes(), Bytes.toBytes(server.getServerName()));
+    localAdmin.move(hri.getEncodedNameAsBytes(), server);
     assertEquals("Current region server and region server before move should be same.", server,
       am.getRegionStates().getRegionServerOfRegion(hri));
   }
@@ -479,7 +430,7 @@ public class TestAdmin2 {
     for (HRegion r : regionServer.getOnlineRegionsLocalContext()) {
       r.flush(true);
     }
-    admin.rollWALWriter(regionServer.getServerName());
+    ADMIN.rollWALWriter(regionServer.getServerName());
     int count = AbstractFSWALProvider.getNumRolledLogFiles(regionServer.getWAL(null));
     LOG.info("after flushing all regions and rolling logs there are " +
         count + " log files");
@@ -536,7 +487,7 @@ public class TestAdmin2 {
     // Create the test table and open it
     HTableDescriptor desc = new HTableDescriptor(tableName);
     desc.addFamily(new HColumnDescriptor(HConstants.CATALOG_FAMILY));
-    admin.createTable(desc);
+    ADMIN.createTable(desc);
     Table table = TEST_UTIL.getConnection().getTable(tableName);
 
     HRegionServer regionServer = TEST_UTIL.getRSForFirstRegionInTable(tableName);
@@ -558,34 +509,10 @@ public class TestAdmin2 {
     return regionServer;
   }
 
-  /**
-   * Check that we have an exception if the cluster is not there.
-   */
-  @Test
-  public void testCheckHBaseAvailableWithoutCluster() {
-    Configuration conf = new Configuration(TEST_UTIL.getConfiguration());
-
-    // Change the ZK address to go to something not used.
-    conf.setInt(HConstants.ZOOKEEPER_CLIENT_PORT,
-      conf.getInt(HConstants.ZOOKEEPER_CLIENT_PORT, 9999)+10);
-
-    long start = System.currentTimeMillis();
-    try {
-      HBaseAdmin.available(conf);
-      assertTrue(false);
-    } catch (ZooKeeperConnectionException ignored) {
-    } catch (IOException ignored) {
-    }
-    long end = System.currentTimeMillis();
-
-    LOG.info("It took "+(end-start)+" ms to find out that" +
-      " HBase was not available");
-  }
-
   @Test
   public void testDisableCatalogTable() throws Exception {
     try {
-      this.admin.disableTable(TableName.META_TABLE_NAME);
+      ADMIN.disableTable(TableName.META_TABLE_NAME);
       fail("Expected to throw ConstraintException");
     } catch (ConstraintException e) {
     }
@@ -595,87 +522,66 @@ public class TestAdmin2 {
         new HTableDescriptor(TableName.valueOf(Bytes.toBytes(name.getMethodName())));
     HColumnDescriptor hcd = new HColumnDescriptor(Bytes.toBytes("cf1"));
     htd.addFamily(hcd);
-    TEST_UTIL.getHBaseAdmin().createTable(htd);
+    TEST_UTIL.getAdmin().createTable(htd);
   }
 
   @Test
   public void testIsEnabledOrDisabledOnUnknownTable() throws Exception {
     try {
-      admin.isTableEnabled(TableName.valueOf(name.getMethodName()));
+      ADMIN.isTableEnabled(TableName.valueOf(name.getMethodName()));
       fail("Test should fail if isTableEnabled called on unknown table.");
     } catch (IOException e) {
     }
 
     try {
-      admin.isTableDisabled(TableName.valueOf(name.getMethodName()));
+      ADMIN.isTableDisabled(TableName.valueOf(name.getMethodName()));
       fail("Test should fail if isTableDisabled called on unknown table.");
     } catch (IOException e) {
     }
   }
 
   @Test
-  public void testGetRegion() throws Exception {
-    // We use actual HBaseAdmin instance instead of going via Admin interface in
-    // here because makes use of an internal HBA method (TODO: Fix.).
-    HBaseAdmin rawAdmin = TEST_UTIL.getHBaseAdmin();
-
-    final TableName tableName = TableName.valueOf(name.getMethodName());
-    LOG.info("Started " + tableName);
-    Table t = TEST_UTIL.createMultiRegionTable(tableName, HConstants.CATALOG_FAMILY);
-
-    try (RegionLocator locator = TEST_UTIL.getConnection().getRegionLocator(tableName)) {
-      HRegionLocation regionLocation = locator.getRegionLocation(Bytes.toBytes("mmm"));
-      RegionInfo region = regionLocation.getRegionInfo();
-      byte[] regionName = region.getRegionName();
-      Pair<RegionInfo, ServerName> pair = rawAdmin.getRegion(regionName);
-      assertTrue(Bytes.equals(regionName, pair.getFirst().getRegionName()));
-      pair = rawAdmin.getRegion(region.getEncodedNameAsBytes());
-      assertTrue(Bytes.equals(regionName, pair.getFirst().getRegionName()));
-    }
-  }
-
-  @Test
   public void testBalancer() throws Exception {
-    boolean initialState = admin.isBalancerEnabled();
+    boolean initialState = ADMIN.isBalancerEnabled();
 
     // Start the balancer, wait for it.
-    boolean prevState = admin.setBalancerRunning(!initialState, true);
+    boolean prevState = ADMIN.balancerSwitch(!initialState, true);
 
     // The previous state should be the original state we observed
     assertEquals(initialState, prevState);
 
     // Current state should be opposite of the original
-    assertEquals(!initialState, admin.isBalancerEnabled());
+    assertEquals(!initialState, ADMIN.isBalancerEnabled());
 
     // Reset it back to what it was
-    prevState = admin.setBalancerRunning(initialState, true);
+    prevState = ADMIN.balancerSwitch(initialState, true);
 
     // The previous state should be the opposite of the initial state
     assertEquals(!initialState, prevState);
     // Current state should be the original state again
-    assertEquals(initialState, admin.isBalancerEnabled());
+    assertEquals(initialState, ADMIN.isBalancerEnabled());
   }
 
   @Test
   public void testRegionNormalizer() throws Exception {
-    boolean initialState = admin.isNormalizerEnabled();
+    boolean initialState = ADMIN.isNormalizerEnabled();
 
     // flip state
-    boolean prevState = admin.setNormalizerRunning(!initialState);
+    boolean prevState = ADMIN.normalizerSwitch(!initialState);
 
     // The previous state should be the original state we observed
     assertEquals(initialState, prevState);
 
     // Current state should be opposite of the original
-    assertEquals(!initialState, admin.isNormalizerEnabled());
+    assertEquals(!initialState, ADMIN.isNormalizerEnabled());
 
     // Reset it back to what it was
-    prevState = admin.setNormalizerRunning(initialState);
+    prevState = ADMIN.normalizerSwitch(initialState);
 
     // The previous state should be the opposite of the initial state
     assertEquals(!initialState, prevState);
     // Current state should be the original state again
-    assertEquals(initialState, admin.isNormalizerEnabled());
+    assertEquals(initialState, ADMIN.isNormalizerEnabled());
   }
 
   @Test
@@ -683,32 +589,32 @@ public class TestAdmin2 {
     Random randomGenerator = new Random();
     long procId = randomGenerator.nextLong();
 
-    boolean abortResult = admin.abortProcedure(procId, true);
+    boolean abortResult = ADMIN.abortProcedure(procId, true);
     assertFalse(abortResult);
   }
 
   @Test
   public void testGetProcedures() throws Exception {
-    String procList = admin.getProcedures();
+    String procList = ADMIN.getProcedures();
     assertTrue(procList.startsWith("["));
   }
 
   @Test
   public void testGetLocks() throws Exception {
-    String lockList = admin.getLocks();
+    String lockList = ADMIN.getLocks();
     assertTrue(lockList.startsWith("["));
   }
 
   @Test
   public void testDecommissionRegionServers() throws Exception {
-    List<ServerName> decommissionedRegionServers = admin.listDecommissionedRegionServers();
+    List<ServerName> decommissionedRegionServers = ADMIN.listDecommissionedRegionServers();
     assertTrue(decommissionedRegionServers.isEmpty());
 
     final TableName tableName = TableName.valueOf(name.getMethodName());
     TEST_UTIL.createMultiRegionTable(tableName, Bytes.toBytes("f"), 6);
 
     ArrayList<ServerName> clusterRegionServers =
-        new ArrayList<>(admin.getClusterMetrics(EnumSet.of(Option.LIVE_SERVERS))
+        new ArrayList<>(ADMIN.getClusterMetrics(EnumSet.of(Option.LIVE_SERVERS))
           .getLiveServerMetrics().keySet());
 
     assertEquals(3, clusterRegionServers.size());
@@ -718,8 +624,8 @@ public class TestAdmin2 {
     // leaving one online.
     int i;
     for (i = 0; i < clusterRegionServers.size(); i++) {
-      List<RegionInfo> regionsOnServer = admin.getRegions(clusterRegionServers.get(i));
-      if (admin.getRegions(clusterRegionServers.get(i)).stream().anyMatch(p -> p.isMetaRegion())) {
+      List<RegionInfo> regionsOnServer = ADMIN.getRegions(clusterRegionServers.get(i));
+      if (ADMIN.getRegions(clusterRegionServers.get(i)).stream().anyMatch(p -> p.isMetaRegion())) {
         serversToDecommssion.put(clusterRegionServers.get(i), regionsOnServer);
         break;
       }
@@ -728,13 +634,13 @@ public class TestAdmin2 {
     clusterRegionServers.remove(i);
     // Get another server to decommission.
     serversToDecommssion.put(clusterRegionServers.get(0),
-      admin.getRegions(clusterRegionServers.get(0)));
+      ADMIN.getRegions(clusterRegionServers.get(0)));
 
     ServerName remainingServer = clusterRegionServers.get(1);
 
     // Decommission
-    admin.decommissionRegionServers(new ArrayList<ServerName>(serversToDecommssion.keySet()), true);
-    assertEquals(2, admin.listDecommissionedRegionServers().size());
+    ADMIN.decommissionRegionServers(new ArrayList<ServerName>(serversToDecommssion.keySet()), true);
+    assertEquals(2, ADMIN.listDecommissionedRegionServers().size());
 
     // Verify the regions have been off the decommissioned servers, all on the one
     // remaining server.
@@ -748,9 +654,9 @@ public class TestAdmin2 {
     for (ServerName server : serversToDecommssion.keySet()) {
       List<byte[]> encodedRegionNames = serversToDecommssion.get(server).stream()
           .map(region -> region.getEncodedNameAsBytes()).collect(Collectors.toList());
-      admin.recommissionRegionServer(server, encodedRegionNames);
+      ADMIN.recommissionRegionServer(server, encodedRegionNames);
     }
-    assertTrue(admin.listDecommissionedRegionServers().isEmpty());
+    assertTrue(ADMIN.listDecommissionedRegionServers().isEmpty());
     // Verify the regions have been moved to the recommissioned servers
     for (ServerName server : serversToDecommssion.keySet()) {
       for (RegionInfo region : serversToDecommssion.get(server)) {
@@ -770,7 +676,7 @@ public class TestAdmin2 {
       table.put(new Put(Bytes.toBytes(i)).addColumn(Bytes.toBytes("f"), Bytes.toBytes("q"),
         Bytes.toBytes(i)));
     }
-    admin.flush(tableName);
+    ADMIN.flush(tableName);
 
     HRegionServer rs = TEST_UTIL.getRSForFirstRegionInTable(table.getName());
     List<HRegion> regions = rs.getRegions(tableName);
@@ -782,17 +688,43 @@ public class TestAdmin2 {
     long expectedStoreFilesSize = store.getStorefilesSize();
     Assert.assertNotNull(store);
     Assert.assertEquals(expectedStoreFilesSize, store.getSize());
-
-    ClusterConnection conn = ((ClusterConnection) admin.getConnection());
-    HBaseRpcController controller = conn.getRpcControllerFactory().newController();
     for (int i = 0; i < 10; i++) {
-      RegionInfo ri =
-          ProtobufUtil.getRegionInfo(controller, conn.getAdmin(rs.getServerName()), regionName);
+      RegionInfo ri = ProtobufUtil
+        .toRegionInfo(TEST_UTIL.getAsyncConnection().getRegionServerAdmin(rs.getServerName())
+          .getRegionInfo(RequestConverter.buildGetRegionInfoRequest(regionName)).get()
+          .getRegionInfo());
+
       Assert.assertEquals(region.getRegionInfo(), ri);
 
       // Make sure that the store size is still the actual file system's store size.
       Assert.assertEquals(expectedStoreFilesSize, store.getSize());
     }
+
+    // Test querying using the encoded name only. When encoded name passed,
+    // and the target server is the Master, we return the full region name.
+    // Convenience.
+    ServerName sn = null;
+    try (Admin admin = TEST_UTIL.getConnection().getAdmin()) {
+      sn = admin.getMaster();
+    }
+    RegionInfo ri = region.getRegionInfo();
+    testGetWithRegionName(sn, ri, ri.getEncodedNameAsBytes());
+    testGetWithRegionName(sn, ri, ri.getRegionName());
+    // Try querying meta encoded name.
+    ri = RegionInfoBuilder.FIRST_META_REGIONINFO;
+    testGetWithRegionName(sn, ri, ri.getEncodedNameAsBytes());
+    testGetWithRegionName(sn, ri, ri.getRegionName());
+  }
+
+  /**
+   * Do get of RegionInfo from Master using encoded region name.
+   */
+  private void testGetWithRegionName(ServerName sn, RegionInfo inputRI,
+      byte [] regionName) throws IOException {
+    RegionInfo ri = ProtobufUtil.toRegionInfo(FutureUtils.get(
+      TEST_UTIL.getAsyncConnection().getRegionServerAdmin(sn).getRegionInfo(
+        ProtobufUtil.getGetRegionInfoRequest(regionName))).getRegionInfo());
+    assertEquals(inputRI, ri);
   }
 
   @Test
@@ -801,26 +733,26 @@ public class TestAdmin2 {
     TEST_UTIL.createTable(tableName, Bytes.toBytes("f"));
 
     // get the original table region count
-    List<RegionInfo> regions = admin.getRegions(tableName);
+    List<RegionInfo> regions = ADMIN.getRegions(tableName);
     int originalCount = regions.size();
     assertEquals(1, originalCount);
 
     // split the table and wait until region count increases
-    admin.split(tableName, Bytes.toBytes(3));
+    ADMIN.split(tableName, Bytes.toBytes(3));
     TEST_UTIL.waitFor(30000, new Predicate<Exception>() {
 
       @Override
       public boolean evaluate() throws Exception {
-        return admin.getRegions(tableName).size() > originalCount;
+        return ADMIN.getRegions(tableName).size() > originalCount;
       }
     });
 
     // do some table modification
-    TableDescriptor tableDesc = TableDescriptorBuilder.newBuilder(admin.getDescriptor(tableName))
+    TableDescriptor tableDesc = TableDescriptorBuilder.newBuilder(ADMIN.getDescriptor(tableName))
         .setMaxFileSize(11111111)
         .build();
-    admin.modifyTable(tableDesc);
-    assertEquals(11111111, admin.getDescriptor(tableName).getMaxFileSize());
+    ADMIN.modifyTable(tableDesc);
+    assertEquals(11111111, ADMIN.getDescriptor(tableName).getMaxFileSize());
   }
 
   @Test
@@ -830,7 +762,7 @@ public class TestAdmin2 {
       new byte[][] { Bytes.toBytes(3) });
 
     // assert we have at least 2 regions in the table
-    List<RegionInfo> regions = admin.getRegions(tableName);
+    List<RegionInfo> regions = ADMIN.getRegions(tableName);
     int originalCount = regions.size();
     assertTrue(originalCount >= 2);
 
@@ -838,20 +770,47 @@ public class TestAdmin2 {
     byte[] nameOfRegionB = regions.get(1).getEncodedNameAsBytes();
 
     // merge the table regions and wait until region count decreases
-    admin.mergeRegionsAsync(nameOfRegionA, nameOfRegionB, true);
+    ADMIN.mergeRegionsAsync(nameOfRegionA, nameOfRegionB, true);
     TEST_UTIL.waitFor(30000, new Predicate<Exception>() {
 
       @Override
       public boolean evaluate() throws Exception {
-        return admin.getRegions(tableName).size() < originalCount;
+        return ADMIN.getRegions(tableName).size() < originalCount;
       }
     });
 
     // do some table modification
-    TableDescriptor tableDesc = TableDescriptorBuilder.newBuilder(admin.getDescriptor(tableName))
+    TableDescriptor tableDesc = TableDescriptorBuilder.newBuilder(ADMIN.getDescriptor(tableName))
         .setMaxFileSize(11111111)
         .build();
-    admin.modifyTable(tableDesc);
-    assertEquals(11111111, admin.getDescriptor(tableName).getMaxFileSize());
+    ADMIN.modifyTable(tableDesc);
+    assertEquals(11111111, ADMIN.getDescriptor(tableName).getMaxFileSize());
   }
+
+  @Test
+  public void testSnapshotCleanupAsync() throws Exception {
+    testSnapshotCleanup(false);
+  }
+
+  @Test
+  public void testSnapshotCleanupSync() throws Exception {
+    testSnapshotCleanup(true);
+  }
+
+  private void testSnapshotCleanup(final boolean synchronous) throws IOException {
+    final boolean initialState = ADMIN.isSnapshotCleanupEnabled();
+    // Switch the snapshot auto cleanup state to opposite to initial state
+    boolean prevState = ADMIN.snapshotCleanupSwitch(!initialState, synchronous);
+    // The previous state should be the original state we observed
+    assertEquals(initialState, prevState);
+    // Current state should be opposite of the initial state
+    assertEquals(!initialState, ADMIN.isSnapshotCleanupEnabled());
+    // Reset the state back to what it was initially
+    prevState = ADMIN.snapshotCleanupSwitch(initialState, synchronous);
+    // The previous state should be the opposite of the initial state
+    assertEquals(!initialState, prevState);
+    // Current state should be the original state again
+    assertEquals(initialState, ADMIN.isSnapshotCleanupEnabled());
+  }
+
 }

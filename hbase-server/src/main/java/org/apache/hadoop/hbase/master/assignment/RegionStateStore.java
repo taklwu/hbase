@@ -20,7 +20,9 @@ package org.apache.hadoop.hbase.master.assignment;
 import java.io.IOException;
 import java.util.Collections;
 import java.util.List;
-import org.apache.hadoop.fs.FileSystem;
+import java.util.SortedMap;
+import java.util.TreeMap;
+
 import org.apache.hadoop.hbase.Cell;
 import org.apache.hadoop.hbase.CellBuilderFactory;
 import org.apache.hadoop.hbase.CellBuilderType;
@@ -35,21 +37,20 @@ import org.apache.hadoop.hbase.client.RegionInfo;
 import org.apache.hadoop.hbase.client.Result;
 import org.apache.hadoop.hbase.client.Table;
 import org.apache.hadoop.hbase.client.TableDescriptor;
+import org.apache.hadoop.hbase.master.MasterFileSystem;
 import org.apache.hadoop.hbase.master.MasterServices;
 import org.apache.hadoop.hbase.master.RegionState.State;
 import org.apache.hadoop.hbase.procedure2.Procedure;
 import org.apache.hadoop.hbase.procedure2.util.StringUtils;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.hbase.util.EnvironmentEdgeManager;
-import org.apache.hadoop.hbase.util.FSUtils;
-import org.apache.hadoop.hbase.wal.WALSplitter;
+import org.apache.hadoop.hbase.wal.WALSplitUtil;
 import org.apache.hadoop.hbase.zookeeper.MetaTableLocator;
 import org.apache.yetus.audience.InterfaceAudience;
 import org.apache.zookeeper.KeeperException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import org.apache.hbase.thirdparty.com.google.common.annotations.VisibleForTesting;
 import org.apache.hbase.thirdparty.com.google.common.base.Preconditions;
 
 /**
@@ -97,6 +98,23 @@ public class RegionStateStore {
     });
   }
 
+  /**
+   * Queries META table for the passed region encoded name,
+   * delegating action upon results to the <code>RegionStateVisitor</code>
+   * passed as second parameter.
+   * @param regionEncodedName encoded name for the Region we want to query META for.
+   * @param visitor The <code>RegionStateVisitor</code> instance to react over the query results.
+   * @throws IOException If some error occurs while querying META or parsing results.
+   */
+  public void visitMetaForRegion(final String regionEncodedName, final RegionStateVisitor visitor)
+      throws IOException {
+    Result result = MetaTableAccessor.
+      scanByRegionEncodedName(master.getConnection(), regionEncodedName);
+    if (result != null) {
+      visitMetaEntry(visitor, result);
+    }
+  }
+
   private void visitMetaEntry(final RegionStateVisitor visitor, final Result result)
       throws IOException {
     final RegionLocations rl = MetaTableAccessor.getRegionLocations(result);
@@ -113,7 +131,7 @@ public class RegionStateStore {
       if (regionInfo == null) continue;
 
       final int replicaId = regionInfo.getReplicaId();
-      final State state = getRegionState(result, replicaId);
+      final State state = getRegionState(result, regionInfo);
 
       final ServerName lastHost = hrl.getServerName();
       final ServerName regionLocation = getRegionServer(result, replicaId);
@@ -128,8 +146,7 @@ public class RegionStateStore {
     }
   }
 
-  public void updateRegionLocation(RegionStateNode regionStateNode)
-      throws IOException {
+  void updateRegionLocation(RegionStateNode regionStateNode) throws IOException {
     if (regionStateNode.getRegionInfo().isMetaRegion()) {
       updateMetaLocation(regionStateNode.getRegionInfo(), regionStateNode.getRegionLocation(),
         regionStateNode.getState());
@@ -217,10 +234,9 @@ public class RegionStateStore {
   }
 
   private long getOpenSeqNumForParentRegion(RegionInfo region) throws IOException {
-    FileSystem walFS = master.getMasterWalManager().getFileSystem();
-    long maxSeqId =
-        WALSplitter.getMaxRegionSequenceId(walFS, FSUtils.getWALRegionDir(
-            master.getConfiguration(), region.getTable(), region.getEncodedName()));
+    MasterFileSystem fs = master.getMasterFileSystem();
+    long maxSeqId = WALSplitUtil.getMaxRegionSequenceId(master.getConfiguration(), region,
+      fs::getFileSystem, fs::getWALFileSystem);
     return maxSeqId > 0 ? maxSeqId + 1 : HConstants.NO_SEQNUM;
   }
 
@@ -229,7 +245,7 @@ public class RegionStateStore {
   // ============================================================================================
   public void splitRegion(RegionInfo parent, RegionInfo hriA, RegionInfo hriB,
       ServerName serverName) throws IOException {
-    TableDescriptor htd = getTableDescriptor(parent.getTable());
+    TableDescriptor htd = getDescriptor(parent.getTable());
     long parentOpenSeqNum = HConstants.NO_SEQNUM;
     if (htd.hasGlobalReplicationScope()) {
       parentOpenSeqNum = getOpenSeqNumForParentRegion(parent);
@@ -241,17 +257,16 @@ public class RegionStateStore {
   // ============================================================================================
   //  Update Region Merging State helpers
   // ============================================================================================
-  public void mergeRegions(RegionInfo child, RegionInfo hriA, RegionInfo hriB,
-      ServerName serverName) throws IOException {
-    TableDescriptor htd = getTableDescriptor(child.getTable());
-    long regionAOpenSeqNum = -1L;
-    long regionBOpenSeqNum = -1L;
-    if (htd.hasGlobalReplicationScope()) {
-      regionAOpenSeqNum = getOpenSeqNumForParentRegion(hriA);
-      regionBOpenSeqNum = getOpenSeqNumForParentRegion(hriB);
+  public void mergeRegions(RegionInfo child, RegionInfo [] parents, ServerName serverName)
+      throws IOException {
+    TableDescriptor htd = getDescriptor(child.getTable());
+    boolean globalScope = htd.hasGlobalReplicationScope();
+    SortedMap<RegionInfo, Long> parentSeqNums = new TreeMap<>();
+    for (RegionInfo ri: parents) {
+      parentSeqNums.put(ri, globalScope? getOpenSeqNumForParentRegion(ri): -1);
     }
-    MetaTableAccessor.mergeRegions(master.getConnection(), child, hriA, regionAOpenSeqNum, hriB,
-      regionBOpenSeqNum, serverName, getRegionReplication(htd));
+    MetaTableAccessor.mergeRegions(master.getConnection(), child, parentSeqNums,
+        serverName, getRegionReplication(htd));
   }
 
   // ============================================================================================
@@ -262,14 +277,14 @@ public class RegionStateStore {
   }
 
   public void deleteRegions(final List<RegionInfo> regions) throws IOException {
-    MetaTableAccessor.deleteRegions(master.getConnection(), regions);
+    MetaTableAccessor.deleteRegionInfos(master.getConnection(), regions);
   }
 
   // ==========================================================================
   //  Table Descriptors helpers
   // ==========================================================================
   private boolean hasGlobalReplicationScope(TableName tableName) throws IOException {
-    return hasGlobalReplicationScope(getTableDescriptor(tableName));
+    return hasGlobalReplicationScope(getDescriptor(tableName));
   }
 
   private boolean hasGlobalReplicationScope(TableDescriptor htd) {
@@ -280,7 +295,7 @@ public class RegionStateStore {
     return htd != null ? htd.getRegionReplication() : 1;
   }
 
-  private TableDescriptor getTableDescriptor(TableName tableName) throws IOException {
+  private TableDescriptor getDescriptor(TableName tableName) throws IOException {
     return master.getTableDescriptors().get(tableName);
   }
 
@@ -326,17 +341,25 @@ public class RegionStateStore {
 
   /**
    * Pull the region state from a catalog table {@link Result}.
-   * @param r Result to pull the region state from
    * @return the region state, or null if unknown.
    */
-  @VisibleForTesting
-  public static State getRegionState(final Result r, int replicaId) {
-    Cell cell = r.getColumnLatestCell(HConstants.CATALOG_FAMILY, getStateColumn(replicaId));
+  public static State getRegionState(final Result r, RegionInfo regionInfo) {
+    Cell cell = r.getColumnLatestCell(HConstants.CATALOG_FAMILY,
+        getStateColumn(regionInfo.getReplicaId()));
     if (cell == null || cell.getValueLength() == 0) {
       return null;
     }
-    return State.valueOf(Bytes.toString(cell.getValueArray(), cell.getValueOffset(),
-        cell.getValueLength()));
+
+    String state = Bytes.toString(cell.getValueArray(), cell.getValueOffset(),
+        cell.getValueLength());
+    try {
+      return State.valueOf(state);
+    } catch (IllegalArgumentException e) {
+      LOG.warn("BAD value {} in hbase:meta info:state column for region {} , " +
+              "Consider using HBCK2 setRegionState ENCODED_REGION_NAME STATE",
+          state, regionInfo.getEncodedName());
+      return null;
+    }
   }
 
   private static byte[] getStateColumn(int replicaId) {

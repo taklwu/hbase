@@ -21,7 +21,6 @@ package org.apache.hadoop.hbase.client;
 
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -182,7 +181,9 @@ public class Scan extends Query {
   public Scan() {}
 
   /**
-   * @deprecated use {@code new Scan().withStartRow(startRow).setFilter(filter)} instead.
+   * @deprecated since 2.0.0 and will be removed in 3.0.0. Use
+   *   {@code new Scan().withStartRow(startRow).setFilter(filter)} instead.
+   * @see <a href="https://issues.apache.org/jira/browse/HBASE-17320">HBASE-17320</a>
    */
   @Deprecated
   public Scan(byte[] startRow, Filter filter) {
@@ -196,7 +197,9 @@ public class Scan extends Query {
    * If the specified row does not exist, the Scanner will start from the next closest row after the
    * specified row.
    * @param startRow row to start scanner at or after
-   * @deprecated use {@code new Scan().withStartRow(startRow)} instead.
+   * @deprecated since 2.0.0 and will be removed in 3.0.0. Use
+   *   {@code new Scan().withStartRow(startRow)} instead.
+   * @see <a href="https://issues.apache.org/jira/browse/HBASE-17320">HBASE-17320</a>
    */
   @Deprecated
   public Scan(byte[] startRow) {
@@ -207,7 +210,9 @@ public class Scan extends Query {
    * Create a Scan operation for the range of rows specified.
    * @param startRow row to start scanner at or after (inclusive)
    * @param stopRow row to stop scanner before (exclusive)
-   * @deprecated use {@code new Scan().withStartRow(startRow).withStopRow(stopRow)} instead.
+   * @deprecated since 2.0.0 and will be removed in 3.0.0. Use
+   *   {@code new Scan().withStartRow(startRow).withStopRow(stopRow)} instead.
+   * @see <a href="https://issues.apache.org/jira/browse/HBASE-17320">HBASE-17320</a>
    */
   @Deprecated
   public Scan(byte[] startRow, byte[] stopRow) {
@@ -409,8 +414,11 @@ public class Scan extends Query {
    * @return this
    * @throws IllegalArgumentException if startRow does not meet criteria for a row key (when length
    *           exceeds {@link HConstants#MAX_ROW_LENGTH})
-   * @deprecated use {@link #withStartRow(byte[])} instead. This method may change the inclusive of
-   *             the stop row to keep compatible with the old behavior.
+   * @deprecated since 2.0.0 and will be removed in 3.0.0. Use {@link #withStartRow(byte[])}
+   *   instead. This method may change the inclusive of the stop row to keep compatible with the old
+   *   behavior.
+   * @see #withStartRow(byte[])
+   * @see <a href="https://issues.apache.org/jira/browse/HBASE-17320">HBASE-17320</a>
    */
   @Deprecated
   public Scan setStartRow(byte[] startRow) {
@@ -469,8 +477,11 @@ public class Scan extends Query {
    * @return this
    * @throws IllegalArgumentException if stopRow does not meet criteria for a row key (when length
    *           exceeds {@link HConstants#MAX_ROW_LENGTH})
-   * @deprecated use {@link #withStopRow(byte[])} instead. This method may change the inclusive of
-   *             the stop row to keep compatible with the old behavior.
+   * @deprecated since 2.0.0 and will be removed in 3.0.0. Use {@link #withStopRow(byte[])} instead.
+   *   This method may change the inclusive of the stop row to keep compatible with the old
+   *   behavior.
+   * @see #withStopRow(byte[])
+   * @see <a href="https://issues.apache.org/jira/browse/HBASE-17320">HBASE-17320</a>
    */
   @Deprecated
   public Scan setStopRow(byte[] stopRow) {
@@ -537,58 +548,18 @@ public class Scan extends Query {
       setStopRow(HConstants.EMPTY_END_ROW);
     } else {
       this.setStartRow(rowPrefix);
-      this.setStopRow(calculateTheClosestNextRowKeyForPrefix(rowPrefix));
+      this.setStopRow(ClientUtil.calculateTheClosestNextRowKeyForPrefix(rowPrefix));
     }
     return this;
   }
 
   /**
-   * <p>When scanning for a prefix the scan should stop immediately after the the last row that
-   * has the specified prefix. This method calculates the closest next rowKey immediately following
-   * the given rowKeyPrefix.</p>
-   * <p><b>IMPORTANT: This converts a rowKey<u>Prefix</u> into a rowKey</b>.</p>
-   * <p>If the prefix is an 'ASCII' string put into a byte[] then this is easy because you can
-   * simply increment the last byte of the array.
-   * But if your application uses real binary rowids you may run into the scenario that your
-   * prefix is something like:</p>
-   * &nbsp;&nbsp;&nbsp;<b>{ 0x12, 0x23, 0xFF, 0xFF }</b><br/>
-   * Then this stopRow needs to be fed into the actual scan<br/>
-   * &nbsp;&nbsp;&nbsp;<b>{ 0x12, 0x24 }</b> (Notice that it is shorter now)<br/>
-   * This method calculates the correct stop row value for this usecase.
-   *
-   * @param rowKeyPrefix the rowKey<u>Prefix</u>.
-   * @return the closest next rowKey immediately following the given rowKeyPrefix.
-   */
-  private byte[] calculateTheClosestNextRowKeyForPrefix(byte[] rowKeyPrefix) {
-    // Essentially we are treating it like an 'unsigned very very long' and doing +1 manually.
-    // Search for the place where the trailing 0xFFs start
-    int offset = rowKeyPrefix.length;
-    while (offset > 0) {
-      if (rowKeyPrefix[offset - 1] != (byte) 0xFF) {
-        break;
-      }
-      offset--;
-    }
-
-    if (offset == 0) {
-      // We got an 0xFFFF... (only FFs) stopRow value which is
-      // the last possible prefix before the end of the table.
-      // So set it to stop at the 'end of the table'
-      return HConstants.EMPTY_END_ROW;
-    }
-
-    // Copy the right length of the original
-    byte[] newStopRow = Arrays.copyOfRange(rowKeyPrefix, 0, offset);
-    // And increment the last one
-    newStopRow[newStopRow.length - 1]++;
-    return newStopRow;
-  }
-
-  /**
    * Get all available versions.
    * @return this
-   * @deprecated It is easy to misunderstand with column family's max versions, so use
-   *             {@link #readAllVersions()} instead.
+   * @deprecated since 2.0.0 and will be removed in 3.0.0. It is easy to misunderstand with column
+   *   family's max versions, so use {@link #readAllVersions()} instead.
+   * @see #readAllVersions()
+   * @see <a href="https://issues.apache.org/jira/browse/HBASE-17125">HBASE-17125</a>
    */
   @Deprecated
   public Scan setMaxVersions() {
@@ -599,8 +570,10 @@ public class Scan extends Query {
    * Get up to the specified number of versions of each column.
    * @param maxVersions maximum versions for each column
    * @return this
-   * @deprecated It is easy to misunderstand with column family's max versions, so use
-   *             {@link #readVersions(int)} instead.
+   * @deprecated since 2.0.0 and will be removed in 3.0.0. It is easy to misunderstand with column
+   *   family's max versions, so use {@link #readVersions(int)} instead.
+   * @see #readVersions(int)
+   * @see <a href="https://issues.apache.org/jira/browse/HBASE-17125">HBASE-17125</a>
    */
   @Deprecated
   public Scan setMaxVersions(int maxVersions) {
@@ -1023,12 +996,13 @@ public class Scan extends Query {
    * better performance for small scan. [HBASE-9488]. Generally, if the scan range is within one
    * data block(64KB), it could be considered as a small scan.
    * @param small
-   * @deprecated since 2.0.0. Use {@link #setLimit(int)} and {@link #setReadType(ReadType)} instead.
-   *             And for the one rpc optimization, now we will also fetch data when openScanner, and
-   *             if the number of rows reaches the limit then we will close the scanner
-   *             automatically which means we will fall back to one rpc.
+   * @deprecated since 2.0.0 and will be removed in 3.0.0. Use {@link #setLimit(int)} and
+   *   {@link #setReadType(ReadType)} instead. And for the one rpc optimization, now we will also
+   *   fetch data when openScanner, and if the number of rows reaches the limit then we will close
+   *   the scanner automatically which means we will fall back to one rpc.
    * @see #setLimit(int)
    * @see #setReadType(ReadType)
+   * @see <a href="https://issues.apache.org/jira/browse/HBASE-17045">HBASE-17045</a>
    */
   @Deprecated
   public Scan setSmall(boolean small) {
@@ -1040,7 +1014,9 @@ public class Scan extends Query {
   /**
    * Get whether this scan is a small scan
    * @return true if small scan
-   * @deprecated since 2.0.0. See the comment of {@link #setSmall(boolean)}
+   * @deprecated since 2.0.0 and will be removed in 3.0.0. See the comment of
+   *   {@link #setSmall(boolean)}
+   * @see <a href="https://issues.apache.org/jira/browse/HBASE-17045">HBASE-17045</a>
    */
   @Deprecated
   public boolean isSmall() {
@@ -1113,6 +1089,11 @@ public class Scan extends Query {
     return asyncPrefetch;
   }
 
+  /**
+   * @deprecated Since 3.0.0, will be removed in 4.0.0. After building sync client upon async
+   *             client, the implementation is always 'async prefetch', so this flag is useless now.
+   */
+  @Deprecated
   public Scan setAsyncPrefetch(boolean asyncPrefetch) {
     this.asyncPrefetch = asyncPrefetch;
     return this;

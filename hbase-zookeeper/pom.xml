@@ -1,5 +1,5 @@
 <?xml version="1.0"?>
-<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+<project xmlns="https://maven.apache.org/POM/4.0.0" xmlns:xsi="https://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="https://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
 <!--
 /*
  * Licensed to the Apache Software Foundation (ASF) under one
@@ -61,31 +61,6 @@
           <skipAssembly>true</skipAssembly>
         </configuration>
       </plugin>
-      <!-- General plugins -->
-      <plugin>
-        <groupId>org.apache.maven.plugins</groupId>
-        <artifactId>maven-eclipse-plugin</artifactId>
-        <configuration>
-          <additionalProjectnatures>
-            <projectnature>org.jamon.project.jamonnature</projectnature>
-          </additionalProjectnatures>
-          <buildcommands>
-            <buildcommand>org.jamon.project.templateBuilder</buildcommand>
-            <buildcommand>org.eclipse.jdt.core.javabuilder</buildcommand>
-            <buildcommand>org.jamon.project.markerUpdater</buildcommand>
-          </buildcommands>
-          <additionalConfig>
-            <file>
-              <name>.settings/org.jamon.prefs</name>
-              <content># now
-                eclipse.preferences.version=1
-                templateSourceDir=src/main/jamon
-                templateOutputDir=target/generated-jamon
-              </content>
-            </file>
-          </additionalConfig>
-        </configuration>
-      </plugin>
       <!-- Run findbugs -->
       <plugin>
         <groupId>org.codehaus.mojo</groupId>
@@ -103,53 +78,6 @@
         <artifactId>warbucks-maven-plugin</artifactId>
       </plugin>
     </plugins>
-    <!-- General Resources -->
-    <pluginManagement>
-       <plugins>
-         <!--This plugin's configuration is used to store Eclipse m2e settings
-             only. It has no influence on the Maven build itself and needs to
-             be kept in plugin management, not in the actual plugins. -->
-        <plugin>
-          <groupId>org.eclipse.m2e</groupId>
-          <artifactId>lifecycle-mapping</artifactId>
-          <configuration>
-            <lifecycleMappingMetadata>
-              <pluginExecutions>
-                <pluginExecution>
-                  <pluginExecutionFilter>
-                    <groupId>org.apache.maven.plugins</groupId>
-                    <artifactId>maven-antrun-plugin</artifactId>
-                    <versionRange>[1.6,)</versionRange>
-                    <goals>
-                      <goal>run</goal>
-                    </goals>
-                  </pluginExecutionFilter>
-                  <action>
-                    <execute>
-                      <runOnIncremental>false</runOnIncremental>
-                      <runOnConfiguration>true</runOnConfiguration>
-                    </execute>
-                  </action>
-                </pluginExecution>
-                <pluginExecution>
-                  <pluginExecutionFilter>
-                    <groupId>org.apache.maven.plugins</groupId>
-                    <artifactId>maven-dependency-plugin</artifactId>
-                    <versionRange>[2.8,)</versionRange>
-                    <goals>
-                      <goal>build-classpath</goal>
-                    </goals>
-                  </pluginExecutionFilter>
-                  <action>
-                    <ignore></ignore>
-                  </action>
-                </pluginExecution>
-              </pluginExecutions>
-            </lifecycleMappingMetadata>
-          </configuration>
-        </plugin>
-      </plugins>
-    </pluginManagement>
   </build>
   <dependencies>
     <dependency>
@@ -342,9 +270,6 @@
           <value>3.0</value>
         </property>
       </activation>
-      <properties>
-        <hadoop.version>${hadoop-three.version}</hadoop.version>
-      </properties>
       <dependencies>
         <dependency>
           <groupId>org.apache.hadoop</groupId>
@@ -377,6 +302,88 @@
             </executions>
           </plugin>
         </plugins>
+      </build>
+    </profile>
+    <profile>
+      <id>eclipse-specific</id>
+      <activation>
+        <property>
+          <name>m2e.version</name>
+        </property>
+      </activation>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-eclipse-plugin</artifactId>
+            <configuration>
+              <additionalProjectnatures>
+                <projectnature>org.jamon.project.jamonnature</projectnature>
+              </additionalProjectnatures>
+              <buildcommands>
+                <buildcommand>org.jamon.project.templateBuilder</buildcommand>
+                <buildcommand>org.eclipse.jdt.core.javabuilder</buildcommand>
+                <buildcommand>org.jamon.project.markerUpdater</buildcommand>
+              </buildcommands>
+              <additionalConfig>
+                <file>
+                  <name>.settings/org.jamon.prefs</name>
+                  <content># now
+                    eclipse.preferences.version=1
+                    templateSourceDir=src/main/jamon
+                    templateOutputDir=target/generated-jamon
+                  </content>
+                </file>
+              </additionalConfig>
+            </configuration>
+          </plugin>
+        </plugins>
+        <pluginManagement>
+           <plugins>
+             <!--This plugin's configuration is used to store Eclipse m2e settings
+                 only. It has no influence on the Maven build itself and needs to
+                 be kept in plugin management, not in the actual plugins. -->
+            <plugin>
+              <groupId>org.eclipse.m2e</groupId>
+              <artifactId>lifecycle-mapping</artifactId>
+              <configuration>
+                <lifecycleMappingMetadata>
+                  <pluginExecutions>
+                    <pluginExecution>
+                      <pluginExecutionFilter>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-antrun-plugin</artifactId>
+                        <versionRange>[1.6,)</versionRange>
+                        <goals>
+                          <goal>run</goal>
+                        </goals>
+                      </pluginExecutionFilter>
+                      <action>
+                        <execute>
+                          <runOnIncremental>false</runOnIncremental>
+                          <runOnConfiguration>true</runOnConfiguration>
+                        </execute>
+                      </action>
+                    </pluginExecution>
+                    <pluginExecution>
+                      <pluginExecutionFilter>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-dependency-plugin</artifactId>
+                        <versionRange>[2.8,)</versionRange>
+                        <goals>
+                          <goal>build-classpath</goal>
+                        </goals>
+                      </pluginExecutionFilter>
+                      <action>
+                        <ignore></ignore>
+                      </action>
+                    </pluginExecution>
+                  </pluginExecutions>
+                </lifecycleMappingMetadata>
+              </configuration>
+            </plugin>
+          </plugins>
+        </pluginManagement>
       </build>
     </profile>
   </profiles>

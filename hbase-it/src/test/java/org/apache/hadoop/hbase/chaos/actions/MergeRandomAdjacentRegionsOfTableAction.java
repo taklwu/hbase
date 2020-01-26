@@ -19,17 +19,20 @@
 package org.apache.hadoop.hbase.chaos.actions;
 
 import java.util.List;
-
 import org.apache.commons.lang3.RandomUtils;
 import org.apache.hadoop.hbase.HBaseTestingUtility;
-import org.apache.hadoop.hbase.HRegionInfo;
 import org.apache.hadoop.hbase.TableName;
 import org.apache.hadoop.hbase.client.Admin;
+import org.apache.hadoop.hbase.client.RegionInfo;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Action to merge regions of a table.
  */
 public class MergeRandomAdjacentRegionsOfTableAction extends Action {
+  private static final Logger LOG =
+      LoggerFactory.getLogger(MergeRandomAdjacentRegionsOfTableAction.class);
   private final TableName tableName;
   private final long sleepTime;
 
@@ -48,15 +51,15 @@ public class MergeRandomAdjacentRegionsOfTableAction extends Action {
     Admin admin = util.getAdmin();
 
     LOG.info("Performing action: Merge random adjacent regions of table " + tableName);
-    List<HRegionInfo> regions = admin.getTableRegions(tableName);
+    List<RegionInfo> regions = admin.getRegions(tableName);
     if (regions == null || regions.size() < 2) {
       LOG.info("Table " + tableName + " doesn't have enough regions to merge");
       return;
     }
 
     int i = RandomUtils.nextInt(0, regions.size() - 1);
-    HRegionInfo a = regions.get(i++);
-    HRegionInfo b = regions.get(i);
+    RegionInfo a = regions.get(i++);
+    RegionInfo b = regions.get(i);
     LOG.debug("Merging " + a.getRegionNameAsString() + " and " + b.getRegionNameAsString());
 
     // Don't try the merge if we're stopping

@@ -117,19 +117,6 @@ implements WritableComparable<ImmutableBytesWritable> {
 
   /**
    * @return the number of valid bytes in the buffer
-   * @deprecated use {@link #getLength()} instead
-   */
-  @Deprecated
-  public int getSize() {
-    if (this.bytes == null) {
-      throw new IllegalStateException("Uninitialiized. Null constructor " +
-        "called w/o accompaying readFields invocation");
-    }
-    return this.length;
-  }
-
-  /**
-   * @return the number of valid bytes in the buffer
    */
   public int getLength() {
     if (this.bytes == null) {

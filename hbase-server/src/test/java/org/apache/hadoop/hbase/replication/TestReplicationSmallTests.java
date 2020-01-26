@@ -102,7 +102,7 @@ public class TestReplicationSmallTests extends TestReplicationBase {
     final byte[] v1 = Bytes.toBytes("v1");
     final byte[] v2 = Bytes.toBytes("v2");
     final byte[] v3 = Bytes.toBytes("v3");
-    htable1 = utility1.getConnection().getTable(tableName);
+    htable1 = UTIL1.getConnection().getTable(tableName);
 
     long t = EnvironmentEdgeManager.currentTime();
     // create three versions for "row"
@@ -239,7 +239,7 @@ public class TestReplicationSmallTests extends TestReplicationBase {
   }
 
   /**
-   * Integration test for TestReplicationAdmin, removes and re-add a peer cluster
+   * Removes and re-add a peer cluster
    */
   @Test
   public void testAddAndRemoveClusters() throws Exception {
@@ -265,7 +265,7 @@ public class TestReplicationSmallTests extends TestReplicationBase {
       }
     }
     ReplicationPeerConfig rpc =
-        ReplicationPeerConfig.newBuilder().setClusterKey(utility2.getClusterKey()).build();
+        ReplicationPeerConfig.newBuilder().setClusterKey(UTIL2.getClusterKey()).build();
     hbaseAdmin.addReplicationPeer(PEER_ID, rpc);
     Thread.sleep(SLEEP_TIME);
     rowKey = Bytes.toBytes("do rep");
@@ -352,8 +352,7 @@ public class TestReplicationSmallTests extends TestReplicationBase {
    * Test for HBASE-8663
    * <p>
    * Create two new Tables with colfamilies enabled for replication then run
-   * ReplicationAdmin.listReplicated(). Finally verify the table:colfamilies. Note:
-   * TestReplicationAdmin is a better place for this testing but it would need mocks.
+   * {@link Admin#listReplicatedTableCFs()}. Finally verify the table:colfamilies.
    */
   @Test
   public void testVerifyListReplicatedTable() throws Exception {
@@ -363,7 +362,7 @@ public class TestReplicationSmallTests extends TestReplicationBase {
     final String colFam = "cf1";
     final int numOfTables = 3;
 
-    Admin hadmin = utility1.getAdmin();
+    Admin hadmin = UTIL1.getAdmin();
 
     // Create Tables
     for (int i = 0; i < numOfTables; i++) {
@@ -408,15 +407,15 @@ public class TestReplicationSmallTests extends TestReplicationBase {
   public void testReplicationInReplay() throws Exception {
     final TableName tableName = htable1.getName();
 
-    HRegion region = utility1.getMiniHBaseCluster().getRegions(tableName).get(0);
+    HRegion region = UTIL1.getMiniHBaseCluster().getRegions(tableName).get(0);
     RegionInfo hri = region.getRegionInfo();
     NavigableMap<byte[], Integer> scopes = new TreeMap<>(Bytes.BYTES_COMPARATOR);
     for (byte[] fam : htable1.getDescriptor().getColumnFamilyNames()) {
       scopes.put(fam, 1);
     }
     final MultiVersionConcurrencyControl mvcc = new MultiVersionConcurrencyControl();
-    int index = utility1.getMiniHBaseCluster().getServerWith(hri.getRegionName());
-    WAL wal = utility1.getMiniHBaseCluster().getRegionServer(index).getWAL(region.getRegionInfo());
+    int index = UTIL1.getMiniHBaseCluster().getServerWith(hri.getRegionName());
+    WAL wal = UTIL1.getMiniHBaseCluster().getRegionServer(index).getWAL(region.getRegionInfo());
     final byte[] rowName = Bytes.toBytes("testReplicationInReplay");
     final byte[] qualifier = Bytes.toBytes("q");
     final byte[] value = Bytes.toBytes("v");
@@ -424,7 +423,7 @@ public class TestReplicationSmallTests extends TestReplicationBase {
     long now = EnvironmentEdgeManager.currentTime();
     edit.add(new KeyValue(rowName, famName, qualifier, now, value));
     WALKeyImpl walKey = new WALKeyImpl(hri.getEncodedNameAsBytes(), tableName, now, mvcc, scopes);
-    wal.append(hri, walKey, edit, true);
+    wal.appendData(hri, walKey, edit);
     wal.sync();
 
     Get get = new Get(rowName);

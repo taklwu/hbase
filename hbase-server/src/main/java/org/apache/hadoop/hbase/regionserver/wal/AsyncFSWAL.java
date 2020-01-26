@@ -17,6 +17,8 @@
  */
 package org.apache.hadoop.hbase.regionserver.wal;
 
+import static org.apache.hadoop.hbase.regionserver.wal.WALActionsListener.RollRequestReason.ERROR;
+import static org.apache.hadoop.hbase.regionserver.wal.WALActionsListener.RollRequestReason.SIZE;
 import static org.apache.hadoop.hbase.util.FutureUtils.addListener;
 
 import com.lmax.disruptor.RingBuffer;
@@ -167,9 +169,6 @@ public class AsyncFSWAL extends AbstractFSWAL<AsyncWriter> {
   // notice that, modification to this field is only allowed under the protection of consumeLock.
   private volatile int epochAndState;
 
-  // used to guard the log roll request when we exceed the log roll size.
-  private boolean rollRequested;
-
   private boolean readyForRolling;
 
   private final Condition readyForRollingCond = consumeLock.newCondition();
@@ -317,40 +316,62 @@ public class AsyncFSWAL extends AbstractFSWAL<AsyncWriter> {
     highestUnsyncedTxid = highestSyncedTxid.get();
     if (shouldRequestLogRoll) {
       // request a roll.
-      requestLogRoll();
+      requestLogRoll(ERROR);
     }
   }
 
   private void syncCompleted(AsyncWriter writer, long processedTxid, long startTimeNs) {
     highestSyncedTxid.set(processedTxid);
     for (Iterator<FSWALEntry> iter = unackedAppends.iterator(); iter.hasNext();) {
-      if (iter.next().getTxid() <= processedTxid) {
+      FSWALEntry entry = iter.next();
+      if (entry.getTxid() <= processedTxid) {
+        entry.release();
         iter.remove();
       } else {
         break;
       }
     }
-
-    boolean doRequestRoll = postSync(System.nanoTime() - startTimeNs, finishSync(true));
+    postSync(System.nanoTime() - startTimeNs, finishSync(true));
     if (trySetReadyForRolling()) {
       // we have just finished a roll, then do not need to check for log rolling, the writer will be
       // closed soon.
       return;
     }
-    if ((!doRequestRoll && writer.getLength() < logrollsize) || rollRequested) {
-      return;
+    // If we haven't already requested a roll, check if we have exceeded logrollsize
+    if (!isLogRollRequested() && writer.getLength() > logrollsize) {
+      if (LOG.isDebugEnabled()) {
+        LOG.debug("Requesting log roll because of file size threshold; length=" +
+          writer.getLength() + ", logrollsize=" + logrollsize);
+      }
+      requestLogRoll(SIZE);
     }
-    rollRequested = true;
-    requestLogRoll();
+  }
+
+  // find all the sync futures between these two txids to see if we need to issue a hsync, if no
+  // sync futures then just use the default one.
+  private boolean isHsync(long beginTxid, long endTxid) {
+    SortedSet<SyncFuture> futures =
+      syncFutures.subSet(new SyncFuture().reset(beginTxid), new SyncFuture().reset(endTxid + 1));
+    if (futures.isEmpty()) {
+      return useHsync;
+    }
+    for (SyncFuture future : futures) {
+      if (future.isForceSync()) {
+        return true;
+      }
+    }
+    return false;
   }
 
   private void sync(AsyncWriter writer) {
     fileLengthAtLastSync = writer.getLength();
     long currentHighestProcessedAppendTxid = highestProcessedAppendTxid;
+    boolean shouldUseHsync =
+      isHsync(highestProcessedAppendTxidAtLastSync, currentHighestProcessedAppendTxid);
     highestProcessedAppendTxidAtLastSync = currentHighestProcessedAppendTxid;
     final long startTimeNs = System.nanoTime();
     final long epoch = (long) epochAndState >>> 2L;
-    addListener(writer.sync(), (result, error) -> {
+    addListener(writer.sync(shouldUseHsync), (result, error) -> {
       if (error != null) {
         syncFailed(epoch, error);
       } else {
@@ -431,14 +452,18 @@ public class AsyncFSWAL extends AbstractFSWAL<AsyncWriter> {
       FSWALEntry entry = iter.next();
       boolean appended;
       try {
-        appended = append(writer, entry);
+        appended = appendEntry(writer, entry);
       } catch (IOException e) {
         throw new AssertionError("should not happen", e);
       }
       newHighestProcessedAppendTxid = entry.getTxid();
       iter.remove();
       if (appended) {
-        unackedAppends.addLast(entry);
+        // This is possible, when we fail to sync, we will add the unackedAppends back to
+        // toWriteAppends, so here we may get an entry which is already in the unackedAppends.
+        if (unackedAppends.isEmpty() || unackedAppends.peekLast().getTxid() < entry.getTxid()) {
+          unackedAppends.addLast(entry);
+        }
         if (writer.getLength() - fileLengthAtLastSync >= batchSize) {
           break;
         }
@@ -482,6 +507,7 @@ public class AsyncFSWAL extends AbstractFSWAL<AsyncWriter> {
     while (iter.hasNext()) {
       FSWALEntry entry = iter.next();
       if (!entry.getEdit().isMetaEdit()) {
+        entry.release();
         hasNonMarkerEdits = true;
         break;
       }
@@ -492,7 +518,10 @@ public class AsyncFSWAL extends AbstractFSWAL<AsyncWriter> {
         if (!iter.hasNext()) {
           break;
         }
-        iter.next();
+        iter.next().release();
+      }
+      for (FSWALEntry entry : unackedAppends) {
+        entry.release();
       }
       unackedAppends.clear();
       // fail the sync futures which are under the txid of the first remaining edit, if none, fail
@@ -604,13 +633,13 @@ public class AsyncFSWAL extends AbstractFSWAL<AsyncWriter> {
   }
 
   @Override
-  public long append(RegionInfo hri, WALKeyImpl key, WALEdit edits, boolean inMemstore)
+  protected long append(RegionInfo hri, WALKeyImpl key, WALEdit edits, boolean inMemstore)
       throws IOException {
-    if (markerEditOnly() && !edits.isMetaEdit()) {
-      throw new IOException("WAL is closing, only marker edit is allowed");
-    }
-    long txid =
-      stampSequenceIdAndPublishToRingBuffer(hri, key, edits, inMemstore, waitingConsumePayloads);
+      if (markerEditOnly() && !edits.isMetaEdit()) {
+        throw new IOException("WAL is closing, only marker edit is allowed");
+      }
+    long txid = stampSequenceIdAndPublishToRingBuffer(hri, key, edits, inMemstore,
+      waitingConsumePayloads);
     if (shouldScheduleConsumer()) {
       consumeExecutor.execute(consumer);
     }
@@ -619,11 +648,21 @@ public class AsyncFSWAL extends AbstractFSWAL<AsyncWriter> {
 
   @Override
   public void sync() throws IOException {
+    sync(useHsync);
+  }
+
+  @Override
+  public void sync(long txid) throws IOException {
+    sync(txid, useHsync);
+  }
+
+  @Override
+  public void sync(boolean forceSync) throws IOException {
     try (TraceScope scope = TraceUtil.createTrace("AsyncFSWAL.sync")) {
       long txid = waitingConsumePayloads.next();
       SyncFuture future;
       try {
-        future = getSyncFuture(txid);
+        future = getSyncFuture(txid, forceSync);
         RingBufferTruck truck = waitingConsumePayloads.get(txid);
         truck.load(future);
       } finally {
@@ -637,7 +676,7 @@ public class AsyncFSWAL extends AbstractFSWAL<AsyncWriter> {
   }
 
   @Override
-  public void sync(long txid) throws IOException {
+  public void sync(long txid, boolean forceSync) throws IOException {
     if (highestSyncedTxid.get() >= txid) {
       return;
     }
@@ -646,7 +685,7 @@ public class AsyncFSWAL extends AbstractFSWAL<AsyncWriter> {
       long sequence = waitingConsumePayloads.next();
       SyncFuture future;
       try {
-        future = getSyncFuture(txid);
+        future = getSyncFuture(txid, forceSync);
         RingBufferTruck truck = waitingConsumePayloads.get(sequence);
         truck.load(future);
       } finally {
@@ -716,7 +755,6 @@ public class AsyncFSWAL extends AbstractFSWAL<AsyncWriter> {
       this.fsOut = ((AsyncProtobufLogWriter) nextWriter).getOutput();
     }
     this.fileLengthAtLastSync = nextWriter.getLength();
-    this.rollRequested = false;
     this.highestProcessedAppendTxidAtLastSync = 0L;
     consumeLock.lock();
     try {
@@ -725,6 +763,8 @@ public class AsyncFSWAL extends AbstractFSWAL<AsyncWriter> {
       int nextEpoch = currentEpoch == MAX_EPOCH ? 0 : currentEpoch + 1;
       // set a new epoch and also clear waitingRoll and writerBroken
       this.epochAndState = nextEpoch << 2;
+      // Reset rollRequested status
+      rollRequested.set(false);
       consumeExecutor.execute(consumer);
     } finally {
       consumeLock.unlock();

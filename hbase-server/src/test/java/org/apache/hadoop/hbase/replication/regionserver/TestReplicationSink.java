@@ -40,7 +40,6 @@ import org.apache.hadoop.hbase.CellUtil;
 import org.apache.hadoop.hbase.HBaseClassTestRule;
 import org.apache.hadoop.hbase.HBaseTestingUtility;
 import org.apache.hadoop.hbase.HConstants;
-import org.apache.hadoop.hbase.HRegionInfo;
 import org.apache.hadoop.hbase.KeyValue;
 import org.apache.hadoop.hbase.Stoppable;
 import org.apache.hadoop.hbase.TableName;
@@ -49,10 +48,11 @@ import org.apache.hadoop.hbase.client.Admin;
 import org.apache.hadoop.hbase.client.Connection;
 import org.apache.hadoop.hbase.client.ConnectionFactory;
 import org.apache.hadoop.hbase.client.Get;
+import org.apache.hadoop.hbase.client.RegionInfo;
 import org.apache.hadoop.hbase.client.RegionLocator;
 import org.apache.hadoop.hbase.client.Result;
 import org.apache.hadoop.hbase.client.ResultScanner;
-import org.apache.hadoop.hbase.client.RetriesExhaustedWithDetailsException;
+import org.apache.hadoop.hbase.client.RetriesExhaustedException;
 import org.apache.hadoop.hbase.client.Scan;
 import org.apache.hadoop.hbase.client.Table;
 import org.apache.hadoop.hbase.testclassification.MediumTests;
@@ -275,7 +275,7 @@ public class TestReplicationSink {
   }
 
   @Test
-  public void testRethrowRetriesExhaustedWithDetailsException() throws Exception {
+  public void testRethrowRetriesExhaustedException() throws Exception {
     TableName notExistTable = TableName.valueOf("notExistTable");
     List<WALEntry> entries = new ArrayList<>();
     List<Cell> cells = new ArrayList<>();
@@ -300,7 +300,7 @@ public class TestReplicationSink {
           SINK.replicateEntries(entries, CellUtil.createCellScanner(cells.iterator()),
             replicationClusterId, baseNamespaceDir, hfileArchiveDir);
           Assert.fail("Should re-throw RetriesExhaustedWithDetailsException.");
-        } catch (RetriesExhaustedWithDetailsException e) {
+        } catch (RetriesExhaustedException e) {
         } finally {
           admin.enableTable(TABLE_NAME1);
         }
@@ -349,7 +349,7 @@ public class TestReplicationSink {
 
     try (Connection c = ConnectionFactory.createConnection(conf);
         RegionLocator l = c.getRegionLocator(TABLE_NAME1)) {
-      HRegionInfo regionInfo = l.getAllRegionLocations().get(0).getRegionInfo();
+      RegionInfo regionInfo = l.getAllRegionLocations().get(0).getRegion();
       loadDescriptor =
           ProtobufUtil.toBulkLoadDescriptor(TABLE_NAME1,
               UnsafeByteOperations.unsafeWrap(regionInfo.getEncodedNameAsBytes()),

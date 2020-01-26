@@ -26,40 +26,43 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.TreeMap;
 
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.hbase.AuthUtil;
+import org.apache.hadoop.hbase.Cell;
+import org.apache.hadoop.hbase.CellUtil;
 import org.apache.hadoop.hbase.DoNotRetryIOException;
+import org.apache.hadoop.hbase.HBaseInterfaceAudience;
+import org.apache.hadoop.hbase.NamespaceDescriptor;
 import org.apache.hadoop.hbase.TableName;
 import org.apache.hadoop.hbase.client.RegionInfo;
 import org.apache.hadoop.hbase.ipc.RpcServer;
 import org.apache.hadoop.hbase.security.AccessDeniedException;
+import org.apache.hadoop.hbase.security.Superusers;
 import org.apache.hadoop.hbase.security.User;
+import org.apache.hadoop.hbase.security.UserProvider;
 import org.apache.hadoop.hbase.security.access.Permission.Action;
-import org.apache.hadoop.hbase.zookeeper.ZKWatcher;
+import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.security.Groups;
 import org.apache.hadoop.security.HadoopKerberosName;
 import org.apache.yetus.audience.InterfaceAudience;
+import org.apache.yetus.audience.InterfaceStability;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.apache.hbase.thirdparty.com.google.common.collect.ImmutableSet;
 
-@InterfaceAudience.Private
-public final class AccessChecker {
+@InterfaceAudience.LimitedPrivate(HBaseInterfaceAudience.COPROC)
+@InterfaceStability.Evolving
+public class AccessChecker {
   private static final Logger LOG = LoggerFactory.getLogger(AccessChecker.class);
   private static final Logger AUDITLOG =
       LoggerFactory.getLogger("SecurityLogger." + AccessChecker.class.getName());
-  // TODO: we should move to a design where we don't even instantiate an AccessChecker if
-  // authorization is not enabled (like in RSRpcServices), instead of always instantiating one and
-  // calling requireXXX() only to do nothing (since authorizationEnabled will be false).
-  private AuthManager authManager;
+  private final AuthManager authManager;
 
   /** Group service to retrieve the user group information */
   private static Groups groupService;
-
-  /**
-   * if we are active, usually false, only true if "hbase.security.authorization"
-   * has been set to true in site configuration.see HBASE-19483.
-   */
-  private boolean authorizationEnabled;
 
   public static boolean isAuthorizationSupported(Configuration conf) {
     return conf.getBoolean(User.HBASE_SECURITY_AUTHORIZATION_CONF_KEY, false);
@@ -69,28 +72,10 @@ public final class AccessChecker {
    * Constructor with existing configuration
    *
    * @param conf Existing configuration to use
-   * @param zkw reference to the {@link ZKWatcher}
    */
-  public AccessChecker(final Configuration conf, final ZKWatcher zkw)
-      throws RuntimeException {
-    if (zkw != null) {
-      try {
-        this.authManager = AuthManager.getOrCreate(zkw, conf);
-      } catch (IOException ioe) {
-        throw new RuntimeException("Error obtaining AccessChecker", ioe);
-      }
-    } else {
-      throw new NullPointerException("Error obtaining AccessChecker, zk found null.");
-    }
-    authorizationEnabled = isAuthorizationSupported(conf);
+  public AccessChecker(final Configuration conf) {
+    this.authManager = new AuthManager(conf);
     initGroupService(conf);
-  }
-
-  /**
-   * Releases {@link AuthManager}'s reference.
-   */
-  public void stop() {
-    AuthManager.release(authManager);
   }
 
   public AuthManager getAuthManager() {
@@ -109,9 +94,6 @@ public final class AccessChecker {
    */
   public void requireAccess(User user, String request, TableName tableName,
       Action... permissions) throws IOException {
-    if (!authorizationEnabled) {
-      return;
-    }
     AuthResult result = null;
 
     for (Action permission : permissions) {
@@ -160,9 +142,6 @@ public final class AccessChecker {
   public void requireGlobalPermission(User user, String request,
       Action perm, TableName tableName,
       Map<byte[], ? extends Collection<byte[]>> familyMap, String filterUser) throws IOException {
-    if (!authorizationEnabled) {
-      return;
-    }
     AuthResult result;
     if (authManager.authorizeUserGlobal(user, perm)) {
       result = AuthResult.allow(request, "Global check allowed", user, perm, tableName, familyMap);
@@ -191,9 +170,6 @@ public final class AccessChecker {
    */
   public void requireGlobalPermission(User user, String request, Action perm,
       String namespace) throws IOException {
-    if (!authorizationEnabled) {
-      return;
-    }
     AuthResult authResult;
     if (authManager.authorizeUserGlobal(user, perm)) {
       authResult = AuthResult.allow(request, "Global check allowed", user, perm, null);
@@ -219,9 +195,6 @@ public final class AccessChecker {
    */
   public void requireNamespacePermission(User user, String request, String namespace,
       String filterUser, Action... permissions) throws IOException {
-    if (!authorizationEnabled) {
-      return;
-    }
     AuthResult result = null;
 
     for (Action permission : permissions) {
@@ -254,9 +227,6 @@ public final class AccessChecker {
   public void requireNamespacePermission(User user, String request, String namespace,
       TableName tableName, Map<byte[], ? extends Collection<byte[]>> familyMap,
       Action... permissions) throws IOException {
-    if (!authorizationEnabled) {
-      return;
-    }
     AuthResult result = null;
 
     for (Action permission : permissions) {
@@ -293,9 +263,6 @@ public final class AccessChecker {
    */
   public void requirePermission(User user, String request, TableName tableName, byte[] family,
       byte[] qualifier, String filterUser, Action... permissions) throws IOException {
-    if (!authorizationEnabled) {
-      return;
-    }
     AuthResult result = null;
 
     for (Action permission : permissions) {
@@ -331,9 +298,6 @@ public final class AccessChecker {
   public void requireTablePermission(User user, String request,
       TableName tableName,byte[] family, byte[] qualifier,
       Action... permissions) throws IOException {
-    if (!authorizationEnabled) {
-      return;
-    }
     AuthResult result = null;
 
     for (Action permission : permissions) {
@@ -352,6 +316,36 @@ public final class AccessChecker {
     logResult(result);
     if (!result.isAllowed()) {
       throw new AccessDeniedException("Insufficient permissions " + result.toContextString());
+    }
+  }
+
+  /**
+   * Check if caller is granting or revoking superusers's or supergroups's permissions.
+   * @param request request name
+   * @param caller caller
+   * @param userToBeChecked target user or group
+   * @throws IOException AccessDeniedException if target user is superuser
+   */
+  public void performOnSuperuser(String request, User caller, String userToBeChecked)
+      throws IOException {
+    List<String> userGroups = new ArrayList<>();
+    userGroups.add(userToBeChecked);
+    if (!AuthUtil.isGroupPrincipal(userToBeChecked)) {
+      for (String group : getUserGroups(userToBeChecked)) {
+        userGroups.add(AuthUtil.toGroupEntry(group));
+      }
+    }
+    for (String name : userGroups) {
+      if (Superusers.isSuperUser(name)) {
+        AuthResult result = AuthResult.deny(
+          request,
+          "Granting or revoking superusers's or supergroups's permissions is not allowed",
+          caller,
+          Action.ADMIN,
+          NamespaceDescriptor.SYSTEM_NAMESPACE_NAME_STR);
+        logResult(result);
+        throw new AccessDeniedException(result.getReason());
+      }
     }
   }
 
@@ -466,7 +460,12 @@ public final class AccessChecker {
    */
   private void initGroupService(Configuration conf) {
     if (groupService == null) {
-      groupService = Groups.getUserToGroupsMappingService(conf);
+      if (conf.getBoolean(User.TestingGroups.TEST_CONF, false)) {
+        UserProvider.setGroups(new User.TestingGroups(UserProvider.getGroups()));
+        groupService = UserProvider.getGroups();
+      } else {
+        groupService = Groups.getUserToGroupsMappingService(conf);
+      }
     }
   }
 
@@ -479,8 +478,159 @@ public final class AccessChecker {
     try {
       return groupService.getGroups(user);
     } catch (IOException e) {
-      LOG.error("Error occured while retrieving group for " + user, e);
-      return new ArrayList<String>();
+      LOG.error("Error occurred while retrieving group for " + user, e);
+      return new ArrayList<>();
     }
+  }
+
+  /**
+   * Authorizes that if the current user has the given permissions.
+   * @param user Active user to which authorization checks should be applied
+   * @param request Request type
+   * @param permission Actions being requested
+   * @return True if the user has the specific permission
+   */
+  public boolean hasUserPermission(User user, String request, Permission permission) {
+    if (permission instanceof TablePermission) {
+      TablePermission tPerm = (TablePermission) permission;
+      for (Permission.Action action : permission.getActions()) {
+        AuthResult authResult = permissionGranted(request, user, action, tPerm.getTableName(),
+          tPerm.getFamily(), tPerm.getQualifier());
+        AccessChecker.logResult(authResult);
+        if (!authResult.isAllowed()) {
+          return false;
+        }
+      }
+    } else if (permission instanceof NamespacePermission) {
+      NamespacePermission nsPerm = (NamespacePermission) permission;
+      AuthResult authResult;
+      for (Action action : nsPerm.getActions()) {
+        if (getAuthManager().authorizeUserNamespace(user, nsPerm.getNamespace(), action)) {
+          authResult =
+              AuthResult.allow(request, "Namespace action allowed", user, action, null, null);
+        } else {
+          authResult =
+              AuthResult.deny(request, "Namespace action denied", user, action, null, null);
+        }
+        AccessChecker.logResult(authResult);
+        if (!authResult.isAllowed()) {
+          return false;
+        }
+      }
+    } else {
+      AuthResult authResult;
+      for (Permission.Action action : permission.getActions()) {
+        if (getAuthManager().authorizeUserGlobal(user, action)) {
+          authResult = AuthResult.allow(request, "Global action allowed", user, action, null, null);
+        } else {
+          authResult = AuthResult.deny(request, "Global action denied", user, action, null, null);
+        }
+        AccessChecker.logResult(authResult);
+        if (!authResult.isAllowed()) {
+          return false;
+        }
+      }
+    }
+    return true;
+  }
+
+  private AuthResult permissionGranted(String request, User user, Action permRequest,
+      TableName tableName, byte[] family, byte[] qualifier) {
+    Map<byte[], ? extends Collection<byte[]>> map = makeFamilyMap(family, qualifier);
+    return permissionGranted(request, user, permRequest, tableName, map);
+  }
+
+  /**
+   * Check the current user for authorization to perform a specific action against the given set of
+   * row data.
+   * <p>
+   * Note: Ordering of the authorization checks has been carefully optimized to short-circuit the
+   * most common requests and minimize the amount of processing required.
+   * </p>
+   * @param request User request
+   * @param user User name
+   * @param permRequest the action being requested
+   * @param tableName Table name
+   * @param families the map of column families to qualifiers present in the request
+   * @return an authorization result
+   */
+  public AuthResult permissionGranted(String request, User user, Action permRequest,
+      TableName tableName, Map<byte[], ? extends Collection<?>> families) {
+    // 1. All users need read access to hbase:meta table.
+    // this is a very common operation, so deal with it quickly.
+    if (TableName.META_TABLE_NAME.equals(tableName)) {
+      if (permRequest == Action.READ) {
+        return AuthResult.allow(request, "All users allowed", user, permRequest, tableName,
+          families);
+      }
+    }
+
+    if (user == null) {
+      return AuthResult.deny(request, "No user associated with request!", null, permRequest,
+        tableName, families);
+    }
+
+    // 2. check for the table-level, if successful we can short-circuit
+    if (getAuthManager().authorizeUserTable(user, tableName, permRequest)) {
+      return AuthResult.allow(request, "Table permission granted", user, permRequest, tableName,
+        families);
+    }
+
+    // 3. check permissions against the requested families
+    if (families != null && families.size() > 0) {
+      // all families must pass
+      for (Map.Entry<byte[], ? extends Collection<?>> family : families.entrySet()) {
+        // a) check for family level access
+        if (getAuthManager().authorizeUserTable(user, tableName, family.getKey(), permRequest)) {
+          continue; // family-level permission overrides per-qualifier
+        }
+
+        // b) qualifier level access can still succeed
+        if ((family.getValue() != null) && (family.getValue().size() > 0)) {
+          if (family.getValue() instanceof Set) {
+            // for each qualifier of the family
+            Set<byte[]> familySet = (Set<byte[]>) family.getValue();
+            for (byte[] qualifier : familySet) {
+              if (!getAuthManager().authorizeUserTable(user, tableName, family.getKey(), qualifier,
+                permRequest)) {
+                return AuthResult.deny(request, "Failed qualifier check", user, permRequest,
+                  tableName, makeFamilyMap(family.getKey(), qualifier));
+              }
+            }
+          } else if (family.getValue() instanceof List) { // List<Cell>
+            List<Cell> cellList = (List<Cell>) family.getValue();
+            for (Cell cell : cellList) {
+              if (!getAuthManager().authorizeUserTable(user, tableName, family.getKey(),
+                CellUtil.cloneQualifier(cell), permRequest)) {
+                return AuthResult.deny(request, "Failed qualifier check", user, permRequest,
+                  tableName, makeFamilyMap(family.getKey(), CellUtil.cloneQualifier(cell)));
+              }
+            }
+          }
+        } else {
+          // no qualifiers and family-level check already failed
+          return AuthResult.deny(request, "Failed family check", user, permRequest, tableName,
+            makeFamilyMap(family.getKey(), null));
+        }
+      }
+
+      // all family checks passed
+      return AuthResult.allow(request, "All family checks passed", user, permRequest, tableName,
+        families);
+    }
+
+    // 4. no families to check and table level access failed
+    return AuthResult.deny(request, "No families to check and table permission failed", user,
+      permRequest, tableName, families);
+  }
+
+  private Map<byte[], ? extends Collection<byte[]>> makeFamilyMap(byte[] family, byte[] qualifier) {
+    if (family == null) {
+      return null;
+    }
+
+    Map<byte[], Collection<byte[]>> familyMap = new TreeMap<>(Bytes.BYTES_COMPARATOR);
+    familyMap.put(family, qualifier != null ? ImmutableSet.of(qualifier) : null);
+    return familyMap;
   }
 }

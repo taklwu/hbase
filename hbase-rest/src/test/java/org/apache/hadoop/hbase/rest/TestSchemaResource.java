@@ -52,18 +52,13 @@ import org.junit.Test;
 import org.junit.experimental.categories.Category;
 import org.junit.runner.RunWith;
 import org.junit.runners.Parameterized;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 @Category({RestTests.class, MediumTests.class})
 @RunWith(Parameterized.class)
 public class TestSchemaResource {
-
   @ClassRule
   public static final HBaseClassTestRule CLASS_RULE =
       HBaseClassTestRule.forClass(TestSchemaResource.class);
-
-  private static final Logger LOG = LoggerFactory.getLogger(TestSchemaResource.class);
 
   private static String TABLE1 = "TestSchemaResource1";
   private static String TABLE2 = "TestSchemaResource2";
@@ -92,6 +87,9 @@ public class TestSchemaResource {
   public static void setUpBeforeClass() throws Exception {
     conf = TEST_UTIL.getConfiguration();
     conf.setBoolean(RESTServer.REST_CSRF_ENABLED_KEY, csrfEnabled);
+    if (csrfEnabled) {
+      conf.set(RESTServer.REST_CSRF_BROWSER_USERAGENTS_REGEX_KEY, ".*");
+    }
     extraHdr = new BasicHeader(RESTServer.REST_CSRF_CUSTOM_HEADER_DEFAULT, "");
     TEST_UTIL.startMiniCluster();
     REST_TEST_UTIL.startServletContainer(conf);
@@ -143,7 +141,8 @@ public class TestSchemaResource {
     Response response;
 
     Admin admin = TEST_UTIL.getAdmin();
-    assertFalse("Table " + TABLE1 + " should not exist", admin.tableExists(TableName.valueOf(TABLE1)));
+    assertFalse("Table " + TABLE1 + " should not exist",
+        admin.tableExists(TableName.valueOf(TABLE1)));
 
     // create the table
     model = testTableSchemaModel.buildTestModel(TABLE1);
@@ -197,7 +196,7 @@ public class TestSchemaResource {
   }
 
   @Test
-  public void testTableCreateAndDeletePB() throws IOException, JAXBException {
+  public void testTableCreateAndDeletePB() throws IOException {
     String schemaPath = "/" + TABLE2 + "/schema";
     TableSchemaModel model;
     Response response;
@@ -260,6 +259,4 @@ public class TestSchemaResource {
     assertEquals(200, response.getCode());
     assertFalse(admin.tableExists(TableName.valueOf(TABLE2)));
   }
-
 }
-

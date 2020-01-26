@@ -21,7 +21,6 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
-import com.google.protobuf.ServiceException;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -63,6 +62,7 @@ import org.apache.hadoop.hbase.regionserver.HRegion;
 import org.apache.hadoop.hbase.regionserver.HRegionFileSystem;
 import org.apache.hadoop.hbase.regionserver.HRegionServer;
 import org.apache.hadoop.hbase.util.Bytes;
+import org.apache.hadoop.hbase.util.EnvironmentEdgeManager;
 import org.apache.hadoop.hbase.util.FSTableDescriptors;
 import org.apache.hadoop.hbase.util.FSUtils;
 import org.apache.hadoop.hbase.util.FSVisitor;
@@ -74,7 +74,6 @@ import org.slf4j.LoggerFactory;
 
 import org.apache.hadoop.hbase.shaded.protobuf.ProtobufUtil;
 import org.apache.hadoop.hbase.shaded.protobuf.generated.MasterProtos.IsSnapshotDoneRequest;
-import org.apache.hadoop.hbase.shaded.protobuf.generated.MasterProtos.IsSnapshotDoneResponse;
 import org.apache.hadoop.hbase.shaded.protobuf.generated.SnapshotProtos;
 import org.apache.hadoop.hbase.shaded.protobuf.generated.SnapshotProtos.SnapshotRegionManifest;
 
@@ -267,33 +266,6 @@ public final class SnapshotTestingUtils {
     for (RegionInfo info : regions) {
       String regionName = info.getEncodedName();
       assertTrue("Missing region name: '" + regionName + "'", regionManifests.containsKey(regionName));
-    }
-  }
-
-  /**
-   * Helper method for testing async snapshot operations. Just waits for the
-   * given snapshot to complete on the server by repeatedly checking the master.
-   *
-   * @param master the master running the snapshot
-   * @param snapshot the snapshot to check
-   * @param sleep amount to sleep between checks to see if the snapshot is done
-   * @throws ServiceException if the snapshot fails
-   * @throws org.apache.hbase.thirdparty.com.google.protobuf.ServiceException
-   */
-  public static void waitForSnapshotToComplete(HMaster master,
-      SnapshotProtos.SnapshotDescription snapshot, long sleep)
-          throws org.apache.hbase.thirdparty.com.google.protobuf.ServiceException {
-    final IsSnapshotDoneRequest request = IsSnapshotDoneRequest.newBuilder()
-        .setSnapshot(snapshot).build();
-    IsSnapshotDoneResponse done = IsSnapshotDoneResponse.newBuilder()
-        .buildPartial();
-    while (!done.getDone()) {
-      done = master.getMasterRpcServices().isSnapshotDone(null, request);
-      try {
-        Thread.sleep(sleep);
-      } catch (InterruptedException e) {
-        throw new org.apache.hbase.thirdparty.com.google.protobuf.ServiceException(e);
-      }
     }
   }
 
@@ -671,6 +643,12 @@ public final class SnapshotTestingUtils {
       return createSnapshot(snapshotName, tableName, numRegions, SnapshotManifestV2.DESCRIPTOR_VERSION);
     }
 
+    public SnapshotBuilder createSnapshotV2(final String snapshotName, final String tableName,
+        final int numRegions, final long ttl) throws IOException {
+      return createSnapshot(snapshotName, tableName, numRegions,
+          SnapshotManifestV2.DESCRIPTOR_VERSION, ttl);
+    }
+
     private SnapshotBuilder createSnapshot(final String snapshotName, final String tableName,
         final int version) throws IOException {
       return createSnapshot(snapshotName, tableName, TEST_NUM_REGIONS, version);
@@ -687,6 +665,22 @@ public final class SnapshotTestingUtils {
         .setVersion(version)
         .build();
 
+      Path workingDir = SnapshotDescriptionUtils.getWorkingSnapshotDir(desc, rootDir, conf);
+      SnapshotDescriptionUtils.writeSnapshotInfo(desc, workingDir, fs);
+      return new SnapshotBuilder(conf, fs, rootDir, htd, desc, regions);
+    }
+
+    private SnapshotBuilder createSnapshot(final String snapshotName, final String tableName,
+        final int numRegions, final int version, final long ttl) throws IOException {
+      TableDescriptor htd = createHtd(tableName);
+      RegionData[] regions = createTable(htd, numRegions);
+      SnapshotProtos.SnapshotDescription desc = SnapshotProtos.SnapshotDescription.newBuilder()
+          .setTable(htd.getTableName().getNameAsString())
+          .setName(snapshotName)
+          .setVersion(version)
+          .setCreationTime(EnvironmentEdgeManager.currentTime())
+          .setTtl(ttl)
+          .build();
       Path workingDir = SnapshotDescriptionUtils.getWorkingSnapshotDir(desc, rootDir, conf);
       SnapshotDescriptionUtils.writeSnapshotInfo(desc, workingDir, fs);
       return new SnapshotBuilder(conf, fs, rootDir, htd, desc, regions);
@@ -777,7 +771,7 @@ public final class SnapshotTestingUtils {
     byte[][] splitKeys = getSplitKeys(nRegions);
     util.createTable(builder.build(), splitKeys);
     assertEquals((splitKeys.length + 1) * regionReplication,
-        util.getAdmin().getTableRegions(tableName).size());
+        util.getAdmin().getRegions(tableName).size());
   }
 
   public static byte[][] getSplitKeys() {

@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
+<project xmlns="https://maven.apache.org/POM/4.0.0" xmlns:xsi="https://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="https://maven.apache.org/POM/4.0.0 https://maven.apache.org/maven-v4_0_0.xsd">
 <!--
 /**
  * Licensed to the Apache Software Foundation (ASF) under one
@@ -32,7 +32,7 @@
   <parent>
     <groupId>org.apache</groupId>
     <artifactId>apache</artifactId>
-    <version>21</version>
+    <version>22</version>
     <relativePath/>
     <!-- no parent resolution -->
   </parent>
@@ -47,7 +47,7 @@
     This project's goal is the hosting of very large tables -- billions of rows X millions of columns -- atop clusters
     of commodity hardware.
   </description>
-  <url>http://hbase.apache.org</url>
+  <url>https://hbase.apache.org</url>
   <inceptionYear>2007</inceptionYear>
   <!-- Set here so we can consistently use the correct name, even on branches with
        an ASF parent pom older than v15. Also uses the url from v18.
@@ -61,7 +61,6 @@
   </licenses>
 
   <modules>
-    <module>hbase-build-support</module>
     <module>hbase-build-configuration</module>
     <module>hbase-replication</module>
     <module>hbase-mapreduce</module>
@@ -91,6 +90,7 @@
     <module>hbase-metrics</module>
     <module>hbase-backup</module>
     <module>hbase-zookeeper</module>
+    <module>hbase-hbtop</module>
   </modules>
   <scm>
     <connection>scm:git:git://gitbox.apache.org/repos/asf/hbase.git</connection>
@@ -99,7 +99,7 @@
   </scm>
   <issueManagement>
     <system>JIRA</system>
-    <url>http://issues.apache.org/jira/browse/HBASE</url>
+    <url>https://issues.apache.org/jira/browse/HBASE</url>
   </issueManagement>
   <mailingLists>
     <mailingList>
@@ -109,8 +109,8 @@
       <post>user@hbase.apache.org</post>
       <archive>https://lists.apache.org/list.html?user@hbase.apache.org</archive>
       <otherArchives>
-        <otherArchive>http://dir.gmane.org/gmane.comp.java.hadoop.hbase.user</otherArchive>
-        <otherArchive>http://search-hadoop.com/?q=&amp;fc_project=HBase</otherArchive>
+        <otherArchive>https://dir.gmane.org/gmane.comp.java.hadoop.hbase.user</otherArchive>
+        <otherArchive>https://search-hadoop.com/?q=&amp;fc_project=HBase</otherArchive>
       </otherArchives>
     </mailingList>
     <mailingList>
@@ -120,8 +120,8 @@
       <post>dev@hbase.apache.org</post>
       <archive>https://lists.apache.org/list.html?dev@hbase.apache.org</archive>
       <otherArchives>
-        <otherArchive>http://dir.gmane.org/gmane.comp.java.hadoop.hbase.devel</otherArchive>
-        <otherArchive>http://search-hadoop.com/?q=&amp;fc_project=HBase</otherArchive>
+        <otherArchive>https://dir.gmane.org/gmane.comp.java.hadoop.hbase.devel</otherArchive>
+        <otherArchive>https://search-hadoop.com/?q=&amp;fc_project=HBase</otherArchive>
       </otherArchives>
     </mailingList>
     <mailingList>
@@ -511,6 +511,12 @@
       <timezone>+8</timezone>
     </developer>
     <developer>
+      <id>sakthi</id>
+      <name>Sakthi Vel</name>
+      <email>sakthi@apache.org</email>
+      <timezone>-8</timezone>
+    </developer>
+    <developer>
       <id>sershe</id>
       <name>Sergey Shelukhin</name>
       <email>sershe@apache.org</email>
@@ -535,15 +541,21 @@
       <timezone>-8</timezone>
     </developer>
     <developer>
+      <id>taklwu</id>
+      <name>Tak-Lon (Stephen) Wu</name>
+      <email>taklwu@apache.org</email>
+      <timezone>-8</timezone>
+    </developer>
+    <developer>
       <id>tedyu</id>
       <name>Ted Yu</name>
       <email>yuzhihong@gmail.com</email>
       <timezone>-8</timezone>
     </developer>
-	<developer>
-	  <id>tianjy</id>
-	  <email>tianjy@apache.org</email>
-	  <timezone>+8</timezone>
+    <developer>
+      <id>tianjy</id>
+      <email>tianjy@apache.org</email>
+      <timezone>+8</timezone>
     </developer>
     <developer>
       <id>todd</id>
@@ -568,6 +580,24 @@
       <name>Virag Kothari</name>
       <email>virag@yahoo-inc.com</email>
       <timezone>-8</timezone>
+    </developer>
+    <developer>
+      <id>vjasani</id>
+      <name>Viraj Jasani</name>
+      <email>vjasani@apache.org</email>
+      <timezone>+5</timezone>
+    </developer>
+    <developer>
+      <id>water</id>
+      <name>Xiang Li</name>
+      <email>xiangli@apache.org</email>
+      <timezone>+8</timezone>
+    </developer>
+    <developer>
+      <id>wchevreuil</id>
+      <name>Wellington Chevreuil</name>
+      <email>wchevreuil@apache.org</email>
+      <timezone>0</timezone>
     </developer>
     <developer>
       <id>xucang</id>
@@ -617,6 +647,12 @@
       <email>zyork@apache.org</email>
       <timezone>-8</timezone>
     </developer>
+    <developer>
+      <id>meiyi</id>
+      <name>Yi Mei</name>
+      <email>meiyi@apache.org</email>
+      <timezone>+8</timezone>
+    </developer>
   </developers>
   <build>
     <extensions>
@@ -655,7 +691,6 @@
         <plugin>
           <groupId>org.apache.maven.plugins</groupId>
           <artifactId>maven-compiler-plugin</artifactId>
-          <version>${maven.compiler.version}</version>
           <configuration>
             <source>${compileSource}</source>
             <target>${compileSource}</target>
@@ -785,7 +820,7 @@
               <phase>prepare-package</phase>
               <goals>
                   <!--This goal will install a -test.jar when we do install
-                      See http://maven.apache.org/guides/mini/guide-attached-tests.html
+                      See https://maven.apache.org/guides/mini/guide-attached-tests.html
                    -->
                 <goal>test-jar</goal>
               </goals>
@@ -802,87 +837,6 @@
             </excludes>
           </configuration>
         </plugin>
-        <!-- General config for eclipse classpath/settings -->
-        <plugin>
-          <groupId>org.apache.maven.plugins</groupId>
-          <artifactId>maven-eclipse-plugin</artifactId>
-          <version>${maven.eclipse.version}</version>
-        </plugin>
-        <!--This plugin's configuration is used to store Eclipse m2e settings
-            only. It has no influence on the Maven build itself. m2e does not
-            provide any safeguards against rogue maven plugins that leak
-            classloaders, modify random files inside workspace or throw nasty
-            exceptions to fail the build.
-            Top level doesn't do any specific configuration currently - left
-            to modules to decide what they want to bind, sans those plugins
-            defined in this pom. -->
-        <plugin>
-          <groupId>org.eclipse.m2e</groupId>
-          <artifactId>lifecycle-mapping</artifactId>
-          <version>${lifecycle.mapping.version}</version>
-          <configuration>
-            <lifecycleMappingMetadata>
-              <pluginExecutions>
-                <pluginExecution>
-                  <pluginExecutionFilter>
-                    <groupId>org.jacoco</groupId>
-                    <artifactId>jacoco-maven-plugin</artifactId>
-                    <versionRange>[0.6.2.201302030002,)</versionRange>
-                    <goals>
-                      <goal>prepare-agent</goal>
-                    </goals>
-                  </pluginExecutionFilter>
-                  <action>
-                    <ignore></ignore>
-                  </action>
-                </pluginExecution>
-                <pluginExecution>
-                  <pluginExecutionFilter>
-                    <groupId>org.apache.maven.plugins</groupId>
-                    <artifactId>maven-enforcer-plugin</artifactId>
-                    <versionRange>${enforcer.version}</versionRange>
-                    <goals>
-                      <goal>enforce</goal>
-                    </goals>
-                  </pluginExecutionFilter>
-                  <action>
-                    <ignore />
-                  </action>
-                </pluginExecution>
-                <pluginExecution>
-                  <pluginExecutionFilter>
-                    <groupId>org.apache.maven.plugins</groupId>
-                    <artifactId>maven-remote-resources-plugin</artifactId>
-                    <versionRange>[1.5,)</versionRange>
-                    <goals>
-                      <goal>process</goal>
-                      <goal>bundle</goal>
-                    </goals>
-                  </pluginExecutionFilter>
-                  <action>
-                    <ignore />
-                  </action>
-                </pluginExecution>
-                  <pluginExecution>
-                    <pluginExecutionFilter>
-                      <groupId>org.codehaus.mojo</groupId>
-                      <artifactId>buildnumber-maven-plugin</artifactId>
-                      <versionRange>[1.3,)</versionRange>
-                      <goals>
-                        <goal>create-timestamp</goal>
-                      </goals>
-                    </pluginExecutionFilter>
-                    <action>
-                      <execute>
-                        <runOnConfiguration>true</runOnConfiguration>
-                        <runOnIncremental>true</runOnIncremental>
-                      </execute>
-                    </action>
-                  </pluginExecution>
-              </pluginExecutions>
-            </lifecycleMappingMetadata>
-          </configuration>
-        </plugin>
         <plugin>
           <!-- excludes are inherited -->
           <groupId>org.apache.rat</groupId>
@@ -896,6 +850,8 @@
               <exclude>**/*.tgz</exclude>
               <exclude>**/*.orig</exclude>
               <exclude>**/0000000000000016310</exclude>
+              <exclude>**/a6a6562b777440fd9c34885428f5cb61.21e75333ada3d5bafb34bb918f29576c</exclude>
+              <exclude>**/8e8ab58dcf39412da19833fcd8f687ac</exclude>
               <exclude>**/.idea/**</exclude>
               <exclude>**/*.iml</exclude>
               <exclude>**/CHANGES.txt</exclude>
@@ -909,7 +865,7 @@
               <exclude>**/src/main/resources/META-INF/LEGAL</exclude>
               <!-- MIT: https://github.com/asciidoctor/asciidoctor/blob/master/LICENSE.adoc -->
               <exclude>**/src/main/asciidoc/hbase.css</exclude>
-              <!-- MIT http://jquery.org/license -->
+              <!-- MIT https://jquery.org/license -->
               <exclude>**/jquery.min.js</exclude>
               <exclude>**/jquery.tablesorter.min.js</exclude>
               <!-- vector graphics -->
@@ -931,6 +887,7 @@
               <!-- exclude the shaded protobuf files -->
               <exclude>**/shaded/com/google/protobuf/**</exclude>
               <exclude>**/src/main/patches/**</exclude>
+              <exclude>**/vote.tmpl</exclude>
             </excludes>
           </configuration>
         </plugin>
@@ -947,7 +904,7 @@
           <artifactId>protobuf-maven-plugin</artifactId>
           <version>${protobuf.plugin.version}</version>
           <configuration>
-            <protocArtifact>com.google.protobuf:protoc:${external.protobuf.version}:exe:${os.detected.classifier}</protocArtifact>
+            <protocArtifact>${external.protobuf.groupid}:protoc:${external.protobuf.version}:exe:${os.detected.classifier}</protocArtifact>
             <protoSourceRoot>${basedir}/src/main/protobuf/</protoSourceRoot>
             <clearOutputDirectory>false</clearOutputDirectory>
             <checkStaleness>true</checkStaleness>
@@ -1025,6 +982,20 @@
               </properties>
             </configuration>
           </execution>
+          <!-- sets where to find the generated LICENSE files -->
+          <execution>
+            <id>create-license-file-path-property</id>
+            <goals>
+              <goal>regex-property</goal>
+            </goals>
+            <configuration>
+              <name>license.aggregate.path</name>
+              <value>${project.build.directory}/maven-shared-archive-resources/META-INF/LICENSE</value>
+              <regex>\\</regex>
+              <replacement>/</replacement>
+              <failIfNoMatch>false</failIfNoMatch>
+            </configuration>
+          </execution>
         </executions>
       </plugin>
       <plugin>
@@ -1064,7 +1035,7 @@
   HBase requires at least version ${maven.min.version} of Maven to properly build from source.
   You appear to be using an older version. You can use either "mvn -version" or
   "mvn enforcer:display-info" to verify what version is active.
-  See the reference guide on building for more information: http://hbase.apache.org/book.html#build
+  See the reference guide on building for more information: https://hbase.apache.org/book.html#build
                   </message>
                 </requireMavenVersion>
                 <!-- The earliest JVM version we verify builds for via ASF Jenkins -->
@@ -1074,7 +1045,7 @@
   HBase requires at least version ${java.min.version} of the JDK to properly build from source.
   You appear to be using an older version. You can use either "mvn -version" or
   "mvn enforcer:display-info" to verify what version is active.
-  See the reference guide on building for more information: http://hbase.apache.org/book.html#build
+  See the reference guide on building for more information: https://hbase.apache.org/book.html#build
                   </message>
                 </requireJavaVersion>
                 <bannedDependencies>
@@ -1468,10 +1439,6 @@
     <license.bundles.bootstrap>false</license.bundles.bootstrap>
     <!-- modules that include jquery in their source tree should set true -->
     <license.bundles.jquery>false</license.bundles.jquery>
-    <!-- where to find the generated LICENSE files -->
-    <license.aggregate.path>
-      ${project.build.directory}/maven-shared-archive-resources/META-INF/LICENSE
-    </license.aggregate.path>
     <tar.name>${project.build.finalName}.tar.gz</tar.name>
     <maven.build.timestamp.format>
       yyyy-MM-dd'T'HH:mm
@@ -1482,8 +1449,8 @@
     <maven.min.version>3.0.4</maven.min.version>
     <java.min.version>${compileSource}</java.min.version>
     <!-- Dependencies -->
-    <hadoop-two.version>2.7.7</hadoop-two.version>
-    <hadoop-three.version>3.0.3</hadoop-three.version>
+    <hadoop-two.version>2.8.5</hadoop-two.version>
+    <hadoop-three.version>3.1.2</hadoop-three.version>
     <!-- These must be defined here for downstream build tools that don't look at profiles.
          They ought to match the values found in our default hadoop profile, which is
          currently "hadoop-2.0". See HBASE-15925 for more info. -->
@@ -1497,40 +1464,46 @@
     <!-- end HBASE-15925 default hadoop compatibility values -->
     <audience-annotations.version>0.5.0</audience-annotations.version>
     <avro.version>1.7.7</avro.version>
-    <commons-codec.version>1.10</commons-codec.version>
+    <caffeine.version>2.8.1</caffeine.version>
+    <commons-codec.version>1.13</commons-codec.version>
     <commons-validator.version>1.6</commons-validator.version>
     <!-- pretty outdated -->
-    <commons-io.version>2.5</commons-io.version>
-    <commons-lang3.version>3.6</commons-lang3.version>
+    <commons-io.version>2.6</commons-io.version>
+    <commons-lang3.version>3.9</commons-lang3.version>
     <commons-math.version>3.6.1</commons-math.version>
-    <disruptor.version>3.3.6</disruptor.version>
+    <disruptor.version>3.4.2</disruptor.version>
+    <!-- Updating the httpclient will break hbase-rest. It writes out URLs with '//' in it
+      especially when writing out 'no column families'. Later httpclients collapse the '//'
+      into single '/' as double-slash is not legal in an URL. Breaks #testDelete in
+      TestRemoteTable. -->
     <httpclient.version>4.5.3</httpclient.version>
-    <httpcore.version>4.4.6</httpcore.version>
-    <metrics-core.version>3.2.1</metrics-core.version>
-    <jackson.version>2.9.2</jackson.version>
+    <httpcore.version>4.4.13</httpcore.version>
+    <metrics-core.version>3.2.6</metrics-core.version>
+    <jackson.version>2.10.1</jackson.version>
+    <jackson.databind.version>2.10.1</jackson.databind.version>
     <jaxb-api.version>2.2.12</jaxb-api.version>
-    <jetty.version>9.3.25.v20180904</jetty.version>
+    <jetty.version>9.3.28.v20191105</jetty.version>
     <servlet.api.version>3.1.0</servlet.api.version>
     <wx.rs.api.version>2.0.1</wx.rs.api.version>
     <!-- Jersey 2.26 requires jetty 9.4 which breaks hadoop. Tread lightly. -->
     <jersey.version>2.25.1</jersey.version>
     <glassfish.jsp.version>2.3.2</glassfish.jsp.version>
     <glassfish.el.version>3.0.1-b08</glassfish.el.version>
-    <jruby.version>9.1.13.0</jruby.version>
-    <junit.version>4.12</junit.version>
+    <jruby.version>9.1.17.0</jruby.version>
+    <junit.version>4.13</junit.version>
     <hamcrest.version>1.3</hamcrest.version>
     <htrace.version>4.2.0-incubating</htrace.version>
     <log4j.version>1.2.17</log4j.version>
-    <mockito-core.version>2.1.0</mockito-core.version>
+    <mockito-core.version>2.28.2</mockito-core.version>
     <!--Internally we use a different version of protobuf. See hbase-protocol-shaded-->
     <external.protobuf.version>2.5.0</external.protobuf.version>
-    <protobuf.plugin.version>0.5.0</protobuf.plugin.version>
+    <protobuf.plugin.version>0.6.1</protobuf.plugin.version>
     <thrift.path>thrift</thrift.path>
     <thrift.version>0.12.0</thrift.version>
-    <zookeeper.version>3.4.10</zookeeper.version>
+    <zookeeper.version>3.4.14</zookeeper.version>
     <!-- What ZooKeeper 3.4.x depends on and nothing more -->
     <jline.version>0.9.94</jline.version>
-    <slf4j.version>1.7.25</slf4j.version>
+    <slf4j.version>1.7.30</slf4j.version>
     <clover.version>4.0.3</clover.version>
     <jamon-runtime.version>2.4.1</jamon-runtime.version>
     <jettison.version>1.3.8</jettison.version>
@@ -1541,32 +1514,32 @@
     <bouncycastle.version>1.60</bouncycastle.version>
     <kerby.version>1.0.1</kerby.version>
     <commons-crypto.version>1.0.0</commons-crypto.version>
-    <curator.version>4.0.0</curator.version>
+    <curator.version>4.2.0</curator.version>
     <!-- Plugin Dependencies -->
-    <apache.rat.version>0.12</apache.rat.version>
-    <asciidoctor.plugin.version>1.5.5</asciidoctor.plugin.version>
-    <asciidoctorj.pdf.version>1.5.0-alpha.15</asciidoctorj.pdf.version>
+    <apache.rat.version>0.13</apache.rat.version>
+    <asciidoctor.plugin.version>1.5.8</asciidoctor.plugin.version>
+    <asciidoctorj.pdf.version>1.5.0-rc.2</asciidoctorj.pdf.version>
     <build.helper.maven.version>3.0.0</build.helper.maven.version>
     <buildnumber.maven.version>1.4</buildnumber.maven.version>
-    <checkstyle.version>8.11</checkstyle.version>
+    <checkstyle.version>8.28</checkstyle.version>
     <exec.maven.version>1.6.0</exec.maven.version>
-    <error-prone.version>2.2.0</error-prone.version>
+    <error-prone.version>2.3.4</error-prone.version>
     <findbugs-annotations>1.3.9-1</findbugs-annotations>
     <findbugs.maven.version>3.0.4</findbugs.maven.version>
     <jamon.plugin.version>2.4.2</jamon.plugin.version>
     <lifecycle.mapping.version>1.0.0</lifecycle.mapping.version>
     <maven.antrun.version>1.8</maven.antrun.version>
     <maven.bundle.version>3.3.0</maven.bundle.version>
-    <maven.checkstyle.version>3.0.0</maven.checkstyle.version>
-    <maven.compiler.version>3.8.0</maven.compiler.version>
+    <maven.checkstyle.version>3.1.0</maven.checkstyle.version>
     <maven.eclipse.version>2.10</maven.eclipse.version>
     <maven.warbucks.version>1.1.0</maven.warbucks.version>
+    <maven.project.info.report.version>2.9</maven.project.info.report.version>
     <os.maven.version>1.5.0.Final</os.maven.version>
-    <plexus.errorprone.javac.version>2.8.2</plexus.errorprone.javac.version>
     <spotbugs.version>3.1.11</spotbugs.version>
+    <surefire.version>3.0.0-M4</surefire.version>
     <wagon.ssh.version>2.12</wagon.ssh.version>
     <xml.maven.version>1.0.1</xml.maven.version>
-    <hbase-thirdparty.version>2.1.0</hbase-thirdparty.version>
+    <hbase-thirdparty.version>3.1.1</hbase-thirdparty.version>
     <!-- Intraproject jar naming properties -->
     <!-- TODO this is pretty ugly, but works for the moment.
       Modules are pretty heavy-weight things, so doing this work isn't too bad. -->
@@ -1599,10 +1572,12 @@
     <hbase-surefire.argLine>-enableassertions -Dhbase.build.id=${build.id} -Xmx${surefire.Xmx}
       -Djava.security.egd=file:/dev/./urandom -Djava.net.preferIPv4Stack=true
       -Djava.awt.headless=true -Djdk.net.URLClassPath.disableClassPathURLCheck=true
+      -Dorg.apache.hbase.thirdparty.io.netty.leakDetection.level=advanced
     </hbase-surefire.argLine>
     <hbase-surefire.cygwin-argLine>-enableassertions -Xmx${surefire.cygwinXmx}
       -Djava.security.egd=file:/dev/./urandom -Djava.net.preferIPv4Stack=true
       "-Djava.library.path=${hadoop.library.path};${java.library.path}"
+      -Dorg.apache.hbase.thirdparty.io.netty.leakDetection.level=advanced
     </hbase-surefire.cygwin-argLine>
     <!-- Surefire argLine defaults to Linux, cygwin argLine is used in the os.windows profile -->
     <argLine>${hbase-surefire.argLine}</argLine>
@@ -1621,6 +1596,7 @@
     <!-- TODO HBASE-15041 clean up our javadocs so jdk8 linter can be used.
          property as of javadoc-plugin 3.0.0 -->
     <doclint>none</doclint>
+    <external.protobuf.groupid>com.google.protobuf</external.protobuf.groupid>
   </properties>
   <!-- Sorted by groups of dependencies then groupId and artifactId -->
   <dependencyManagement>
@@ -1644,11 +1620,6 @@
       <dependency>
         <artifactId>hbase-backup</artifactId>
         <groupId>org.apache.hbase</groupId>
-        <version>${project.version}</version>
-      </dependency>
-      <dependency>
-        <groupId>org.apache.hbase</groupId>
-        <artifactId>hbase-error-prone</artifactId>
         <version>${project.version}</version>
       </dependency>
       <dependency>
@@ -1856,6 +1827,16 @@
         <artifactId>hbase-zookeeper</artifactId>
         <groupId>org.apache.hbase</groupId>
         <version>${project.version}</version>
+        <exclusions>
+          <exclusion>
+            <groupId>com.google.code.findbugs</groupId>
+            <artifactId>jsr305</artifactId>
+          </exclusion>
+          <exclusion>
+            <groupId>com.github.spotbugs</groupId>
+            <artifactId>spotbugs-annotations</artifactId>
+          </exclusion>
+        </exclusions>
       </dependency>
       <dependency>
         <artifactId>hbase-zookeeper</artifactId>
@@ -1863,6 +1844,11 @@
         <version>${project.version}</version>
         <type>test-jar</type>
         <scope>test</scope>
+      </dependency>
+      <dependency>
+        <artifactId>hbase-hbtop</artifactId>
+        <groupId>org.apache.hbase</groupId>
+        <version>${project.version}</version>
       </dependency>
       <dependency>
         <groupId>org.apache.hbase</groupId>
@@ -1913,6 +1899,11 @@
         <groupId>org.slf4j</groupId>
         <artifactId>slf4j-api</artifactId>
         <version>${slf4j.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>com.github.ben-manes.caffeine</groupId>
+        <artifactId>caffeine</artifactId>
+        <version>${caffeine.version}</version>
       </dependency>
       <dependency>
         <groupId>io.dropwizard.metrics</groupId>
@@ -1967,6 +1958,14 @@
         <artifactId>zookeeper</artifactId>
         <version>${zookeeper.version}</version>
         <exclusions>
+          <exclusion>
+            <groupId>com.google.code.findbugs</groupId>
+            <artifactId>jsr305</artifactId>
+          </exclusion>
+          <exclusion>
+            <groupId>com.github.spotbugs</groupId>
+            <artifactId>spotbugs-annotations</artifactId>
+          </exclusion>
           <exclusion>
             <groupId>jline</groupId>
             <artifactId>jline</artifactId>
@@ -2038,7 +2037,7 @@
       <dependency>
         <groupId>com.fasterxml.jackson.core</groupId>
         <artifactId>jackson-databind</artifactId>
-        <version>${jackson.version}</version>
+        <version>${jackson.databind.version}</version>
       </dependency>
       <dependency>
         <groupId>org.jamon</groupId>
@@ -2055,6 +2054,16 @@
         <groupId>javax.ws.rs</groupId>
         <artifactId>javax.ws.rs-api</artifactId>
         <version>${wx.rs.api.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>com.sun.activation</groupId>
+        <artifactId>javax.activation</artifactId>
+        <version>1.2.0</version>
+      </dependency>
+      <dependency>
+        <groupId>javax.annotation</groupId>
+        <artifactId>javax.annotation-api</artifactId>
+        <version>1.2</version>
       </dependency>
       <dependency>
         <groupId>org.eclipse.jetty</groupId>
@@ -2167,6 +2176,12 @@
         <scope>test</scope>
       </dependency>
       <dependency>
+        <groupId>org.hamcrest</groupId>
+        <artifactId>hamcrest-library</artifactId>
+        <version>${hamcrest.version}</version>
+        <scope>test</scope>
+      </dependency>
+      <dependency>
         <groupId>org.mockito</groupId>
         <artifactId>mockito-core</artifactId>
         <version>${mockito-core.version}</version>
@@ -2268,6 +2283,11 @@
       </dependency>
       <dependency>
         <groupId>org.apache.hbase.thirdparty</groupId>
+        <artifactId>hbase-shaded-gson</artifactId>
+        <version>${hbase-thirdparty.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.apache.hbase.thirdparty</groupId>
         <artifactId>hbase-shaded-miscellaneous</artifactId>
         <version>${hbase-thirdparty.version}</version>
       </dependency>
@@ -2281,6 +2301,18 @@
         <artifactId>hbase-shaded-protobuf</artifactId>
         <version>${hbase-thirdparty.version}</version>
       </dependency>
+      <dependency>
+        <groupId>com.sun.xml.ws</groupId>
+          <artifactId>jaxws-ri</artifactId>
+        <version>2.3.2</version>
+        <type>pom</type>
+        <exclusions>
+          <exclusion>
+            <groupId>javax.activation</groupId>
+            <artifactId>javax.activation-api</artifactId>
+          </exclusion>
+        </exclusions>
+      </dependency>
     </dependencies>
   </dependencyManagement>
   <dependencies>
@@ -2291,6 +2323,7 @@
     <dependency>
       <groupId>junit</groupId>
       <artifactId>junit</artifactId>
+      <scope>test</scope>
     </dependency>
   </dependencies>
 
@@ -2369,17 +2402,6 @@
       </activation>
       <dependencyManagement>
         <dependencies>
-          <dependency>
-            <groupId>javax.annotation</groupId>
-            <artifactId>javax.annotation-api</artifactId>
-            <version>1.3.2</version>
-          </dependency>
-          <dependency>
-            <groupId>com.sun.xml.ws</groupId>
-            <artifactId>jaxws-ri</artifactId>
-            <version>2.3.1</version>
-            <type>pom</type>
-          </dependency>
         </dependencies>
       </dependencyManagement>
     </profile>
@@ -2492,6 +2514,28 @@
         <argLine>${hbase-surefire.cygwin-argLine}</argLine>
       </properties>
     </profile>
+    <!-- this profile should match the name of the release profile in the root asf pom -->
+    <profile>
+      <id>apache-release</id>
+      <build>
+        <plugins>
+          <!-- This should insert itself in place of the normal deploy plugin and then
+               handle either closing or dropping the staging repository for us depending
+               on if the build succeeds.
+            -->
+          <plugin>
+            <groupId>org.sonatype.plugins</groupId>
+            <artifactId>nexus-staging-maven-plugin</artifactId>
+            <version>1.6.8</version>
+            <extensions>true</extensions>
+            <configuration>
+              <nexusUrl>https://repository.apache.org/</nexusUrl>
+              <serverId>apache.releases.https</serverId>
+            </configuration>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
     <!-- this profile should be activated for release builds -->
     <profile>
       <id>release</id>
@@ -2513,6 +2557,13 @@
             <groupId>org.apache.maven.plugins</groupId>
             <artifactId>maven-enforcer-plugin</artifactId>
             <version>${enforcer.version}</version>
+            <dependencies>
+              <dependency>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>extra-enforcer-rules</artifactId>
+                <version>${extra.enforcer.version}</version>
+              </dependency>
+            </dependencies>
             <configuration>
               <rules>
                 <enforceBytecodeVersion>
@@ -2524,6 +2575,9 @@
   Non-release builds can temporarily build with a newer JDK version by setting the
   'compileSource' property (eg. mvn -DcompileSource=1.8 clean package).
                 </message>
+                <ignoreClasses>
+                  <ignoreClass>module-info</ignoreClass>
+                </ignoreClasses>
               </enforceBytecodeVersion>
             </rules>
           </configuration>
@@ -2566,6 +2620,18 @@
             <version>${hadoop-two.version}</version>
             <exclusions>
               <exclusion>
+                <groupId>com.sun.jersey</groupId>
+                <artifactId>jersey-core</artifactId>
+              </exclusion>
+              <exclusion>
+                <groupId>org.codehaus.jackson</groupId>
+                <artifactId>jackson-jaxrs</artifactId>
+              </exclusion>
+              <exclusion>
+                <groupId>org.codehaus.jackson</groupId>
+                <artifactId>jackson-xc</artifactId>
+              </exclusion>
+              <exclusion>
                 <groupId>io.netty</groupId>
                 <artifactId>netty</artifactId>
               </exclusion>
@@ -2593,6 +2659,10 @@
             <version>${hadoop-two.version}</version>
             <exclusions>
               <exclusion>
+                <groupId>com.sun.jersey</groupId>
+                <artifactId>jersey-core</artifactId>
+              </exclusion>
+              <exclusion>
                 <groupId>io.netty</groupId>
                 <artifactId>netty</artifactId>
               </exclusion>
@@ -2610,6 +2680,10 @@
             <scope>test</scope>
             <exclusions>
               <exclusion>
+                <groupId>com.sun.jersey</groupId>
+                <artifactId>jersey-core</artifactId>
+              </exclusion>
+              <exclusion>
                 <groupId>io.netty</groupId>
                 <artifactId>netty</artifactId>
               </exclusion>
@@ -2624,6 +2698,10 @@
             <artifactId>hadoop-hdfs</artifactId>
             <version>${hadoop-two.version}</version>
             <exclusions>
+              <exclusion>
+                <groupId>com.sun.jersey</groupId>
+                <artifactId>jersey-core</artifactId>
+              </exclusion>
               <exclusion>
                 <groupId>javax.servlet.jsp</groupId>
                 <artifactId>jsp-api</artifactId>
@@ -2697,18 +2775,44 @@
                 <groupId>com.google.guava</groupId>
                 <artifactId>guava</artifactId>
               </exclusion>
+              <exclusion>
+                <groupId>com.sun.jersey</groupId>
+                <artifactId>jersey-core</artifactId>
+              </exclusion>
             </exclusions>
           </dependency>
           <dependency>
             <groupId>org.apache.hadoop</groupId>
             <artifactId>hadoop-auth</artifactId>
             <version>${hadoop-two.version}</version>
+            <exclusions>
+              <exclusion>
+                <groupId>com.google.guava</groupId>
+                <artifactId>guava</artifactId>
+              </exclusion>
+              <exclusion>
+                <groupId>net.minidev</groupId>
+                <artifactId>json-smart</artifactId>
+              </exclusion>
+            </exclusions>
           </dependency>
           <dependency>
             <groupId>org.apache.hadoop</groupId>
             <artifactId>hadoop-common</artifactId>
             <version>${hadoop-two.version}</version>
             <exclusions>
+              <exclusion>
+                <groupId>com.sun.jersey</groupId>
+                <artifactId>jersey-core</artifactId>
+              </exclusion>
+              <exclusion>
+                <groupId>org.codehaus.jackson</groupId>
+                <artifactId>jackson-jaxrs</artifactId>
+              </exclusion>
+              <exclusion>
+                <groupId>org.codehaus.jackson</groupId>
+                <artifactId>jackson-xc</artifactId>
+              </exclusion>
               <exclusion>
                 <groupId>commons-beanutils</groupId>
                 <artifactId>commons-beanutils</artifactId>
@@ -2749,6 +2853,31 @@
           </dependency>
           <dependency>
             <groupId>org.apache.hadoop</groupId>
+            <artifactId>hadoop-common</artifactId>
+            <version>${hadoop-two.version}</version>
+            <type>test-jar</type>
+            <scope>test</scope>
+            <exclusions>
+              <exclusion>
+                <groupId>com.sun.jersey</groupId>
+                <artifactId>jersey-core</artifactId>
+              </exclusion>
+              <exclusion>
+                <groupId>com.google.code.findbugs</groupId>
+                <artifactId>jsr305</artifactId>
+              </exclusion>
+              <exclusion>
+                <groupId>org.codehaus.jackson</groupId>
+                <artifactId>jackson-jaxrs</artifactId>
+              </exclusion>
+              <exclusion>
+                <groupId>org.codehaus.jackson</groupId>
+                <artifactId>jackson-xc</artifactId>
+              </exclusion>
+            </exclusions>
+          </dependency>
+          <dependency>
+            <groupId>org.apache.hadoop</groupId>
             <artifactId>hadoop-client</artifactId>
             <version>${hadoop-two.version}</version>
           </dependency>
@@ -2759,6 +2888,18 @@
             <artifactId>hadoop-minicluster</artifactId>
             <version>${hadoop-two.version}</version>
             <exclusions>
+              <!--If we comment this in, a few tests in hbase-mapreduce
+                   fail. They depend on jersey-core somehow. But excluding
+                   jersey-core here messes up hbase-it because jersey-core
+                   implements a 1.x jaxrs Response Interface when we depend
+                   on the 2.x Interface... . Letting this jar come in
+                   transitively here but will exclude it down in hbase-it.
+                   See HBASE-22029.
+              <exclusion>
+                <groupId>com.sun.jersey</groupId>
+                <artifactId>jersey-core</artifactId>
+              </exclusion>
+              -->
               <exclusion>
                 <groupId>commons-httpclient</groupId>
                 <artifactId>commons-httpclient</artifactId>
@@ -2791,6 +2932,11 @@
             <version>${hadoop-two.version}</version>
             <scope>test</scope>
           </dependency>
+         <dependency>
+           <groupId>org.apache.hadoop</groupId>
+           <artifactId>hadoop-annotations</artifactId>
+           <version>${hadoop-two.version}</version>
+         </dependency>
         </dependencies>
       </dependencyManagement>
     </profile>
@@ -2814,7 +2960,7 @@
         <hadoop.version>${hadoop-three.version}</hadoop.version>
         <!--Use this compat module for now. TODO: Make h3 one if we need one-->
         <compat.module>hbase-hadoop2-compat</compat.module>
-        <assembly.file>src/main/assembly/hadoop-two-compat.xml</assembly.file>
+        <assembly.file>src/main/assembly/hadoop-three-compat.xml</assembly.file>
         <!--This property is for hadoops netty. HBase netty
              comes in via hbase-thirdparty hbase-shaded-netty-->
         <netty.hadoop.version>3.10.5.Final</netty.hadoop.version>
@@ -2826,6 +2972,18 @@
            <artifactId>hadoop-mapreduce-client-core</artifactId>
            <version>${hadoop-three.version}</version>
            <exclusions>
+             <exclusion>
+               <groupId>com.sun.jersey</groupId>
+               <artifactId>jersey-core</artifactId>
+             </exclusion>
+             <exclusion>
+               <groupId>org.codehaus.jackson</groupId>
+               <artifactId>jackson-jaxrs</artifactId>
+             </exclusion>
+             <exclusion>
+               <groupId>org.codehaus.jackson</groupId>
+               <artifactId>jackson-xc</artifactId>
+             </exclusion>
              <exclusion>
                <groupId>io.netty</groupId>
                <artifactId>netty</artifactId>
@@ -2854,6 +3012,10 @@
            <version>${hadoop-three.version}</version>
            <exclusions>
              <exclusion>
+               <groupId>com.sun.jersey</groupId>
+               <artifactId>jersey-core</artifactId>
+             </exclusion>
+             <exclusion>
                <groupId>io.netty</groupId>
                <artifactId>netty</artifactId>
              </exclusion>
@@ -2866,6 +3028,10 @@
            <type>test-jar</type>
            <scope>test</scope>
            <exclusions>
+             <exclusion>
+               <groupId>com.sun.jersey</groupId>
+               <artifactId>jersey-core</artifactId>
+             </exclusion>
              <exclusion>
                <groupId>io.netty</groupId>
                <artifactId>netty</artifactId>
@@ -3051,6 +3217,10 @@
                <groupId>com.sun.jersey</groupId>
                <artifactId>jersey-core</artifactId>
              </exclusion>
+             <exclusion>
+               <groupId>com.google.code.findbugs</groupId>
+               <artifactId>jsr305</artifactId>
+             </exclusion>
            </exclusions>
          </dependency>
          <dependency>
@@ -3070,6 +3240,18 @@
            <artifactId>hadoop-minicluster</artifactId>
            <version>${hadoop-three.version}</version>
            <exclusions>
+              <!--If we comment this in, a few tests in hbase-mapreduce
+                   fail. They depend on jersey-core somehow. But excluding
+                   jersey-core here messes up hbase-it because jersey-core
+                   implements a 1.x jaxrs Response Interface when we depend
+                   on the 2.x Interface... . Letting this jar come in
+                   transitively here but will exclude it down in hbase-it.
+                   See HBASE-22029.
+             <exclusion>
+               <groupId>com.sun.jersey</groupId>
+               <artifactId>jersey-core</artifactId>
+             </exclusion>
+             -->
              <exclusion>
                <groupId>commons-httpclient</groupId>
                <artifactId>commons-httpclient</artifactId>
@@ -3566,12 +3748,120 @@
         <remoteresources.skip>true</remoteresources.skip>
       </properties>
     </profile>
+    <profile>
+      <id>eclipse-specific</id>
+      <activation>
+        <property>
+          <name>m2e.version</name>
+        </property>
+      </activation>
+      <build>
+        <pluginManagement>
+          <plugins>
+            <!-- General config for eclipse classpath/settings -->
+            <plugin>
+              <groupId>org.apache.maven.plugins</groupId>
+              <artifactId>maven-eclipse-plugin</artifactId>
+              <version>${maven.eclipse.version}</version>
+            </plugin>
+            <!--This plugin's configuration is used to store Eclipse m2e settings
+                only. It has no influence on the Maven build itself. m2e does not
+                provide any safeguards against rogue maven plugins that leak
+                classloaders, modify random files inside workspace or throw nasty
+                exceptions to fail the build.
+                Top level doesn't do any specific configuration currently - left
+                to modules to decide what they want to bind, sans those plugins
+                defined in this pom. -->
+            <plugin>
+              <groupId>org.eclipse.m2e</groupId>
+              <artifactId>lifecycle-mapping</artifactId>
+              <version>${lifecycle.mapping.version}</version>
+              <configuration>
+                <lifecycleMappingMetadata>
+                  <pluginExecutions>
+                    <pluginExecution>
+                      <pluginExecutionFilter>
+                        <groupId>org.jacoco</groupId>
+                        <artifactId>jacoco-maven-plugin</artifactId>
+                        <versionRange>[0.6.2.201302030002,)</versionRange>
+                        <goals>
+                          <goal>prepare-agent</goal>
+                        </goals>
+                      </pluginExecutionFilter>
+                      <action>
+                        <ignore></ignore>
+                      </action>
+                    </pluginExecution>
+                    <pluginExecution>
+                      <pluginExecutionFilter>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-enforcer-plugin</artifactId>
+                        <versionRange>${enforcer.version}</versionRange>
+                        <goals>
+                          <goal>enforce</goal>
+                        </goals>
+                      </pluginExecutionFilter>
+                      <action>
+                        <ignore />
+                      </action>
+                    </pluginExecution>
+                    <pluginExecution>
+                      <pluginExecutionFilter>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-remote-resources-plugin</artifactId>
+                        <versionRange>[1.5,)</versionRange>
+                        <goals>
+                          <goal>process</goal>
+                          <goal>bundle</goal>
+                        </goals>
+                      </pluginExecutionFilter>
+                      <action>
+                        <ignore />
+                      </action>
+                    </pluginExecution>
+                      <pluginExecution>
+                        <pluginExecutionFilter>
+                          <groupId>org.codehaus.mojo</groupId>
+                          <artifactId>buildnumber-maven-plugin</artifactId>
+                          <versionRange>[1.3,)</versionRange>
+                          <goals>
+                            <goal>create-timestamp</goal>
+                          </goals>
+                        </pluginExecutionFilter>
+                        <action>
+                          <execute>
+                            <runOnConfiguration>true</runOnConfiguration>
+                            <runOnIncremental>true</runOnIncremental>
+                          </execute>
+                        </action>
+                      </pluginExecution>
+                  </pluginExecutions>
+                </lifecycleMappingMetadata>
+              </configuration>
+            </plugin>
+          </plugins>
+        </pluginManagement>
+      </build>
+    </profile>
+    <profile>
+      <id>aarch64</id>
+      <properties>
+        <external.protobuf.groupid>org.openlabtesting.protobuf</external.protobuf.groupid>
+      </properties>
+      <activation>
+        <os>
+          <family>linux</family>
+          <arch>aarch64</arch>
+        </os>
+      </activation>
+    </profile>
   </profiles>
-  <!-- See http://jira.codehaus.org/browse/MSITE-443 why the settings need to be here and not in pluginManagement. -->
+  <!-- See https://jira.codehaus.org/browse/MSITE-443 why the settings need to be here and not in pluginManagement. -->
   <reporting>
     <plugins>
       <plugin>
         <artifactId>maven-project-info-reports-plugin</artifactId>
+        <version>${maven.project.info.report.version}</version>
         <reportSets>
           <reportSet>
             <reports>
@@ -3580,12 +3870,11 @@
               <report>dependency-info</report>
               <report>dependency-management</report>
               <report>index</report>
-              <report>issue-management</report>
-              <report>licenses</report>
-              <report>mailing-lists</report>
+              <report>issue-tracking</report>
+              <report>mailing-list</report>
               <report>plugin-management</report>
               <report>plugins</report>
-              <report>team</report>
+              <report>project-team</report>
               <report>scm</report>
               <report>summary</report>
             </reports>
@@ -3600,6 +3889,15 @@
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-javadoc-plugin</artifactId>
+        <configuration>
+          <tags>
+            <tag>
+              <name>apiNote</name>
+              <placement>a</placement>
+              <head>API Note:</head>
+            </tag>
+          </tags>
+        </configuration>
         <reportSets>
           <!-- Dev API -->
           <reportSet>
@@ -3626,6 +3924,7 @@
               <fixMethodComment>true</fixMethodComment>
               <fixTags>all</fixTags>
               <notimestamp>true</notimestamp>
+              <locale>en_US</locale>
               <!-- Pass some options straight to the javadoc executable since it is easier -->
               <additionalJOption>-J-Xmx2G</additionalJOption>
               <!-- JDK8 javadoc requires test scope transitive dependencies due to our custom doclet -->
@@ -3668,6 +3967,7 @@
               <fixMethodComment>true</fixMethodComment>
               <fixTags>all</fixTags>
               <notimestamp>true</notimestamp>
+              <locale>en_US</locale>
               <!-- Pass some options straight to the javadoc executable since it is easier -->
               <additionalJOption>-J-Xmx2G</additionalJOption>
               <!-- JDK8 javadoc requires test scope transitive dependencies due to our custom doclet -->
@@ -3722,6 +4022,7 @@
               <fixMethodComment>true</fixMethodComment>
               <fixTags>all</fixTags>
               <notimestamp>true</notimestamp>
+              <locale>en_US</locale>
               <!-- Pass some options straight to the javadoc executable since it is easier -->
               <additionalJOption>-J-Xmx2G</additionalJOption>
               <!-- JDK8 javadoc requires test scope transitive dependencies due to our custom doclet -->
@@ -3775,6 +4076,7 @@
               <fixMethodComment>true</fixMethodComment>
               <fixTags>all</fixTags>
               <notimestamp>true</notimestamp>
+              <locale>en_US</locale>
               <!-- Pass some options straight to the javadoc executable since it is easier -->
               <additionalJOption>-J-Xmx2G</additionalJOption>
               <!-- JDK8 javadoc requires test scope transitive dependencies due to our custom doclet -->

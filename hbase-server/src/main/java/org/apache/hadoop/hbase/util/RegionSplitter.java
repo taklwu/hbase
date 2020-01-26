@@ -22,7 +22,6 @@ import java.io.IOException;
 import java.math.BigInteger;
 import java.util.Arrays;
 import java.util.Collection;
-import java.util.EnumSet;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
@@ -35,31 +34,28 @@ import org.apache.hadoop.fs.FSDataInputStream;
 import org.apache.hadoop.fs.FSDataOutputStream;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
-import org.apache.hadoop.hbase.ClusterMetrics;
-import org.apache.hadoop.hbase.ClusterMetrics.Option;
 import org.apache.hadoop.hbase.HBaseConfiguration;
 import org.apache.hadoop.hbase.HConstants;
-import org.apache.hadoop.hbase.HRegionInfo;
 import org.apache.hadoop.hbase.HRegionLocation;
 import org.apache.hadoop.hbase.MetaTableAccessor;
 import org.apache.hadoop.hbase.ServerName;
 import org.apache.hadoop.hbase.TableName;
-import org.apache.hadoop.hbase.client.ColumnFamilyDescriptor;
-import org.apache.hadoop.hbase.client.TableDescriptor;
-import org.apache.yetus.audience.InterfaceAudience;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.apache.hadoop.hbase.client.Admin;
-import org.apache.hadoop.hbase.client.ClusterConnection;
+import org.apache.hadoop.hbase.client.ColumnFamilyDescriptor;
+import org.apache.hadoop.hbase.client.ColumnFamilyDescriptorBuilder;
 import org.apache.hadoop.hbase.client.Connection;
 import org.apache.hadoop.hbase.client.ConnectionFactory;
 import org.apache.hadoop.hbase.client.NoServerForRegionException;
+import org.apache.hadoop.hbase.client.RegionInfo;
 import org.apache.hadoop.hbase.client.RegionLocator;
 import org.apache.hadoop.hbase.client.Table;
-import org.apache.hadoop.hbase.regionserver.HRegionFileSystem;
-
-import org.apache.hadoop.hbase.client.ColumnFamilyDescriptorBuilder;
+import org.apache.hadoop.hbase.client.TableDescriptor;
 import org.apache.hadoop.hbase.client.TableDescriptorBuilder;
+import org.apache.hadoop.hbase.regionserver.HRegionFileSystem;
+import org.apache.yetus.audience.InterfaceAudience;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import org.apache.hbase.thirdparty.com.google.common.base.Preconditions;
 import org.apache.hbase.thirdparty.com.google.common.collect.Lists;
 import org.apache.hbase.thirdparty.com.google.common.collect.Maps;
@@ -437,8 +433,7 @@ public class RegionSplitter {
    */
   private static int getRegionServerCount(final Connection connection) throws IOException {
     try (Admin admin = connection.getAdmin()) {
-      ClusterMetrics status = admin.getClusterMetrics(EnumSet.of(Option.LIVE_SERVERS));
-      Collection<ServerName> servers = status.getLiveServerMetrics().keySet();
+      Collection<ServerName> servers = admin.getRegionServers();
       return servers == null || servers.isEmpty()? 0: servers.size();
     }
   }
@@ -551,7 +546,7 @@ public class RegionSplitter {
                   }
 
                   // make sure this region wasn't already split
-                  byte[] sk = regionLoc.getRegionInfo().getStartKey();
+                  byte[] sk = regionLoc.getRegion().getStartKey();
                   if (sk.length != 0) {
                     if (Bytes.equals(split, sk)) {
                       LOG.debug("Region already split on "
@@ -707,13 +702,12 @@ public class RegionSplitter {
     Path tableDir = tableDirAndSplitFile.getFirst();
     FileSystem fs = tableDir.getFileSystem(connection.getConfiguration());
     // Clear the cache to forcibly refresh region information
-    ((ClusterConnection)connection).clearRegionCache();
+    connection.clearRegionLocationCache();
     TableDescriptor htd = null;
     try (Table table = connection.getTable(tableName)) {
       htd = table.getDescriptor();
     }
     try (RegionLocator regionLocator = connection.getRegionLocator(tableName)) {
-
       // for every region that hasn't been verified as a finished split
       for (Pair<byte[], byte[]> region : regionList) {
         byte[] start = region.getFirst();
@@ -721,7 +715,7 @@ public class RegionSplitter {
 
         // see if the new split daughter region has come online
         try {
-          HRegionInfo dri = regionLocator.getRegionLocation(split).getRegionInfo();
+          RegionInfo dri = regionLocator.getRegionLocation(split, true).getRegion();
           if (dri.isOffline() || !Bytes.equals(dri.getStartKey(), split)) {
             logicalSplitting.add(region);
             continue;
@@ -736,10 +730,10 @@ public class RegionSplitter {
         try {
           // when a daughter region is opened, a compaction is triggered
           // wait until compaction completes for both daughter regions
-          LinkedList<HRegionInfo> check = Lists.newLinkedList();
-          check.add(regionLocator.getRegionLocation(start).getRegionInfo());
-          check.add(regionLocator.getRegionLocation(split).getRegionInfo());
-          for (HRegionInfo hri : check.toArray(new HRegionInfo[check.size()])) {
+          LinkedList<RegionInfo> check = Lists.newLinkedList();
+          check.add(regionLocator.getRegionLocation(start).getRegion());
+          check.add(regionLocator.getRegionLocation(split).getRegion());
+          for (RegionInfo hri : check.toArray(new RegionInfo[check.size()])) {
             byte[] sk = hri.getStartKey();
             if (sk.length == 0)
               sk = splitAlgo.firstRow();
@@ -768,7 +762,7 @@ public class RegionSplitter {
         } catch (NoServerForRegionException nsfre) {
           LOG.debug("No Server Exception thrown for: " + splitAlgo.rowToStr(start));
           physicalSplitting.add(region);
-          ((ClusterConnection)connection).clearRegionCache();
+          connection.clearRegionLocationCache();
         }
       }
 

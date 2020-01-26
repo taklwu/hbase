@@ -30,6 +30,7 @@ import static org.apache.hadoop.hbase.HConstants.HBASE_CLIENT_META_REPLICA_SCAN_
 import static org.apache.hadoop.hbase.HConstants.HBASE_CLIENT_META_REPLICA_SCAN_TIMEOUT_DEFAULT;
 import static org.apache.hadoop.hbase.HConstants.HBASE_CLIENT_OPERATION_TIMEOUT;
 import static org.apache.hadoop.hbase.HConstants.HBASE_CLIENT_PAUSE;
+import static org.apache.hadoop.hbase.HConstants.HBASE_CLIENT_PAUSE_FOR_CQTBE;
 import static org.apache.hadoop.hbase.HConstants.HBASE_CLIENT_RETRIES_NUMBER;
 import static org.apache.hadoop.hbase.HConstants.HBASE_CLIENT_SCANNER_CACHING;
 import static org.apache.hadoop.hbase.HConstants.HBASE_CLIENT_SCANNER_MAX_RESULT_SIZE_KEY;
@@ -38,8 +39,6 @@ import static org.apache.hadoop.hbase.HConstants.HBASE_META_SCANNER_CACHING;
 import static org.apache.hadoop.hbase.HConstants.HBASE_RPC_READ_TIMEOUT_KEY;
 import static org.apache.hadoop.hbase.HConstants.HBASE_RPC_TIMEOUT_KEY;
 import static org.apache.hadoop.hbase.HConstants.HBASE_RPC_WRITE_TIMEOUT_KEY;
-import static org.apache.hadoop.hbase.client.AsyncProcess.DEFAULT_START_LOG_ERRORS_AFTER_COUNT;
-import static org.apache.hadoop.hbase.client.AsyncProcess.START_LOG_ERRORS_AFTER_COUNT_KEY;
 import static org.apache.hadoop.hbase.client.ConnectionConfiguration.MAX_KEYVALUE_SIZE_DEFAULT;
 import static org.apache.hadoop.hbase.client.ConnectionConfiguration.MAX_KEYVALUE_SIZE_KEY;
 import static org.apache.hadoop.hbase.client.ConnectionConfiguration.PRIMARY_CALL_TIMEOUT_MICROSECOND;
@@ -54,12 +53,26 @@ import static org.apache.hadoop.hbase.client.ConnectionConfiguration.WRITE_BUFFE
 import java.util.concurrent.TimeUnit;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.yetus.audience.InterfaceAudience;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Timeout configs.
  */
 @InterfaceAudience.Private
 class AsyncConnectionConfiguration {
+
+  private static final Logger LOG = LoggerFactory.getLogger(AsyncConnectionConfiguration.class);
+
+  /**
+   * Configure the number of failures after which the client will start logging. A few failures
+   * is fine: region moved, then is not opened, then is overloaded. We try to have an acceptable
+   * heuristic for the number of errors we don't log. 5 was chosen because we wait for 1s at
+   * this stage.
+   */
+  public static final String START_LOG_ERRORS_AFTER_COUNT_KEY =
+      "hbase.client.start.log.errors.counter";
+  public static final int DEFAULT_START_LOG_ERRORS_AFTER_COUNT = 5;
 
   private final long metaOperationTimeoutNs;
 
@@ -78,6 +91,8 @@ class AsyncConnectionConfiguration {
   private final long writeRpcTimeoutNs;
 
   private final long pauseNs;
+
+  private final long pauseForCQTBENs;
 
   private final int maxRetries;
 
@@ -121,8 +136,16 @@ class AsyncConnectionConfiguration {
       TimeUnit.MILLISECONDS.toNanos(conf.getLong(HBASE_RPC_READ_TIMEOUT_KEY, rpcTimeoutNs));
     this.writeRpcTimeoutNs =
       TimeUnit.MILLISECONDS.toNanos(conf.getLong(HBASE_RPC_WRITE_TIMEOUT_KEY, rpcTimeoutNs));
-    this.pauseNs =
-      TimeUnit.MILLISECONDS.toNanos(conf.getLong(HBASE_CLIENT_PAUSE, DEFAULT_HBASE_CLIENT_PAUSE));
+    long pauseMs = conf.getLong(HBASE_CLIENT_PAUSE, DEFAULT_HBASE_CLIENT_PAUSE);
+    long pauseForCQTBEMs = conf.getLong(HBASE_CLIENT_PAUSE_FOR_CQTBE, pauseMs);
+    if (pauseForCQTBEMs < pauseMs) {
+      LOG.warn(
+        "The {} setting: {} ms is less than the {} setting: {} ms, use the greater one instead",
+        HBASE_CLIENT_PAUSE_FOR_CQTBE, pauseForCQTBEMs, HBASE_CLIENT_PAUSE, pauseMs);
+      pauseForCQTBEMs = pauseMs;
+    }
+    this.pauseNs = TimeUnit.MILLISECONDS.toNanos(pauseMs);
+    this.pauseForCQTBENs = TimeUnit.MILLISECONDS.toNanos(pauseForCQTBEMs);
     this.maxRetries = conf.getInt(HBASE_CLIENT_RETRIES_NUMBER, DEFAULT_HBASE_CLIENT_RETRIES_NUMBER);
     this.startLogErrorsCnt =
       conf.getInt(START_LOG_ERRORS_AFTER_COUNT_KEY, DEFAULT_START_LOG_ERRORS_AFTER_COUNT);
@@ -171,6 +194,10 @@ class AsyncConnectionConfiguration {
 
   long getPauseNs() {
     return pauseNs;
+  }
+
+  long getPauseForCQTBENs() {
+    return pauseForCQTBENs;
   }
 
   int getMaxRetries() {

@@ -31,6 +31,9 @@ import org.apache.hadoop.hbase.HColumnDescriptor;
 import org.apache.hadoop.hbase.HConstants;
 import org.apache.hadoop.hbase.HTableDescriptor;
 import org.apache.hadoop.hbase.TableName;
+import org.apache.hadoop.hbase.TableNotDisabledException;
+import org.apache.hadoop.hbase.TableNotEnabledException;
+import org.apache.hadoop.hbase.TableNotFoundException;
 import org.apache.hadoop.hbase.client.Connection;
 import org.apache.hadoop.hbase.client.Delete;
 import org.apache.hadoop.hbase.client.Get;
@@ -48,6 +51,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import org.apache.hadoop.hbase.shaded.protobuf.generated.HBaseProtos.TimeUnit;
+import org.apache.hadoop.hbase.shaded.protobuf.generated.QuotaProtos.QuotaScope;
 import org.apache.hadoop.hbase.shaded.protobuf.generated.QuotaProtos.Quotas;
 import org.apache.hadoop.hbase.shaded.protobuf.generated.QuotaProtos.Throttle;
 import org.apache.hadoop.hbase.shaded.protobuf.generated.QuotaProtos.TimedQuota;
@@ -266,7 +270,8 @@ public class QuotaUtil extends QuotaTableUtil {
   }
 
   public static Map<String, UserQuotaState> fetchUserQuotas(final Connection connection,
-      final List<Get> gets) throws IOException {
+      final List<Get> gets, Map<TableName, Double> tableMachineQuotaFactors, double factor)
+      throws IOException {
     long nowTs = EnvironmentEdgeManager.currentTime();
     Result[] results = doGet(connection, gets);
 
@@ -286,16 +291,21 @@ public class QuotaUtil extends QuotaTableUtil {
         parseUserResult(user, results[i], new UserQuotasVisitor() {
           @Override
           public void visitUserQuotas(String userName, String namespace, Quotas quotas) {
+            quotas = updateClusterQuotaToMachineQuota(quotas, factor);
             quotaInfo.setQuotas(namespace, quotas);
           }
 
           @Override
           public void visitUserQuotas(String userName, TableName table, Quotas quotas) {
+            quotas = updateClusterQuotaToMachineQuota(quotas,
+              tableMachineQuotaFactors.containsKey(table) ? tableMachineQuotaFactors.get(table)
+                  : 1);
             quotaInfo.setQuotas(table, quotas);
           }
 
           @Override
           public void visitUserQuotas(String userName, Quotas quotas) {
+            quotas = updateClusterQuotaToMachineQuota(quotas, factor);
             quotaInfo.setQuotas(quotas);
           }
         });
@@ -308,23 +318,33 @@ public class QuotaUtil extends QuotaTableUtil {
   }
 
   public static Map<TableName, QuotaState> fetchTableQuotas(final Connection connection,
-      final List<Get> gets) throws IOException {
+      final List<Get> gets, Map<TableName, Double> tableMachineFactors) throws IOException {
     return fetchGlobalQuotas("table", connection, gets, new KeyFromRow<TableName>() {
       @Override
       public TableName getKeyFromRow(final byte[] row) {
         assert isTableRowKey(row);
         return getTableFromRowKey(row);
       }
+
+      @Override
+      public double getFactor(TableName tableName) {
+        return tableMachineFactors.containsKey(tableName) ? tableMachineFactors.get(tableName) : 1;
+      }
     });
   }
 
   public static Map<String, QuotaState> fetchNamespaceQuotas(final Connection connection,
-      final List<Get> gets) throws IOException {
+      final List<Get> gets, double factor) throws IOException {
     return fetchGlobalQuotas("namespace", connection, gets, new KeyFromRow<String>() {
       @Override
       public String getKeyFromRow(final byte[] row) {
         assert isNamespaceRowKey(row);
         return getNamespaceFromRowKey(row);
+      }
+
+      @Override
+      public double getFactor(String s) {
+        return factor;
       }
     });
   }
@@ -336,6 +356,11 @@ public class QuotaUtil extends QuotaTableUtil {
       public String getKeyFromRow(final byte[] row) {
         assert isRegionServerRowKey(row);
         return getRegionServerFromRowKey(row);
+      }
+
+      @Override
+      public double getFactor(String s) {
+        return 1;
       }
     });
   }
@@ -362,6 +387,8 @@ public class QuotaUtil extends QuotaTableUtil {
 
       try {
         Quotas quotas = quotasFromData(data);
+        quotas = updateClusterQuotaToMachineQuota(quotas,
+          kfr.getFactor(key));
         quotaInfo.setQuotas(quotas);
       } catch (IOException e) {
         LOG.error("Unable to parse " + type + " '" + key + "' quotas", e);
@@ -371,8 +398,62 @@ public class QuotaUtil extends QuotaTableUtil {
     return globalQuotas;
   }
 
+  /**
+   * Convert cluster scope quota to machine scope quota
+   * @param quotas the original quota
+   * @param factor factor used to divide cluster limiter to machine limiter
+   * @return the converted quota whose quota limiters all in machine scope
+   */
+  private static Quotas updateClusterQuotaToMachineQuota(Quotas quotas, double factor) {
+    Quotas.Builder newQuotas = Quotas.newBuilder(quotas);
+    if (newQuotas.hasThrottle()) {
+      Throttle.Builder throttle = Throttle.newBuilder(newQuotas.getThrottle());
+      if (throttle.hasReqNum()) {
+        throttle.setReqNum(updateTimedQuota(throttle.getReqNum(), factor));
+      }
+      if (throttle.hasReqSize()) {
+        throttle.setReqSize(updateTimedQuota(throttle.getReqSize(), factor));
+      }
+      if (throttle.hasReadNum()) {
+        throttle.setReadNum(updateTimedQuota(throttle.getReadNum(), factor));
+      }
+      if (throttle.hasReadSize()) {
+        throttle.setReadSize(updateTimedQuota(throttle.getReadSize(), factor));
+      }
+      if (throttle.hasWriteNum()) {
+        throttle.setWriteNum(updateTimedQuota(throttle.getWriteNum(), factor));
+      }
+      if (throttle.hasWriteSize()) {
+        throttle.setWriteSize(updateTimedQuota(throttle.getWriteSize(), factor));
+      }
+      if (throttle.hasReqCapacityUnit()) {
+        throttle.setReqCapacityUnit(updateTimedQuota(throttle.getReqCapacityUnit(), factor));
+      }
+      if (throttle.hasReadCapacityUnit()) {
+        throttle.setReadCapacityUnit(updateTimedQuota(throttle.getReadCapacityUnit(), factor));
+      }
+      if (throttle.hasWriteCapacityUnit()) {
+        throttle.setWriteCapacityUnit(updateTimedQuota(throttle.getWriteCapacityUnit(), factor));
+      }
+      newQuotas.setThrottle(throttle.build());
+    }
+    return newQuotas.build();
+  }
+
+  private static TimedQuota updateTimedQuota(TimedQuota timedQuota, double factor) {
+    if (timedQuota.getScope() == QuotaScope.CLUSTER) {
+      TimedQuota.Builder newTimedQuota = TimedQuota.newBuilder(timedQuota);
+      newTimedQuota.setSoftLimit(Math.max(1, (long) (timedQuota.getSoftLimit() * factor)))
+          .setScope(QuotaScope.MACHINE);
+      return newTimedQuota.build();
+    } else {
+      return timedQuota;
+    }
+  }
+
   private static interface KeyFromRow<T> {
     T getKeyFromRow(final byte[] row);
+    double getFactor(T t);
   }
 
   /* =========================================================================
@@ -421,5 +502,36 @@ public class QuotaUtil extends QuotaTableUtil {
       }
     }
     return size;
+  }
+
+  /**
+   * Method to enable a table, if not already enabled. This method suppresses
+   * {@link TableNotDisabledException} and {@link TableNotFoundException}, if thrown while enabling
+   * the table.
+   * @param conn connection to re-use
+   * @param tableName name of the table to be enabled
+   */
+  public static void enableTableIfNotEnabled(Connection conn, TableName tableName)
+      throws IOException {
+    try {
+      conn.getAdmin().enableTable(tableName);
+    } catch (TableNotDisabledException | TableNotFoundException e) {
+      // ignore
+    }
+  }
+
+  /**
+   * Method to disable a table, if not already disabled. This method suppresses
+   * {@link TableNotEnabledException}, if thrown while disabling the table.
+   * @param conn connection to re-use
+   * @param tableName table name which has moved into space quota violation
+   */
+  public static void disableTableIfNotDisabled(Connection conn, TableName tableName)
+      throws IOException {
+    try {
+      conn.getAdmin().disableTable(tableName);
+    } catch (TableNotEnabledException | TableNotFoundException e) {
+      // ignore
+    }
   }
 }

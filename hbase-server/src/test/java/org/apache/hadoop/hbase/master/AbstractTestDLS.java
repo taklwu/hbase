@@ -81,9 +81,8 @@ import org.apache.hadoop.hbase.wal.WAL;
 import org.apache.hadoop.hbase.wal.WALEdit;
 import org.apache.hadoop.hbase.wal.WALFactory;
 import org.apache.hadoop.hbase.wal.WALKeyImpl;
-import org.apache.hadoop.hbase.wal.WALSplitter;
+import org.apache.hadoop.hbase.wal.WALSplitUtil;
 import org.apache.hadoop.hbase.zookeeper.ZKUtil;
-import org.apache.hadoop.hbase.zookeeper.ZKWatcher;
 import org.junit.After;
 import org.junit.AfterClass;
 import org.junit.Before;
@@ -192,9 +191,7 @@ public abstract class AbstractTestDLS {
     Path rootdir = FSUtils.getRootDir(conf);
 
     int numRegions = 50;
-    try (ZKWatcher zkw = new ZKWatcher(conf, "table-creation", null);
-        Table t = installTable(zkw, numRegions)) {
-      TableName table = t.getName();
+    try (Table t = installTable(numRegions)) {
       List<RegionInfo> regions = null;
       HRegionServer hrs = null;
       for (int i = 0; i < NUM_RS; i++) {
@@ -224,16 +221,15 @@ public abstract class AbstractTestDLS {
 
       int count = 0;
       for (RegionInfo hri : regions) {
-        Path tdir = FSUtils.getWALTableDir(conf, table);
         @SuppressWarnings("deprecation")
-        Path editsdir = WALSplitter
+        Path editsdir = WALSplitUtil
             .getRegionDirRecoveredEditsDir(FSUtils.getWALRegionDir(conf,
                 tableName, hri.getEncodedName()));
         LOG.debug("checking edits dir " + editsdir);
         FileStatus[] files = fs.listStatus(editsdir, new PathFilter() {
           @Override
           public boolean accept(Path p) {
-            if (WALSplitter.isSequenceIdFile(p)) {
+            if (WALSplitUtil.isSequenceIdFile(p)) {
               return false;
             }
             return true;
@@ -266,8 +262,7 @@ public abstract class AbstractTestDLS {
     // they will consume recovered.edits
     master.balanceSwitch(false);
 
-    try (ZKWatcher zkw = new ZKWatcher(conf, "table-creation", null);
-        Table ht = installTable(zkw, numRegionsToCreate)) {
+    try (Table ht = installTable(numRegionsToCreate)) {
       HRegionServer hrs = findRSToKill(false);
       List<RegionInfo> regions = ProtobufUtil.getOnlineRegions(hrs.getRSRpcServices());
       makeWAL(hrs, regions, numLogLines, 100);
@@ -329,8 +324,7 @@ public abstract class AbstractTestDLS {
     final Path logDir = new Path(rootdir,
         AbstractFSWALProvider.getWALDirectoryName(hrs.getServerName().toString()));
 
-    try (ZKWatcher zkw = new ZKWatcher(conf, "table-creation", null);
-        Table t = installTable(zkw, 40)) {
+    try (Table t = installTable(40)) {
       makeWAL(hrs, ProtobufUtil.getOnlineRegions(hrs.getRSRpcServices()), numLogLines, 100);
 
       new Thread() {
@@ -380,8 +374,7 @@ public abstract class AbstractTestDLS {
 
     startCluster(NUM_RS); // NUM_RS=6.
 
-    try (ZKWatcher zkw = new ZKWatcher(conf, "distributed log splitting test", null);
-        Table table = installTable(zkw, numRegionsToCreate)) {
+    try (Table table = installTable(numRegionsToCreate)) {
       populateDataInTable(numRowsPerRegion);
 
       List<RegionServerThread> rsts = cluster.getLiveRegionServerThreads();
@@ -482,11 +475,11 @@ public abstract class AbstractTestDLS {
     }
   }
 
-  private Table installTable(ZKWatcher zkw, int nrs) throws Exception {
-    return installTable(zkw, nrs, 0);
+  private Table installTable(int nrs) throws Exception {
+    return installTable(nrs, 0);
   }
 
-  private Table installTable(ZKWatcher zkw, int nrs, int existingRegions) throws Exception {
+  private Table installTable(int nrs, int existingRegions) throws Exception {
     // Create a table with regions
     byte[] family = Bytes.toBytes("family");
     LOG.info("Creating table with " + nrs + " regions");
@@ -497,14 +490,14 @@ public abstract class AbstractTestDLS {
     }
     assertEquals(nrs, numRegions);
     LOG.info("Waiting for no more RIT\n");
-    blockUntilNoRIT(zkw, master);
+    blockUntilNoRIT();
     // disable-enable cycle to get rid of table's dead regions left behind
     // by createMultiRegions
     assertTrue(TEST_UTIL.getAdmin().isTableEnabled(tableName));
     LOG.debug("Disabling table\n");
     TEST_UTIL.getAdmin().disableTable(tableName);
     LOG.debug("Waiting for no more RIT\n");
-    blockUntilNoRIT(zkw, master);
+    blockUntilNoRIT();
     NavigableSet<String> regions = HBaseTestingUtility.getAllOnlineRegions(cluster);
     LOG.debug("Verifying only catalog region is assigned\n");
     if (regions.size() != 1) {
@@ -515,7 +508,7 @@ public abstract class AbstractTestDLS {
     LOG.debug("Enabling table\n");
     TEST_UTIL.getAdmin().enableTable(tableName);
     LOG.debug("Waiting for no more RIT\n");
-    blockUntilNoRIT(zkw, master);
+    blockUntilNoRIT();
     LOG.debug("Verifying there are " + numRegions + " assigned on cluster\n");
     regions = HBaseTestingUtility.getAllOnlineRegions(cluster);
     assertEquals(numRegions + 1 + existingRegions, regions.size());
@@ -611,9 +604,8 @@ public abstract class AbstractTestDLS {
         // HBaseTestingUtility.createMultiRegions use 5 bytes key
         byte[] qualifier = Bytes.toBytes("c" + Integer.toString(i));
         e.add(new KeyValue(row, COLUMN_FAMILY, qualifier, System.currentTimeMillis(), value));
-        log.append(curRegionInfo, new WALKeyImpl(curRegionInfo.getEncodedNameAsBytes(), tableName,
-            System.currentTimeMillis(), mvcc),
-          e, true);
+        log.appendData(curRegionInfo, new WALKeyImpl(curRegionInfo.getEncodedNameAsBytes(),
+          tableName, System.currentTimeMillis(), mvcc), e);
         if (0 == i % syncEvery) {
           log.sync();
         }
@@ -651,7 +643,7 @@ public abstract class AbstractTestDLS {
     return count;
   }
 
-  private void blockUntilNoRIT(ZKWatcher zkw, HMaster master) throws Exception {
+  private void blockUntilNoRIT() throws Exception {
     TEST_UTIL.waitUntilNoRegionsInTransition(60000);
   }
 
@@ -731,8 +723,7 @@ public abstract class AbstractTestDLS {
           // the RS doesn't have regions of the specified table so we need move one to this RS
           List<RegionInfo> tableRegions = TEST_UTIL.getAdmin().getRegions(tableName);
           RegionInfo hri = tableRegions.get(0);
-          TEST_UTIL.getAdmin().move(hri.getEncodedNameAsBytes(),
-            Bytes.toBytes(destRS.getServerName().getServerName()));
+          TEST_UTIL.getAdmin().move(hri.getEncodedNameAsBytes(), destRS.getServerName());
           // wait for region move completes
           RegionStates regionStates =
               TEST_UTIL.getHBaseCluster().getMaster().getAssignmentManager().getRegionStates();

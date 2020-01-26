@@ -42,10 +42,13 @@ import org.apache.hadoop.hbase.ServerName;
 import org.apache.hadoop.hbase.TableName;
 import org.apache.hadoop.hbase.UnknownRegionException;
 import org.apache.hadoop.hbase.client.Admin;
+import org.apache.hadoop.hbase.client.ColumnFamilyDescriptor;
+import org.apache.hadoop.hbase.client.ColumnFamilyDescriptorBuilder;
 import org.apache.hadoop.hbase.client.RegionInfo;
 import org.apache.hadoop.hbase.client.RegionInfoBuilder;
 import org.apache.hadoop.hbase.client.Result;
 import org.apache.hadoop.hbase.client.Table;
+import org.apache.hadoop.hbase.client.TableDescriptorBuilder;
 import org.apache.hadoop.hbase.client.TableState;
 import org.apache.hadoop.hbase.testclassification.MasterTests;
 import org.apache.hadoop.hbase.testclassification.MediumTests;
@@ -186,17 +189,19 @@ public class TestMaster {
   @Test
   public void testMoveThrowsUnknownRegionException() throws IOException {
     final TableName tableName = TableName.valueOf(name.getMethodName());
-    HTableDescriptor htd = new HTableDescriptor(tableName);
-    HColumnDescriptor hcd = new HColumnDescriptor("value");
-    htd.addFamily(hcd);
+    TableDescriptorBuilder tableDescriptorBuilder =
+      TableDescriptorBuilder.newBuilder(tableName);
+    ColumnFamilyDescriptor columnFamilyDescriptor =
+      ColumnFamilyDescriptorBuilder.newBuilder(Bytes.toBytes("value")).build();
+    tableDescriptorBuilder.setColumnFamily(columnFamilyDescriptor);
 
-    admin.createTable(htd, null);
+    admin.createTable(tableDescriptorBuilder.build());
     try {
       RegionInfo hri = RegionInfoBuilder.newBuilder(tableName)
           .setStartKey(Bytes.toBytes("A"))
           .setEndKey(Bytes.toBytes("Z"))
           .build();
-      admin.move(hri.getEncodedNameAsBytes(), null);
+      admin.move(hri.getEncodedNameAsBytes());
       fail("Region should not be moved since it is fake");
     } catch (IOException ioe) {
       assertTrue(ioe instanceof UnknownRegionException);
@@ -209,16 +214,18 @@ public class TestMaster {
   public void testMoveThrowsPleaseHoldException() throws IOException {
     final TableName tableName = TableName.valueOf(name.getMethodName());
     HMaster master = TEST_UTIL.getMiniHBaseCluster().getMaster();
-    HTableDescriptor htd = new HTableDescriptor(tableName);
-    HColumnDescriptor hcd = new HColumnDescriptor("value");
-    htd.addFamily(hcd);
+    TableDescriptorBuilder tableDescriptorBuilder =
+      TableDescriptorBuilder.newBuilder(tableName);
+    ColumnFamilyDescriptor columnFamilyDescriptor =
+      ColumnFamilyDescriptorBuilder.newBuilder(Bytes.toBytes("value")).build();
+    tableDescriptorBuilder.setColumnFamily(columnFamilyDescriptor);
 
-    admin.createTable(htd, null);
+    admin.createTable(tableDescriptorBuilder.build());
     try {
       List<RegionInfo> tableRegions = admin.getRegions(tableName);
 
       master.setInitialized(false); // fake it, set back later
-      admin.move(tableRegions.get(0).getEncodedNameAsBytes(), null);
+      admin.move(tableRegions.get(0).getEncodedNameAsBytes());
       fail("Region should not be moved since master is not initialized");
     } catch (IOException ioe) {
       assertTrue(StringUtils.stringifyException(ioe).contains("PleaseHoldException"));

@@ -29,7 +29,7 @@ import org.apache.hadoop.hbase.CoordinatedStateManager;
 import org.apache.hadoop.hbase.ServerName;
 import org.apache.hadoop.hbase.TableDescriptors;
 import org.apache.hadoop.hbase.TableName;
-import org.apache.hadoop.hbase.client.ClusterConnection;
+import org.apache.hadoop.hbase.client.AsyncClusterConnection;
 import org.apache.hadoop.hbase.client.ColumnFamilyDescriptor;
 import org.apache.hadoop.hbase.client.Connection;
 import org.apache.hadoop.hbase.client.MasterSwitchType;
@@ -54,6 +54,8 @@ import org.apache.hadoop.hbase.replication.ReplicationException;
 import org.apache.hadoop.hbase.replication.ReplicationPeerConfig;
 import org.apache.hadoop.hbase.replication.ReplicationPeerDescription;
 import org.apache.hadoop.hbase.replication.SyncReplicationState;
+import org.apache.hadoop.hbase.security.access.AccessChecker;
+import org.apache.hadoop.hbase.security.access.ZKPermissionWatcher;
 import org.apache.hadoop.hbase.zookeeper.ZKWatcher;
 
 public class MockNoopMasterServices implements MasterServices {
@@ -160,7 +162,7 @@ public class MockNoopMasterServices implements MasterServices {
   }
 
   @Override
-  public ClusterConnection getConnection() {
+  public Connection getConnection() {
     return null;
   }
 
@@ -352,11 +354,6 @@ public class MockNoopMasterServices implements MasterServices {
   }
 
   @Override
-  public ClusterConnection getClusterConnection() {
-    return null;
-  }
-
-  @Override
   public LoadBalancer getLoadBalancer() {
     return null;
   }
@@ -473,4 +470,27 @@ public class MockNoopMasterServices implements MasterServices {
   public SyncReplicationReplayWALManager getSyncReplicationReplayWALManager() {
     return null;
   }
+
+  @Override
+  public AccessChecker getAccessChecker() {
+    return null;
+  }
+
+  @Override
+  public ZKPermissionWatcher getZKPermissionWatcher() {
+    return null;
+  }
+
+  @Override
+  public List<RegionPlan> executeRegionPlansWithThrottling(List<RegionPlan> plans) {
+    return null;
+  }
+
+  @Override
+  public AsyncClusterConnection getAsyncClusterConnection() {
+    return null;
+  }
+
+  @Override
+  public void runReplicationBarrierCleaner() {}
 }

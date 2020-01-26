@@ -757,6 +757,28 @@ public final class PrivateCellUtil {
       left.getQualifierLength(), buf, offset, length);
   }
 
+  /**
+   * Finds if the start of the qualifier part of the Cell matches <code>buf</code>
+   * @param left the cell with which we need to match the qualifier
+   * @param startsWith the serialized keyvalue format byte[]
+   * @return true if the qualifier have same staring characters, false otherwise
+   */
+  public static boolean qualifierStartsWith(final Cell left, final byte[] startsWith) {
+    if (startsWith == null || startsWith.length == 0) {
+      throw new IllegalArgumentException("Cannot pass an empty startsWith");
+    }
+    if (left.getQualifierLength() < startsWith.length) {
+      return false;
+    }
+    if (left instanceof ByteBufferExtendedCell) {
+      return ByteBufferUtils.equals(((ByteBufferExtendedCell) left).getQualifierByteBuffer(),
+          ((ByteBufferExtendedCell) left).getQualifierPosition(), startsWith.length,
+          startsWith, 0, startsWith.length);
+    }
+    return Bytes.equals(left.getQualifierArray(), left.getQualifierOffset(),
+        startsWith.length, startsWith, 0, startsWith.length);
+  }
+
   public static boolean matchingColumn(final Cell left, final byte[] fam, final int foffset,
       final int flength, final byte[] qual, final int qoffset, final int qlength) {
     if (!matchingFamily(left, fam, foffset, flength)) {
@@ -936,7 +958,34 @@ public final class PrivateCellUtil {
       return tagsIterator(((ByteBufferExtendedCell) cell).getTagsByteBuffer(),
         ((ByteBufferExtendedCell) cell).getTagsPosition(), tagsLength);
     }
-    return CellUtil.tagsIterator(cell.getTagsArray(), cell.getTagsOffset(), cell.getTagsLength());
+
+    return new Iterator<Tag>() {
+      private int offset = cell.getTagsOffset();
+      private int pos = offset;
+      private int endOffset = offset + cell.getTagsLength() - 1;
+
+      @Override
+      public boolean hasNext() {
+        return this.pos < endOffset;
+      }
+
+      @Override
+      public Tag next() {
+        if (hasNext()) {
+          byte[] tags = cell.getTagsArray();
+          int curTagLen = Bytes.readAsInt(tags, this.pos, Tag.TAG_LENGTH_SIZE);
+          Tag tag = new ArrayBackedTag(tags, pos, curTagLen + TAG_LENGTH_SIZE);
+          this.pos += Bytes.SIZEOF_SHORT + curTagLen;
+          return tag;
+        }
+        return null;
+      }
+
+      @Override
+      public void remove() {
+        throw new UnsupportedOperationException();
+      }
+    };
   }
 
   public static Iterator<Tag> tagsIterator(final ByteBuffer tags, final int offset,
@@ -1210,8 +1259,8 @@ public final class PrivateCellUtil {
 
   /**
    * Compare cell's row against given comparator
-   * @param cell
-   * @param comparator
+   * @param cell the cell to use for comparison
+   * @param comparator the {@link CellComparator} to use for comparison
    * @return result comparing cell's row
    */
   public static int compareRow(Cell cell, ByteArrayComparable comparator) {
@@ -1224,8 +1273,8 @@ public final class PrivateCellUtil {
 
   /**
    * Compare cell's column family against given comparator
-   * @param cell
-   * @param comparator
+   * @param cell the cell to use for comparison
+   * @param comparator the {@link CellComparator} to use for comparison
    * @return result comparing cell's column family
    */
   public static int compareFamily(Cell cell, ByteArrayComparable comparator) {
@@ -1239,8 +1288,8 @@ public final class PrivateCellUtil {
 
   /**
    * Compare cell's qualifier against given comparator
-   * @param cell
-   * @param comparator
+   * @param cell the cell to use for comparison
+   * @param comparator the {@link CellComparator} to use for comparison
    * @return result comparing cell's qualifier
    */
   public static int compareQualifier(Cell cell, ByteArrayComparable comparator) {
@@ -1277,8 +1326,8 @@ public final class PrivateCellUtil {
 
   /**
    * Compare cell's value against given comparator
-   * @param cell
-   * @param comparator
+   * @param cell the cell to use for comparison
+   * @param comparator the {@link CellComparator} to use for comparison
    * @return result comparing cell's value
    */
   public static int compareValue(Cell cell, ByteArrayComparable comparator) {
@@ -1479,7 +1528,7 @@ public final class PrivateCellUtil {
 
     @Override
     public byte[] getTagsArray() {
-      return CellUtil.cloneTags(this);
+      return PrivateCellUtil.cloneTags(this);
     }
 
     @Override
@@ -2578,7 +2627,7 @@ public final class PrivateCellUtil {
    * the index block, bloom keys from the bloom blocks This byte[] is expected to be serialized in
    * the KeyValue serialization format If the KeyValue (Cell's) serialization format changes this
    * method cannot be used.
-   * @param comparator the cell comparator
+   * @param comparator the {@link CellComparator} to use for comparison
    * @param left the cell to be compared
    * @param key the serialized key part of a KeyValue
    * @param offset the offset in the key byte[]
@@ -2605,8 +2654,14 @@ public final class PrivateCellUtil {
    * method is used both in the normal comparator and the "same-prefix" comparator. Note that we are
    * assuming that row portions of both KVs have already been parsed and found identical, and we
    * don't validate that assumption here.
-   * @param commonPrefix the length of the common prefix of the two key-values being compared,
-   *          including row length and row
+   * @param comparator the {@link CellComparator} to use for comparison
+   * @param left the cell to be compared
+   * @param right the serialized key part of a key-value
+   * @param roffset the offset in the key byte[]
+   * @param rlength the length of the key byte[]
+   * @param rowlength the row length
+   * @return greater than 0 if left cell is bigger, less than 0 if right cell is bigger, 0 if both
+   *         cells are equal
    */
   static final int compareWithoutRow(CellComparator comparator, Cell left, byte[] right,
       int roffset, int rlength, short rowlength) {

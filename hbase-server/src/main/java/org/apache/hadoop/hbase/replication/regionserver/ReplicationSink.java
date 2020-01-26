@@ -18,7 +18,6 @@
 package org.apache.hadoop.hbase.replication.regionserver;
 
 import java.io.IOException;
-import java.io.InterruptedIOException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
@@ -27,8 +26,9 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.TreeMap;
 import java.util.UUID;
+import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicLong;
-
+import java.util.stream.Collectors;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
@@ -40,16 +40,18 @@ import org.apache.hadoop.hbase.HConstants;
 import org.apache.hadoop.hbase.Stoppable;
 import org.apache.hadoop.hbase.TableName;
 import org.apache.hadoop.hbase.TableNotFoundException;
-import org.apache.hadoop.hbase.client.Connection;
-import org.apache.hadoop.hbase.client.ConnectionFactory;
+import org.apache.hadoop.hbase.client.AsyncClusterConnection;
+import org.apache.hadoop.hbase.client.AsyncTable;
+import org.apache.hadoop.hbase.client.ClusterConnectionFactory;
 import org.apache.hadoop.hbase.client.Delete;
 import org.apache.hadoop.hbase.client.Mutation;
 import org.apache.hadoop.hbase.client.Put;
-import org.apache.hadoop.hbase.client.RetriesExhaustedWithDetailsException;
+import org.apache.hadoop.hbase.client.RetriesExhaustedException;
 import org.apache.hadoop.hbase.client.Row;
-import org.apache.hadoop.hbase.client.Table;
 import org.apache.hadoop.hbase.replication.ReplicationUtils;
+import org.apache.hadoop.hbase.security.UserProvider;
 import org.apache.hadoop.hbase.util.Bytes;
+import org.apache.hadoop.hbase.util.FutureUtils;
 import org.apache.hadoop.hbase.util.Pair;
 import org.apache.hadoop.hbase.wal.WALEdit;
 import org.apache.yetus.audience.InterfaceAudience;
@@ -83,7 +85,7 @@ public class ReplicationSink {
   private final Configuration conf;
   // Volatile because of note in here -- look for double-checked locking:
   // http://www.oracle.com/technetwork/articles/javase/bloch-effective-08-qa-140880.html
-  private volatile Connection sharedConn;
+  private volatile AsyncClusterConnection sharedConn;
   private final MetricsSink metrics;
   private final AtomicLong totalReplicatedEdits = new AtomicLong();
   private final Object sharedConnLock = new Object();
@@ -173,9 +175,7 @@ public class ReplicationSink {
       // invocation of this method per table and cluster id.
       Map<TableName, Map<List<UUID>, List<Row>>> rowMap = new TreeMap<>();
 
-      // Map of table name Vs list of pair of family and list of hfile paths from its namespace
-      Map<String, List<Pair<byte[], List<String>>>> bulkLoadHFileMap = null;
-
+      Map<List<String>, Map<String, List<Pair<byte[], List<String>>>>> bulkLoadsPerClusters = null;
       for (WALEntry entry : entries) {
         TableName table = TableName.valueOf(entry.getKey().getTableName().toByteArray());
         if (this.walEntrySinkFilter != null) {
@@ -202,10 +202,21 @@ public class ReplicationSink {
           Cell cell = cells.current();
           // Handle bulk load hfiles replication
           if (CellUtil.matchingQualifier(cell, WALEdit.BULK_LOAD)) {
-            if (bulkLoadHFileMap == null) {
-              bulkLoadHFileMap = new HashMap<>();
+            BulkLoadDescriptor bld = WALEdit.getBulkLoadDescriptor(cell);
+            if(bld.getReplicate()) {
+              if (bulkLoadsPerClusters == null) {
+                bulkLoadsPerClusters = new HashMap<>();
+              }
+              // Map of table name Vs list of pair of family and list of
+              // hfile paths from its namespace
+              Map<String, List<Pair<byte[], List<String>>>> bulkLoadHFileMap =
+                bulkLoadsPerClusters.get(bld.getClusterIdsList());
+              if (bulkLoadHFileMap == null) {
+                bulkLoadHFileMap = new HashMap<>();
+                bulkLoadsPerClusters.put(bld.getClusterIdsList(), bulkLoadHFileMap);
+              }
+              buildBulkLoadHFileMap(bulkLoadHFileMap, table, bld);
             }
-            buildBulkLoadHFileMap(bulkLoadHFileMap, table, cell);
           } else {
             // Handle wal replication
             if (isNewRowOrType(previousCell, cell)) {
@@ -243,14 +254,26 @@ public class ReplicationSink {
         LOG.debug("Finished replicating mutations.");
       }
 
-      if (bulkLoadHFileMap != null && !bulkLoadHFileMap.isEmpty()) {
-        LOG.debug("Started replicating bulk loaded data.");
-        HFileReplicator hFileReplicator =
-            new HFileReplicator(this.provider.getConf(this.conf, replicationClusterId),
+      if(bulkLoadsPerClusters != null) {
+        for (Entry<List<String>, Map<String, List<Pair<byte[], List<String>>>>> entry :
+            bulkLoadsPerClusters.entrySet()) {
+          Map<String, List<Pair<byte[], List<String>>>> bulkLoadHFileMap = entry.getValue();
+          if (bulkLoadHFileMap != null && !bulkLoadHFileMap.isEmpty()) {
+            if(LOG.isDebugEnabled()) {
+              LOG.debug("Started replicating bulk loaded data from cluster ids: {}.",
+                entry.getKey().toString());
+            }
+            HFileReplicator hFileReplicator =
+              new HFileReplicator(this.provider.getConf(this.conf, replicationClusterId),
                 sourceBaseNamespaceDirPath, sourceHFileArchiveDirPath, bulkLoadHFileMap, conf,
-                getConnection());
-        hFileReplicator.replicate();
-        LOG.debug("Finished replicating bulk loaded data.");
+                getConnection(), entry.getKey());
+            hFileReplicator.replicate();
+            if(LOG.isDebugEnabled()) {
+              LOG.debug("Finished replicating bulk loaded data from cluster id: {}",
+                entry.getKey().toString());
+            }
+          }
+        }
       }
 
       int size = entries.size();
@@ -265,8 +288,7 @@ public class ReplicationSink {
 
   private void buildBulkLoadHFileMap(
       final Map<String, List<Pair<byte[], List<String>>>> bulkLoadHFileMap, TableName table,
-      Cell cell) throws IOException {
-    BulkLoadDescriptor bld = WALEdit.getBulkLoadDescriptor(cell);
+      BulkLoadDescriptor bld) throws IOException {
     List<StoreDescriptor> storesList = bld.getStoresList();
     int storesSize = storesList.size();
     for (int j = 0; j < storesSize; j++) {
@@ -390,37 +412,34 @@ public class ReplicationSink {
    * Do the changes and handle the pool
    * @param tableName table to insert into
    * @param allRows list of actions
-   * @throws IOException
    */
   private void batch(TableName tableName, Collection<List<Row>> allRows) throws IOException {
     if (allRows.isEmpty()) {
       return;
     }
-    Connection connection = getConnection();
-    try (Table table = connection.getTable(tableName)) {
-      for (List<Row> rows : allRows) {
-        table.batch(rows, null);
-      }
-    } catch (RetriesExhaustedWithDetailsException rewde) {
-      for (Throwable ex : rewde.getCauses()) {
-        if (ex instanceof TableNotFoundException) {
+    AsyncTable<?> table = getConnection().getTable(tableName);
+    List<Future<?>> futures = allRows.stream().map(table::batchAll).collect(Collectors.toList());
+    for (Future<?> future : futures) {
+      try {
+        FutureUtils.get(future);
+      } catch (RetriesExhaustedException e) {
+        if (e.getCause() instanceof TableNotFoundException) {
           throw new TableNotFoundException("'" + tableName + "'");
         }
+        throw e;
       }
-      throw rewde;
-    } catch (InterruptedException ix) {
-      throw (InterruptedIOException) new InterruptedIOException().initCause(ix);
     }
   }
 
-  private Connection getConnection() throws IOException {
+  private AsyncClusterConnection getConnection() throws IOException {
     // See https://en.wikipedia.org/wiki/Double-checked_locking
-    Connection connection = sharedConn;
+    AsyncClusterConnection connection = sharedConn;
     if (connection == null) {
       synchronized (sharedConnLock) {
         connection = sharedConn;
         if (connection == null) {
-          connection = ConnectionFactory.createConnection(conf);
+          connection = ClusterConnectionFactory.createAsyncClusterConnection(conf, null,
+            UserProvider.instantiate(conf).getCurrent());
           sharedConn = connection;
         }
       }

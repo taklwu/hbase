@@ -22,12 +22,14 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 import java.io.IOException;
+
+import org.apache.hadoop.hbase.ConcurrentTableModificationException;
 import org.apache.hadoop.hbase.DoNotRetryIOException;
 import org.apache.hadoop.hbase.HBaseClassTestRule;
-import org.apache.hadoop.hbase.HColumnDescriptor;
 import org.apache.hadoop.hbase.HTableDescriptor;
 import org.apache.hadoop.hbase.InvalidFamilyOperationException;
 import org.apache.hadoop.hbase.TableName;
+import org.apache.hadoop.hbase.client.ColumnFamilyDescriptor;
 import org.apache.hadoop.hbase.client.ColumnFamilyDescriptorBuilder;
 import org.apache.hadoop.hbase.client.PerClientRandomNonceGenerator;
 import org.apache.hadoop.hbase.client.RegionInfo;
@@ -41,6 +43,7 @@ import org.apache.hadoop.hbase.testclassification.MasterTests;
 import org.apache.hadoop.hbase.testclassification.MediumTests;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.hbase.util.NonceKey;
+import org.apache.hadoop.hbase.util.TableDescriptorChecker;
 import org.junit.Assert;
 import org.junit.ClassRule;
 import org.junit.Rule;
@@ -57,6 +60,10 @@ public class TestModifyTableProcedure extends TestTableDDLProcedureBase {
 
   @Rule public TestName name = new TestName();
 
+  private static final String column_Family1 = "cf1";
+  private static final String column_Family2 = "cf2";
+  private static final String column_Family3 = "cf3";
+
   @Test
   public void testModifyTable() throws Exception {
     final TableName tableName = TableName.valueOf(name.getMethodName());
@@ -66,7 +73,7 @@ public class TestModifyTableProcedure extends TestTableDDLProcedureBase {
     UTIL.getAdmin().disableTable(tableName);
 
     // Modify the table descriptor
-    HTableDescriptor htd = new HTableDescriptor(UTIL.getAdmin().getTableDescriptor(tableName));
+    HTableDescriptor htd = new HTableDescriptor(UTIL.getAdmin().getDescriptor(tableName));
 
     // Test 1: Modify 1 property
     long newMaxFileSize = htd.getMaxFileSize() * 2;
@@ -77,7 +84,7 @@ public class TestModifyTableProcedure extends TestTableDDLProcedureBase {
         procExec, new ModifyTableProcedure(procExec.getEnvironment(), htd));
     ProcedureTestingUtility.assertProcNotFailed(procExec.getResult(procId1));
 
-    HTableDescriptor currentHtd = UTIL.getAdmin().getTableDescriptor(tableName);
+    HTableDescriptor currentHtd = new HTableDescriptor(UTIL.getAdmin().getDescriptor(tableName));
     assertEquals(newMaxFileSize, currentHtd.getMaxFileSize());
 
     // Test 2: Modify multiple properties
@@ -90,7 +97,7 @@ public class TestModifyTableProcedure extends TestTableDDLProcedureBase {
         procExec, new ModifyTableProcedure(procExec.getEnvironment(), htd));
     ProcedureTestingUtility.assertProcNotFailed(procExec.getResult(procId2));
 
-    currentHtd = UTIL.getAdmin().getTableDescriptor(tableName);
+    currentHtd = new HTableDescriptor(UTIL.getAdmin().getDescriptor(tableName));
     assertEquals(newReadOnlyOption, currentHtd.isReadOnly());
     assertEquals(newMemStoreFlushSize, currentHtd.getMemStoreFlushSize());
   }
@@ -101,19 +108,23 @@ public class TestModifyTableProcedure extends TestTableDDLProcedureBase {
     final ProcedureExecutor<MasterProcedureEnv> procExec = getMasterProcedureExecutor();
 
     MasterProcedureTestingUtility.createTable(procExec, tableName, null, "cf1");
-    HTableDescriptor currentHtd = UTIL.getAdmin().getTableDescriptor(tableName);
+    HTableDescriptor currentHtd = new HTableDescriptor(UTIL.getAdmin().getDescriptor(tableName));
     assertEquals(1, currentHtd.getFamiliesKeys().size());
 
     // Test 1: Modify the table descriptor online
     String cf2 = "cf2";
-    HTableDescriptor htd = new HTableDescriptor(UTIL.getAdmin().getTableDescriptor(tableName));
-    htd.addFamily(new HColumnDescriptor(cf2));
+    TableDescriptorBuilder tableDescriptorBuilder =
+      TableDescriptorBuilder.newBuilder(UTIL.getAdmin().getDescriptor(tableName));
+    ColumnFamilyDescriptor columnFamilyDescriptor =
+      ColumnFamilyDescriptorBuilder.newBuilder(Bytes.toBytes(cf2)).build();
+    tableDescriptorBuilder.setColumnFamily(columnFamilyDescriptor);
 
     long procId = ProcedureTestingUtility.submitAndWait(
-        procExec, new ModifyTableProcedure(procExec.getEnvironment(), htd));
+      procExec, new ModifyTableProcedure(
+        procExec.getEnvironment(), tableDescriptorBuilder.build()));
     ProcedureTestingUtility.assertProcNotFailed(procExec.getResult(procId));
 
-    currentHtd = UTIL.getAdmin().getTableDescriptor(tableName);
+    currentHtd = new HTableDescriptor(UTIL.getAdmin().getDescriptor(tableName));
     assertEquals(2, currentHtd.getFamiliesKeys().size());
     assertTrue(currentHtd.hasFamily(Bytes.toBytes(cf2)));
 
@@ -121,16 +132,18 @@ public class TestModifyTableProcedure extends TestTableDDLProcedureBase {
     UTIL.getAdmin().disableTable(tableName);
     ProcedureTestingUtility.waitNoProcedureRunning(procExec);
     String cf3 = "cf3";
-    HTableDescriptor htd2 =
-        new HTableDescriptor(UTIL.getAdmin().getTableDescriptor(tableName));
-    htd2.addFamily(new HColumnDescriptor(cf3));
+    tableDescriptorBuilder =
+      TableDescriptorBuilder.newBuilder(UTIL.getAdmin().getDescriptor(tableName));
+    columnFamilyDescriptor =
+      ColumnFamilyDescriptorBuilder.newBuilder(Bytes.toBytes(cf3)).build();
+    tableDescriptorBuilder.setColumnFamily(columnFamilyDescriptor);
 
     long procId2 =
-        ProcedureTestingUtility.submitAndWait(procExec,
-          new ModifyTableProcedure(procExec.getEnvironment(), htd2));
+      ProcedureTestingUtility.submitAndWait(procExec,
+        new ModifyTableProcedure(procExec.getEnvironment(), tableDescriptorBuilder.build()));
     ProcedureTestingUtility.assertProcNotFailed(procExec.getResult(procId2));
 
-    currentHtd = UTIL.getAdmin().getTableDescriptor(tableName);
+    currentHtd = new HTableDescriptor(UTIL.getAdmin().getDescriptor(tableName));
     assertTrue(currentHtd.hasFamily(Bytes.toBytes(cf3)));
     assertEquals(3, currentHtd.getFamiliesKeys().size());
   }
@@ -144,18 +157,18 @@ public class TestModifyTableProcedure extends TestTableDDLProcedureBase {
     final ProcedureExecutor<MasterProcedureEnv> procExec = getMasterProcedureExecutor();
 
     MasterProcedureTestingUtility.createTable(procExec, tableName, null, cf1, cf2, cf3);
-    HTableDescriptor currentHtd = UTIL.getAdmin().getTableDescriptor(tableName);
+    HTableDescriptor currentHtd = new HTableDescriptor(UTIL.getAdmin().getDescriptor(tableName));
     assertEquals(3, currentHtd.getFamiliesKeys().size());
 
     // Test 1: Modify the table descriptor
-    HTableDescriptor htd = new HTableDescriptor(UTIL.getAdmin().getTableDescriptor(tableName));
+    HTableDescriptor htd = new HTableDescriptor(UTIL.getAdmin().getDescriptor(tableName));
     htd.removeFamily(Bytes.toBytes(cf2));
 
     long procId = ProcedureTestingUtility.submitAndWait(
         procExec, new ModifyTableProcedure(procExec.getEnvironment(), htd));
     ProcedureTestingUtility.assertProcNotFailed(procExec.getResult(procId));
 
-    currentHtd = UTIL.getAdmin().getTableDescriptor(tableName);
+    currentHtd = new HTableDescriptor(UTIL.getAdmin().getDescriptor(tableName));
     assertEquals(2, currentHtd.getFamiliesKeys().size());
     assertFalse(currentHtd.hasFamily(Bytes.toBytes(cf2)));
 
@@ -164,23 +177,23 @@ public class TestModifyTableProcedure extends TestTableDDLProcedureBase {
     ProcedureTestingUtility.waitNoProcedureRunning(procExec);
 
     HTableDescriptor htd2 =
-        new HTableDescriptor(UTIL.getAdmin().getTableDescriptor(tableName));
+        new HTableDescriptor(UTIL.getAdmin().getDescriptor(tableName));
     htd2.removeFamily(Bytes.toBytes(cf3));
     // Disable Sanity check
-    htd2.setConfiguration("hbase.table.sanity.checks", Boolean.FALSE.toString());
+    htd2.setConfiguration(TableDescriptorChecker.TABLE_SANITY_CHECKS, Boolean.FALSE.toString());
 
     long procId2 =
         ProcedureTestingUtility.submitAndWait(procExec,
           new ModifyTableProcedure(procExec.getEnvironment(), htd2));
     ProcedureTestingUtility.assertProcNotFailed(procExec.getResult(procId2));
 
-    currentHtd = UTIL.getAdmin().getTableDescriptor(tableName);
+    currentHtd = new HTableDescriptor(UTIL.getAdmin().getDescriptor(tableName));
     assertEquals(1, currentHtd.getFamiliesKeys().size());
     assertFalse(currentHtd.hasFamily(Bytes.toBytes(cf3)));
 
     //Removing the last family will fail
     HTableDescriptor htd3 =
-        new HTableDescriptor(UTIL.getAdmin().getTableDescriptor(tableName));
+        new HTableDescriptor(UTIL.getAdmin().getDescriptor(tableName));
     htd3.removeFamily(Bytes.toBytes(cf1));
     long procId3 =
         ProcedureTestingUtility.submitAndWait(procExec,
@@ -249,21 +262,24 @@ public class TestModifyTableProcedure extends TestTableDDLProcedureBase {
     ProcedureTestingUtility.setKillAndToggleBeforeStoreUpdate(procExec, true);
 
     // Modify multiple properties of the table.
-    HTableDescriptor htd = new HTableDescriptor(UTIL.getAdmin().getTableDescriptor(tableName));
-    boolean newCompactionEnableOption = htd.isCompactionEnabled() ? false : true;
-    htd.setCompactionEnabled(newCompactionEnableOption);
-    htd.addFamily(new HColumnDescriptor(cf2));
-    htd.removeFamily(Bytes.toBytes(cf3));
+    TableDescriptorBuilder tableDescriptorBuilder =
+      TableDescriptorBuilder.newBuilder(UTIL.getAdmin().getDescriptor(tableName));
+    ColumnFamilyDescriptor columnFamilyDescriptor =
+      ColumnFamilyDescriptorBuilder.newBuilder(Bytes.toBytes(cf2)).build();
+    boolean newCompactionEnableOption = !tableDescriptorBuilder.build().isCompactionEnabled();
+    tableDescriptorBuilder.setCompactionEnabled(newCompactionEnableOption);
+    tableDescriptorBuilder.setColumnFamily(columnFamilyDescriptor);
+    tableDescriptorBuilder.removeColumnFamily(Bytes.toBytes(cf3));
 
     // Start the Modify procedure && kill the executor
     long procId = procExec.submitProcedure(
-      new ModifyTableProcedure(procExec.getEnvironment(), htd));
+      new ModifyTableProcedure(procExec.getEnvironment(), tableDescriptorBuilder.build()));
 
     // Restart the executor and execute the step twice
     MasterProcedureTestingUtility.testRecoveryAndDoubleExecution(procExec, procId);
 
     // Validate descriptor
-    HTableDescriptor currentHtd = UTIL.getAdmin().getTableDescriptor(tableName);
+    HTableDescriptor currentHtd = new HTableDescriptor(UTIL.getAdmin().getDescriptor(tableName));
     assertEquals(newCompactionEnableOption, currentHtd.isCompactionEnabled());
     assertEquals(2, currentHtd.getFamiliesKeys().size());
     assertTrue(currentHtd.hasFamily(Bytes.toBytes(cf2)));
@@ -397,5 +413,188 @@ public class TestModifyTableProcedure extends TestTableDDLProcedureBase {
     // cf2 should not be present
     MasterProcedureTestingUtility.validateTableCreation(UTIL.getHBaseCluster().getMaster(),
       tableName, regions, "cf1");
+  }
+
+  @Test
+  public void testConcurrentAddColumnFamily() throws IOException, InterruptedException {
+    final TableName tableName = TableName.valueOf(name.getMethodName());
+    UTIL.createTable(tableName, column_Family1);
+
+    class ConcurrentAddColumnFamily extends Thread {
+      TableName tableName = null;
+      ColumnFamilyDescriptor columnFamilyDescriptor;
+      boolean exception;
+
+      public ConcurrentAddColumnFamily(TableName tableName,
+          ColumnFamilyDescriptor columnFamilyDescriptor) {
+        this.tableName = tableName;
+        this.columnFamilyDescriptor = columnFamilyDescriptor;
+        this.exception = false;
+      }
+
+      public void run() {
+        try {
+          UTIL.getAdmin().addColumnFamily(tableName, columnFamilyDescriptor);
+        } catch (Exception e) {
+          if (e.getClass().equals(ConcurrentTableModificationException.class)) {
+            this.exception = true;
+          }
+        }
+      }
+    }
+    ColumnFamilyDescriptor columnFamilyDescriptor =
+      ColumnFamilyDescriptorBuilder.newBuilder(Bytes.toBytes(column_Family2)).build();
+    ConcurrentAddColumnFamily t1 =
+      new ConcurrentAddColumnFamily(tableName, columnFamilyDescriptor);
+    columnFamilyDescriptor =
+      ColumnFamilyDescriptorBuilder.newBuilder(Bytes.toBytes(column_Family3)).build();
+    ConcurrentAddColumnFamily t2 =
+      new ConcurrentAddColumnFamily(tableName, columnFamilyDescriptor);
+
+    t1.start();
+    t2.start();
+
+    t1.join();
+    t2.join();
+    int noOfColumnFamilies = UTIL.getAdmin().getDescriptor(tableName).getColumnFamilies().length;
+    assertTrue("Expected ConcurrentTableModificationException.",
+      ((t1.exception || t2.exception) && noOfColumnFamilies == 2) || noOfColumnFamilies == 3);
+  }
+
+  @Test
+  public void testConcurrentDeleteColumnFamily() throws IOException, InterruptedException {
+    final TableName tableName = TableName.valueOf(name.getMethodName());
+    TableDescriptorBuilder tableDescriptorBuilder =
+      TableDescriptorBuilder.newBuilder(tableName);
+    ColumnFamilyDescriptor columnFamilyDescriptor =
+      ColumnFamilyDescriptorBuilder.newBuilder(Bytes.toBytes(column_Family1)).build();
+    tableDescriptorBuilder.setColumnFamily(columnFamilyDescriptor);
+    columnFamilyDescriptor =
+      ColumnFamilyDescriptorBuilder.newBuilder(Bytes.toBytes(column_Family2)).build();
+    tableDescriptorBuilder.setColumnFamily(columnFamilyDescriptor);
+    columnFamilyDescriptor =
+      ColumnFamilyDescriptorBuilder.newBuilder(Bytes.toBytes(column_Family3)).build();
+    tableDescriptorBuilder.setColumnFamily(columnFamilyDescriptor);
+    UTIL.getAdmin().createTable(tableDescriptorBuilder.build());
+
+    class ConcurrentCreateDeleteTable extends Thread {
+      TableName tableName = null;
+      String columnFamily = null;
+      boolean exception;
+
+      public ConcurrentCreateDeleteTable(TableName tableName, String columnFamily) {
+        this.tableName = tableName;
+        this.columnFamily = columnFamily;
+        this.exception = false;
+      }
+
+      public void run() {
+        try {
+          UTIL.getAdmin().deleteColumnFamily(tableName, columnFamily.getBytes());
+        } catch (Exception e) {
+          if (e.getClass().equals(ConcurrentTableModificationException.class)) {
+            this.exception = true;
+          }
+        }
+      }
+    }
+    ConcurrentCreateDeleteTable t1 = new ConcurrentCreateDeleteTable(tableName, column_Family2);
+    ConcurrentCreateDeleteTable t2 = new ConcurrentCreateDeleteTable(tableName, column_Family3);
+
+    t1.start();
+    t2.start();
+
+    t1.join();
+    t2.join();
+    int noOfColumnFamilies = UTIL.getAdmin().getDescriptor(tableName).getColumnFamilies().length;
+    assertTrue("Expected ConcurrentTableModificationException.",
+      ((t1.exception || t2.exception) && noOfColumnFamilies == 2) || noOfColumnFamilies == 1);
+  }
+
+  @Test
+  public void testConcurrentModifyColumnFamily() throws IOException, InterruptedException {
+    final TableName tableName = TableName.valueOf(name.getMethodName());
+    UTIL.createTable(tableName, column_Family1);
+
+    class ConcurrentModifyColumnFamily extends Thread {
+      TableName tableName = null;
+      ColumnFamilyDescriptor hcd = null;
+      boolean exception;
+
+      public ConcurrentModifyColumnFamily(TableName tableName, ColumnFamilyDescriptor hcd) {
+        this.tableName = tableName;
+        this.hcd = hcd;
+        this.exception = false;
+      }
+
+      public void run() {
+        try {
+          UTIL.getAdmin().modifyColumnFamily(tableName, hcd);
+        } catch (Exception e) {
+          if (e.getClass().equals(ConcurrentTableModificationException.class)) {
+            this.exception = true;
+          }
+        }
+      }
+    }
+    ColumnFamilyDescriptor modColumnFamily1 = ColumnFamilyDescriptorBuilder
+        .newBuilder(column_Family1.getBytes()).setMaxVersions(5).build();
+    ColumnFamilyDescriptor modColumnFamily2 = ColumnFamilyDescriptorBuilder
+        .newBuilder(column_Family1.getBytes()).setMaxVersions(6).build();
+
+    ConcurrentModifyColumnFamily t1 = new ConcurrentModifyColumnFamily(tableName, modColumnFamily1);
+    ConcurrentModifyColumnFamily t2 = new ConcurrentModifyColumnFamily(tableName, modColumnFamily2);
+
+    t1.start();
+    t2.start();
+
+    t1.join();
+    t2.join();
+
+    int maxVersions = UTIL.getAdmin().getDescriptor(tableName)
+        .getColumnFamily(column_Family1.getBytes()).getMaxVersions();
+    assertTrue("Expected ConcurrentTableModificationException.", (t1.exception && maxVersions == 5)
+        || (t2.exception && maxVersions == 6) || !(t1.exception && t2.exception));
+  }
+
+  @Test
+  public void testConcurrentModifyTable() throws IOException, InterruptedException {
+    final TableName tableName = TableName.valueOf(name.getMethodName());
+    UTIL.createTable(tableName, column_Family1);
+
+    class ConcurrentModifyTable extends Thread {
+      TableName tableName = null;
+      TableDescriptor htd = null;
+      boolean exception;
+
+      public ConcurrentModifyTable(TableName tableName, TableDescriptor htd) {
+        this.tableName = tableName;
+        this.htd = htd;
+        this.exception = false;
+      }
+
+      public void run() {
+        try {
+          UTIL.getAdmin().modifyTable(htd);
+        } catch (Exception e) {
+          if (e.getClass().equals(ConcurrentTableModificationException.class)) {
+            this.exception = true;
+          }
+        }
+      }
+    }
+    TableDescriptor htd = UTIL.getAdmin().getDescriptor(tableName);
+    TableDescriptor modifiedDescriptor =
+        TableDescriptorBuilder.newBuilder(htd).setCompactionEnabled(false).build();
+
+    ConcurrentModifyTable t1 = new ConcurrentModifyTable(tableName, modifiedDescriptor);
+    ConcurrentModifyTable t2 = new ConcurrentModifyTable(tableName, modifiedDescriptor);
+
+    t1.start();
+    t2.start();
+
+    t1.join();
+    t2.join();
+    assertFalse("Expected ConcurrentTableModificationException.", (t1.exception || t2.exception));
   }
 }

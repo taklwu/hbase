@@ -26,6 +26,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
+
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FSDataInputStream;
 import org.apache.hadoop.fs.FSDataOutputStream;
@@ -79,10 +80,10 @@ public class HRegionFileSystem {
 
   private final RegionInfo regionInfo;
   //regionInfo for interacting with FS (getting encodedName, etc)
-  private final RegionInfo regionInfoForFs;
-  private final Configuration conf;
+  final RegionInfo regionInfoForFs;
+  final Configuration conf;
   private final Path tableDir;
-  private final FileSystem fs;
+  final FileSystem fs;
   private final Path regionDir;
 
   /**
@@ -108,7 +109,7 @@ public class HRegionFileSystem {
     this.tableDir = Objects.requireNonNull(tableDir, "tableDir is null");
     this.regionInfo = Objects.requireNonNull(regionInfo, "regionInfo is null");
     this.regionInfoForFs = ServerRegionReplicaUtil.getRegionInfoForFs(regionInfo);
-    this.regionDir = FSUtils.getRegionDir(tableDir, regionInfo);
+    this.regionDir = FSUtils.getRegionDirFromTableDir(tableDir, regionInfo);
     this.hdfsClientRetriesNumber = conf.getInt("hdfs.client.retries.number",
       DEFAULT_HDFS_CLIENT_RETRIES_NUMBER);
     this.baseSleepBeforeRetries = conf.getInt("hdfs.client.sleep.before.retries",
@@ -325,8 +326,8 @@ public class HRegionFileSystem {
         if(stat.isDirectory()) {
           continue;
         }
-        if(StoreFileInfo.isReference(stat.getPath())) {
-          if (LOG.isTraceEnabled()) LOG.trace("Reference " + stat.getPath());
+        if (StoreFileInfo.isReference(stat.getPath())) {
+          LOG.trace("Reference {}", stat.getPath());
           return true;
         }
       }
@@ -630,18 +631,25 @@ public class HRegionFileSystem {
   /**
    * Create the region splits directory.
    */
-  public void createSplitsDir() throws IOException {
+  public void createSplitsDir(RegionInfo daughterA, RegionInfo daughterB) throws IOException {
     Path splitdir = getSplitsDir();
     if (fs.exists(splitdir)) {
       LOG.info("The " + splitdir + " directory exists.  Hence deleting it to recreate it");
       if (!deleteDir(splitdir)) {
-        throw new IOException("Failed deletion of " + splitdir
-            + " before creating them again.");
+        throw new IOException("Failed deletion of " + splitdir + " before creating them again.");
       }
     }
     // splitDir doesn't exists now. No need to do an exists() call for it.
     if (!createDir(splitdir)) {
       throw new IOException("Failed create of " + splitdir);
+    }
+    Path daughterATmpDir = getSplitsDir(daughterA);
+    if (!createDir(daughterATmpDir)) {
+      throw new IOException("Failed create of " + daughterATmpDir);
+    }
+    Path daughterBTmpDir = getSplitsDir(daughterB);
+    if (!createDir(daughterBTmpDir)) {
+      throw new IOException("Failed create of " + daughterBTmpDir);
     }
   }
 
@@ -750,22 +758,22 @@ public class HRegionFileSystem {
   }
 
   /**
-   * Create the region merges directory.
+   * Create the region merges directory, a temporary directory to accumulate
+   * merges in.
    * @throws IOException If merges dir already exists or we fail to create it.
    * @see HRegionFileSystem#cleanupMergesDir()
    */
   public void createMergesDir() throws IOException {
     Path mergesdir = getMergesDir();
     if (fs.exists(mergesdir)) {
-      LOG.info("The " + mergesdir
-          + " directory exists.  Hence deleting it to recreate it");
+      LOG.info("{} directory exists. Deleting it to recreate it anew", mergesdir);
       if (!fs.delete(mergesdir, true)) {
-        throw new IOException("Failed deletion of " + mergesdir
-            + " before creating them again.");
+        throw new IOException("Failed deletion of " + mergesdir + " before recreate.");
       }
     }
-    if (!mkdirs(fs, conf, mergesdir))
+    if (!mkdirs(fs, conf, mergesdir)) {
       throw new IOException("Failed create of " + mergesdir);
+    }
   }
 
   /**
@@ -805,8 +813,14 @@ public class HRegionFileSystem {
   public void commitMergedRegion(final RegionInfo mergedRegionInfo) throws IOException {
     Path regionDir = new Path(this.tableDir, mergedRegionInfo.getEncodedName());
     Path mergedRegionTmpDir = this.getMergesDir(mergedRegionInfo);
-    // Move the tmp dir in the expected location
+    // Move the tmp dir to the expected location
     if (mergedRegionTmpDir != null && fs.exists(mergedRegionTmpDir)) {
+
+      // Write HRI to a file in case we need to recover hbase:meta
+      Path regionInfoFile = new Path(mergedRegionTmpDir, REGION_INFO_FILE);
+      byte[] regionInfoContent = getRegionInfoFileContent(regionInfo);
+      writeRegionInfoFileContent(conf, fs, regionInfoFile, regionInfoContent);
+
       if (!fs.rename(mergedRegionTmpDir, regionDir)) {
         throw new IOException("Unable to rename " + mergedRegionTmpDir + " to "
             + regionDir);
@@ -854,6 +868,7 @@ public class HRegionFileSystem {
 
   /**
    * Write the .regioninfo file on-disk.
+   * Overwrites if exists already.
    */
   private static void writeRegionInfoFileContent(final Configuration conf, final FileSystem fs,
       final Path regionInfoFile, final byte[] content) throws IOException {
@@ -976,13 +991,12 @@ public class HRegionFileSystem {
       Path regionDir = regionFs.getRegionDir();
       if (fs.exists(regionDir)) {
         LOG.warn("Trying to create a region that already exists on disk: " + regionDir);
-        throw new IOException("The specified region already exists on disk: " + regionDir);
-      }
-
-      // Create the region directory
-      if (!createDirOnFileSystem(fs, conf, regionDir)) {
-        LOG.warn("Unable to create the region directory: " + regionDir);
-        throw new IOException("Unable to create region directory: " + regionDir);
+      } else {
+        // Create the region directory
+        if (!createDirOnFileSystem(fs, conf, regionDir)) {
+          LOG.warn("Unable to create the region directory: " + regionDir);
+          throw new IOException("Unable to create region directory: " + regionDir);
+        }
       }
 
       // Write HRI to a file in case we need to recover hbase:meta

@@ -22,20 +22,19 @@ import static org.junit.Assert.assertEquals;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
-
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FSDataOutputStream;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hbase.HBaseTestingUtility;
-import org.apache.hadoop.hbase.HColumnDescriptor;
 import org.apache.hadoop.hbase.HRegionLocation;
-import org.apache.hadoop.hbase.HTableDescriptor;
 import org.apache.hadoop.hbase.MetaTableAccessor;
 import org.apache.hadoop.hbase.NamespaceDescriptor;
 import org.apache.hadoop.hbase.ServerName;
 import org.apache.hadoop.hbase.TableName;
 import org.apache.hadoop.hbase.client.Admin;
+import org.apache.hadoop.hbase.client.ColumnFamilyDescriptor;
+import org.apache.hadoop.hbase.client.ColumnFamilyDescriptorBuilder;
 import org.apache.hadoop.hbase.client.Connection;
 import org.apache.hadoop.hbase.client.ConnectionFactory;
 import org.apache.hadoop.hbase.client.Delete;
@@ -47,6 +46,8 @@ import org.apache.hadoop.hbase.client.Result;
 import org.apache.hadoop.hbase.client.ResultScanner;
 import org.apache.hadoop.hbase.client.Scan;
 import org.apache.hadoop.hbase.client.Table;
+import org.apache.hadoop.hbase.client.TableDescriptor;
+import org.apache.hadoop.hbase.client.TableDescriptorBuilder;
 import org.apache.hadoop.hbase.regionserver.HRegionFileSystem;
 import org.apache.hadoop.hbase.testclassification.LargeTests;
 import org.apache.hadoop.hbase.testclassification.MiscTests;
@@ -97,7 +98,7 @@ public class OfflineMetaRebuildTestCore {
     TEST_UTIL.startMiniCluster(3);
     conf = TEST_UTIL.getConfiguration();
     this.connection = ConnectionFactory.createConnection(conf);
-    assertEquals(0, TEST_UTIL.getAdmin().listTables().length);
+    assertEquals(0, TEST_UTIL.getAdmin().listTableDescriptors().size());
 
     // setup the table
     table = TableName.valueOf(TABLE_BASE + "-" + tableIdx);
@@ -109,7 +110,7 @@ public class OfflineMetaRebuildTestCore {
         + " entries.");
     assertEquals(16, tableRowCount(conf, table));
     TEST_UTIL.getAdmin().disableTable(table);
-    assertEquals(1, TEST_UTIL.getAdmin().listTables().length);
+    assertEquals(1, TEST_UTIL.getAdmin().listTableDescriptors().size());
   }
 
   @After
@@ -130,14 +131,17 @@ public class OfflineMetaRebuildTestCore {
    * @throws KeeperException
    */
   private Table setupTable(TableName tablename) throws Exception {
-    HTableDescriptor desc = new HTableDescriptor(tablename);
-    HColumnDescriptor hcd = new HColumnDescriptor(Bytes.toString(FAM));
-    desc.addFamily(hcd); // If a table has no CF's it doesn't get checked
-    TEST_UTIL.getAdmin().createTable(desc, splits);
+    TableDescriptorBuilder tableDescriptorBuilder =
+      TableDescriptorBuilder.newBuilder(tablename);
+    ColumnFamilyDescriptor columnFamilyDescriptor =
+      ColumnFamilyDescriptorBuilder.newBuilder(FAM).build();
+    // If a table has no CF's it doesn't get checked
+    tableDescriptorBuilder.setColumnFamily(columnFamilyDescriptor);
+    TEST_UTIL.getAdmin().createTable(tableDescriptorBuilder.build(), splits);
     return this.connection.getTable(tablename);
   }
 
-  private void dumpMeta(HTableDescriptor htd) throws IOException {
+  private void dumpMeta(TableDescriptor htd) throws IOException {
     List<byte[]> metaRows = TEST_UTIL.getMetaTableRows(htd.getTableName());
     for (byte[] row : metaRows) {
       LOG.info(Bytes.toString(row));
@@ -162,7 +166,7 @@ public class OfflineMetaRebuildTestCore {
       byte[] startKey, byte[] endKey) throws IOException {
 
     LOG.info("Before delete:");
-    HTableDescriptor htd = tbl.getTableDescriptor();
+    TableDescriptor htd = tbl.getDescriptor();
     dumpMeta(htd);
 
     List<HRegionLocation> regions;
@@ -171,7 +175,7 @@ public class OfflineMetaRebuildTestCore {
     }
 
     for (HRegionLocation e : regions) {
-      RegionInfo hri = e.getRegionInfo();
+      RegionInfo hri = e.getRegion();
       ServerName hsa = e.getServerName();
       if (Bytes.compareTo(hri.getStartKey(), startKey) == 0
           && Bytes.compareTo(hri.getEndKey(), endKey) == 0) {
@@ -203,7 +207,6 @@ public class OfflineMetaRebuildTestCore {
   protected RegionInfo createRegion(Configuration conf, final Table htbl,
       byte[] startKey, byte[] endKey) throws IOException {
     Table meta = TEST_UTIL.getConnection().getTable(TableName.META_TABLE_NAME);
-    HTableDescriptor htd = htbl.getTableDescriptor();
     RegionInfo hri = RegionInfoBuilder.newBuilder(htbl.getName())
         .setStartKey(startKey)
         .setEndKey(endKey)
@@ -280,13 +283,11 @@ public class OfflineMetaRebuildTestCore {
     return MetaTableAccessor.fullScanRegions(TEST_UTIL.getConnection()).size();
   }
 
-  protected HTableDescriptor[] getTables(final Configuration configuration) throws IOException {
-    HTableDescriptor[] htbls = null;
+  protected List<TableDescriptor> getTables(final Configuration configuration) throws IOException {
     try (Connection connection = ConnectionFactory.createConnection(configuration)) {
       try (Admin admin = connection.getAdmin()) {
-        htbls = admin.listTables();
+        return admin.listTableDescriptors();
       }
     }
-    return htbls;
   }
 }

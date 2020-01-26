@@ -231,6 +231,9 @@ public interface MetricsRegionServerSource extends BaseSource, JvmPauseMonitorSo
   String WALFILE_SIZE_DESC = "Size of all WAL Files";
   String STOREFILE_COUNT = "storeFileCount";
   String STOREFILE_COUNT_DESC = "Number of Store Files";
+  String STORE_REF_COUNT = "storeRefCount";
+  String STORE_REF_COUNT_DESC = "Store reference count";
+  String MAX_COMPACTED_STORE_FILE_REF_COUNT = "maxCompactedStoreFileRefCount";
   String MEMSTORE_SIZE = "memStoreSize";
   String MEMSTORE_SIZE_DESC = "Size of the memstore";
   String STOREFILE_SIZE = "storeFileSize";
@@ -556,4 +559,19 @@ public interface MetricsRegionServerSource extends BaseSource, JvmPauseMonitorSo
   String AVERAGE_REGION_SIZE = "averageRegionSize";
   String AVERAGE_REGION_SIZE_DESC =
       "Average region size over the RegionServer including memstore and storefile sizes.";
+
+  /** Metrics for {@link org.apache.hadoop.hbase.io.ByteBuffAllocator} **/
+  String BYTE_BUFF_ALLOCATOR_HEAP_ALLOCATION_BYTES = "ByteBuffAllocatorHeapAllocationBytes";
+  String BYTE_BUFF_ALLOCATOR_HEAP_ALLOCATION_BYTES_DESC =
+      "Bytes of heap allocation from ByteBuffAllocator";
+  String BYTE_BUFF_ALLOCATOR_POOL_ALLOCATION_BYTES = "ByteBuffAllocatorPoolAllocationBytes";
+  String BYTE_BUFF_ALLOCATOR_POOL_ALLOCATION_BYTES_DESC =
+      "Bytes of pool allocation from ByteBuffAllocator";
+  String BYTE_BUFF_ALLOCATOR_HEAP_ALLOCATION_RATIO = "ByteBuffAllocatorHeapAllocationRatio";
+  String BYTE_BUFF_ALLOCATOR_HEAP_ALLOCATION_RATIO_DESC =
+      "Ratio of heap allocation from ByteBuffAllocator, means heapAllocation/totalAllocation";
+  String BYTE_BUFF_ALLOCATOR_TOTAL_BUFFER_COUNT = "ByteBuffAllocatorTotalBufferCount";
+  String BYTE_BUFF_ALLOCATOR_TOTAL_BUFFER_COUNT_DESC = "Total buffer count in ByteBuffAllocator";
+  String BYTE_BUFF_ALLOCATOR_USED_BUFFER_COUNT = "ByteBuffAllocatorUsedBufferCount";
+  String BYTE_BUFF_ALLOCATOR_USED_BUFFER_COUNT_DESC = "Used buffer count in ByteBuffAllocator";
 }

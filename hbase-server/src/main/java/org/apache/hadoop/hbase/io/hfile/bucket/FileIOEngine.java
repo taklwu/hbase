@@ -27,11 +27,10 @@ import java.nio.channels.ClosedChannelException;
 import java.nio.channels.FileChannel;
 import java.util.Arrays;
 import java.util.concurrent.locks.ReentrantLock;
+
+import org.apache.hadoop.hbase.exceptions.IllegalArgumentIOException;
 import org.apache.hadoop.hbase.io.hfile.Cacheable;
-import org.apache.hadoop.hbase.io.hfile.Cacheable.MemoryType;
-import org.apache.hadoop.hbase.io.hfile.CacheableDeserializer;
 import org.apache.hadoop.hbase.nio.ByteBuff;
-import org.apache.hadoop.hbase.nio.SingleByteBuff;
 import org.apache.hadoop.util.StringUtils;
 import org.apache.yetus.audience.InterfaceAudience;
 import org.slf4j.Logger;
@@ -44,10 +43,9 @@ import org.apache.hbase.thirdparty.com.google.common.base.Preconditions;
  * IO engine that stores data to a file on the local file system.
  */
 @InterfaceAudience.Private
-public class FileIOEngine implements IOEngine {
+public class FileIOEngine extends PersistentIOEngine {
   private static final Logger LOG = LoggerFactory.getLogger(FileIOEngine.class);
   public static final String FILE_DELIMITER = ",";
-  private final String[] filePaths;
   private final FileChannel[] fileChannels;
   private final RandomAccessFile[] rafs;
   private final ReentrantLock[] channelLocks;
@@ -60,9 +58,9 @@ public class FileIOEngine implements IOEngine {
 
   public FileIOEngine(long capacity, boolean maintainPersistence, String... filePaths)
       throws IOException {
+    super(filePaths);
     this.sizePerFile = capacity / filePaths.length;
     this.capacity = this.sizePerFile * filePaths.length;
-    this.filePaths = filePaths;
     this.fileChannels = new FileChannel[filePaths.length];
     if (!maintainPersistence) {
       for (String filePath : filePaths) {
@@ -91,7 +89,12 @@ public class FileIOEngine implements IOEngine {
               + StringUtils.byteDesc(sizePerFile);
           LOG.warn(msg);
         }
-        rafs[i].setLength(sizePerFile);
+        File file = new File(filePath);
+        // setLength() method will change file's last modified time. So if don't do
+        // this check, wrong time will be used when calculating checksum.
+        if (file.length() != sizePerFile) {
+          rafs[i].setLength(sizePerFile);
+        }
         fileChannels[i] = rafs[i].getChannel();
         channelLocks[i] = new ReentrantLock();
         LOG.info("Allocating cache " + StringUtils.byteDesc(sizePerFile)
@@ -121,29 +124,34 @@ public class FileIOEngine implements IOEngine {
 
   /**
    * Transfers data from file to the given byte buffer
-   * @param offset The offset in the file where the first byte to be read
-   * @param length The length of buffer that should be allocated for reading
-   *               from the file channel
-   * @return number of bytes read
-   * @throws IOException
+   * @param be an {@link BucketEntry} which maintains an (offset, len, refCnt)
+   * @return the {@link Cacheable} with block data inside.
+   * @throws IOException if any IO error happen.
    */
   @Override
-  public Cacheable read(long offset, int length, CacheableDeserializer<Cacheable> deserializer)
-      throws IOException {
+  public Cacheable read(BucketEntry be) throws IOException {
+    long offset = be.offset();
+    int length = be.getLength();
     Preconditions.checkArgument(length >= 0, "Length of read can not be less than 0.");
-    ByteBuffer dstBuffer = ByteBuffer.allocate(length);
+    ByteBuff dstBuff = be.allocator.allocate(length);
     if (length != 0) {
-      accessFile(readAccessor, dstBuffer, offset);
-      // The buffer created out of the fileChannel is formed by copying the data from the file
-      // Hence in this case there is no shared memory that we point to. Even if the BucketCache evicts
-      // this buffer from the file the data is already copied and there is no need to ensure that
-      // the results are not corrupted before consuming them.
-      if (dstBuffer.limit() != length) {
-        throw new RuntimeException("Only " + dstBuffer.limit() + " bytes read, " + length
-            + " expected");
+      try {
+        accessFile(readAccessor, dstBuff, offset);
+        // The buffer created out of the fileChannel is formed by copying the data from the file
+        // Hence in this case there is no shared memory that we point to. Even if the BucketCache
+        // evicts this buffer from the file the data is already copied and there is no need to
+        // ensure that the results are not corrupted before consuming them.
+        if (dstBuff.limit() != length) {
+          throw new IllegalArgumentIOException(
+              "Only " + dstBuff.limit() + " bytes read, " + length + " expected");
+        }
+      } catch (IOException ioe) {
+        dstBuff.release();
+        throw ioe;
       }
     }
-    return deserializer.deserialize(new SingleByteBuff(dstBuffer), true, MemoryType.EXCLUSIVE);
+    dstBuff.rewind();
+    return be.wrapAsCacheable(dstBuff);
   }
 
   @VisibleForTesting
@@ -165,10 +173,7 @@ public class FileIOEngine implements IOEngine {
    */
   @Override
   public void write(ByteBuffer srcBuffer, long offset) throws IOException {
-    if (!srcBuffer.hasRemaining()) {
-      return;
-    }
-    accessFile(writeAccessor, srcBuffer, offset);
+    write(ByteBuff.wrap(srcBuffer), offset);
   }
 
   /**
@@ -209,31 +214,30 @@ public class FileIOEngine implements IOEngine {
   }
 
   @Override
-  public void write(ByteBuff srcBuffer, long offset) throws IOException {
-    // When caching block into BucketCache there will be single buffer backing for this HFileBlock.
-    assert srcBuffer.hasArray();
-    write(ByteBuffer.wrap(srcBuffer.array(), srcBuffer.arrayOffset(),
-            srcBuffer.remaining()), offset);
+  public void write(ByteBuff srcBuff, long offset) throws IOException {
+    if (!srcBuff.hasRemaining()) {
+      return;
+    }
+    accessFile(writeAccessor, srcBuff, offset);
   }
 
-  private void accessFile(FileAccessor accessor, ByteBuffer buffer,
+  private void accessFile(FileAccessor accessor, ByteBuff buff,
       long globalOffset) throws IOException {
     int startFileNum = getFileNum(globalOffset);
-    int remainingAccessDataLen = buffer.remaining();
+    int remainingAccessDataLen = buff.remaining();
     int endFileNum = getFileNum(globalOffset + remainingAccessDataLen - 1);
     int accessFileNum = startFileNum;
     long accessOffset = getAbsoluteOffsetInFile(accessFileNum, globalOffset);
-    int bufLimit = buffer.limit();
+    int bufLimit = buff.limit();
     while (true) {
       FileChannel fileChannel = fileChannels[accessFileNum];
       int accessLen = 0;
       if (endFileNum > accessFileNum) {
         // short the limit;
-        buffer.limit((int) (buffer.limit() - remainingAccessDataLen
-            + sizePerFile - accessOffset));
+        buff.limit((int) (buff.limit() - remainingAccessDataLen + sizePerFile - accessOffset));
       }
       try {
-        accessLen = accessor.access(fileChannel, buffer, accessOffset);
+        accessLen = accessor.access(fileChannel, buff, accessOffset);
       } catch (ClosedByInterruptException e) {
         throw e;
       } catch (ClosedChannelException e) {
@@ -241,7 +245,7 @@ public class FileIOEngine implements IOEngine {
         continue;
       }
       // recover the limit
-      buffer.limit(bufLimit);
+      buff.limit(bufLimit);
       if (accessLen < remainingAccessDataLen) {
         remainingAccessDataLen -= accessLen;
         accessFileNum++;
@@ -250,7 +254,7 @@ public class FileIOEngine implements IOEngine {
         break;
       }
       if (accessFileNum >= fileChannels.length) {
-        throw new IOException("Required data len " + StringUtils.byteDesc(buffer.remaining())
+        throw new IOException("Required data len " + StringUtils.byteDesc(buff.remaining())
             + " exceed the engine's capacity " + StringUtils.byteDesc(capacity) + " where offset="
             + globalOffset);
       }
@@ -307,24 +311,24 @@ public class FileIOEngine implements IOEngine {
     }
   }
 
-  private static interface FileAccessor {
-    int access(FileChannel fileChannel, ByteBuffer byteBuffer, long accessOffset)
+  private interface FileAccessor {
+    int access(FileChannel fileChannel, ByteBuff buff, long accessOffset)
         throws IOException;
   }
 
   private static class FileReadAccessor implements FileAccessor {
     @Override
-    public int access(FileChannel fileChannel, ByteBuffer byteBuffer,
+    public int access(FileChannel fileChannel, ByteBuff buff,
         long accessOffset) throws IOException {
-      return fileChannel.read(byteBuffer, accessOffset);
+      return buff.read(fileChannel, accessOffset);
     }
   }
 
   private static class FileWriteAccessor implements FileAccessor {
     @Override
-    public int access(FileChannel fileChannel, ByteBuffer byteBuffer,
+    public int access(FileChannel fileChannel, ByteBuff buff,
         long accessOffset) throws IOException {
-      return fileChannel.write(byteBuffer, accessOffset);
+      return buff.write(fileChannel, accessOffset);
     }
   }
 }

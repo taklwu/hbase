@@ -56,6 +56,7 @@ import org.apache.hadoop.hbase.master.procedure.ProcedureSyncWait;
 import org.apache.hadoop.hbase.master.procedure.RSProcedureDispatcher;
 import org.apache.hadoop.hbase.procedure2.Procedure;
 import org.apache.hadoop.hbase.procedure2.ProcedureMetrics;
+import org.apache.hadoop.hbase.procedure2.ProcedureUtil;
 import org.apache.hadoop.hbase.procedure2.store.wal.WALProcedureStore;
 import org.apache.hadoop.hbase.regionserver.RegionServerAbortedException;
 import org.apache.hadoop.hbase.regionserver.RegionServerStoppedException;
@@ -112,11 +113,23 @@ public abstract class TestAssignmentManagerBase {
 
   protected ProcedureMetrics assignProcMetrics;
   protected ProcedureMetrics unassignProcMetrics;
+  protected ProcedureMetrics moveProcMetrics;
+  protected ProcedureMetrics reopenProcMetrics;
+  protected ProcedureMetrics openProcMetrics;
+  protected ProcedureMetrics closeProcMetrics;
 
   protected long assignSubmittedCount = 0;
   protected long assignFailedCount = 0;
   protected long unassignSubmittedCount = 0;
   protected long unassignFailedCount = 0;
+  protected long moveSubmittedCount = 0;
+  protected long moveFailedCount = 0;
+  protected long reopenSubmittedCount = 0;
+  protected long reopenFailedCount = 0;
+  protected long openSubmittedCount = 0;
+  protected long openFailedCount = 0;
+  protected long closeSubmittedCount = 0;
+  protected long closeFailedCount = 0;
 
   protected int newRsAdded;
 
@@ -132,6 +145,9 @@ public abstract class TestAssignmentManagerBase {
     conf.setInt(MasterProcedureConstants.MASTER_PROCEDURE_THREADS, PROC_NTHREADS);
     conf.setInt(RSProcedureDispatcher.RS_RPC_STARTUP_WAIT_TIME_CONF_KEY, 1000);
     conf.setInt(AssignmentManager.ASSIGN_MAX_ATTEMPTS, getAssignMaxAttempts());
+    // make retry for TRSP more frequent
+    conf.setLong(ProcedureUtil.PROCEDURE_RETRY_SLEEP_INTERVAL_MS, 10);
+    conf.setLong(ProcedureUtil.PROCEDURE_RETRY_MAX_SLEEP_TIME_MS, 100);
   }
 
   @Before
@@ -147,6 +163,10 @@ public abstract class TestAssignmentManagerBase {
     am = master.getAssignmentManager();
     assignProcMetrics = am.getAssignmentManagerMetrics().getAssignProcMetrics();
     unassignProcMetrics = am.getAssignmentManagerMetrics().getUnassignProcMetrics();
+    moveProcMetrics = am.getAssignmentManagerMetrics().getMoveProcMetrics();
+    reopenProcMetrics = am.getAssignmentManagerMetrics().getReopenProcMetrics();
+    openProcMetrics = am.getAssignmentManagerMetrics().getOpenProcMetrics();
+    closeProcMetrics = am.getAssignmentManagerMetrics().getCloseProcMetrics();
     setUpMeta();
   }
 
@@ -284,7 +304,7 @@ public abstract class TestAssignmentManagerBase {
 
   protected void doCrash(final ServerName serverName) {
     this.master.getServerManager().moveFromOnlineToDeadServers(serverName);
-    this.am.submitServerCrash(serverName, false/* No WALs here */);
+    this.am.submitServerCrash(serverName, false/* No WALs here */, false);
     // add a new server to avoid killing all the region servers which may hang the UTs
     ServerName newSn = ServerName.valueOf("localhost", 10000 + newRsAdded, 1);
     newRsAdded++;
@@ -384,6 +404,13 @@ public abstract class TestAssignmentManagerBase {
         if (retries == timeoutTimes) {
           LOG.info("Mark server=" + server + " as dead. retries=" + retries);
           master.getServerManager().moveFromOnlineToDeadServers(server);
+          executor.schedule(new Runnable() {
+            @Override
+            public void run() {
+              LOG.info("Sending in CRASH of " + server);
+              doCrash(server);
+            }
+          }, 1, TimeUnit.SECONDS);
         }
         throw new SocketTimeoutException("simulate socket timeout");
       } else {
@@ -654,10 +681,18 @@ public abstract class TestAssignmentManagerBase {
     }
   }
 
-  protected void collectAssignmentManagerMetrics() {
+  protected final void collectAssignmentManagerMetrics() {
     assignSubmittedCount = assignProcMetrics.getSubmittedCounter().getCount();
     assignFailedCount = assignProcMetrics.getFailedCounter().getCount();
     unassignSubmittedCount = unassignProcMetrics.getSubmittedCounter().getCount();
     unassignFailedCount = unassignProcMetrics.getFailedCounter().getCount();
+    moveSubmittedCount = moveProcMetrics.getSubmittedCounter().getCount();
+    moveFailedCount = moveProcMetrics.getFailedCounter().getCount();
+    reopenSubmittedCount = reopenProcMetrics.getSubmittedCounter().getCount();
+    reopenFailedCount = reopenProcMetrics.getFailedCounter().getCount();
+    openSubmittedCount = openProcMetrics.getSubmittedCounter().getCount();
+    openFailedCount = openProcMetrics.getFailedCounter().getCount();
+    closeSubmittedCount = closeProcMetrics.getSubmittedCounter().getCount();
+    closeFailedCount = closeProcMetrics.getFailedCounter().getCount();
   }
 }

@@ -58,6 +58,8 @@ public class TestZKPermissionWatcher {
   private static final HBaseTestingUtility UTIL = new HBaseTestingUtility();
   private static AuthManager AUTH_A;
   private static AuthManager AUTH_B;
+  private static ZKPermissionWatcher WATCHER_A;
+  private static ZKPermissionWatcher WATCHER_B;
   private final static Abortable ABORTABLE = new Abortable() {
     private final AtomicBoolean abort = new AtomicBoolean(false);
 
@@ -84,14 +86,20 @@ public class TestZKPermissionWatcher {
 
     // start minicluster
     UTIL.startMiniCluster();
-    AUTH_A = AuthManager.getOrCreate(new ZKWatcher(conf,
-      "TestZKPermissionsWatcher_1", ABORTABLE), conf);
-    AUTH_B = AuthManager.getOrCreate(new ZKWatcher(conf,
-      "TestZKPermissionsWatcher_2", ABORTABLE), conf);
+    AUTH_A = new AuthManager(conf);
+    AUTH_B = new AuthManager(conf);
+    WATCHER_A = new ZKPermissionWatcher(
+        new ZKWatcher(conf, "TestZKPermissionsWatcher_1", ABORTABLE), AUTH_A, conf);
+    WATCHER_B = new ZKPermissionWatcher(
+        new ZKWatcher(conf, "TestZKPermissionsWatcher_2", ABORTABLE), AUTH_B, conf);
+    WATCHER_A.start();
+    WATCHER_B.start();
   }
 
   @AfterClass
   public static void afterClass() throws Exception {
+    WATCHER_A.close();
+    WATCHER_B.close();
     UTIL.shutdownMiniCluster();
   }
 
@@ -113,12 +121,12 @@ public class TestZKPermissionWatcher {
 
     // update ACL: george RW
     List<UserPermission> acl = new ArrayList<>(1);
-    acl.add(new UserPermission(george.getShortName(), TEST_TABLE,
-      Permission.Action.READ, Permission.Action.WRITE));
+    acl.add(new UserPermission(george.getShortName(), Permission.newBuilder(TEST_TABLE)
+        .withActions(Permission.Action.READ, Permission.Action.WRITE).build()));
     ListMultimap<String, UserPermission> multimap = ArrayListMultimap.create();
     multimap.putAll(george.getShortName(), acl);
-    byte[] serialized = AccessControlLists.writePermissionsAsBytes(multimap, conf);
-    AUTH_A.getZKPermissionWatcher().writeToZookeeper(TEST_TABLE.getName(), serialized);
+    byte[] serialized = PermissionStorage.writePermissionsAsBytes(multimap, conf);
+    WATCHER_A.writeToZookeeper(TEST_TABLE.getName(), serialized);
     final long mtimeB = AUTH_B.getMTime();
     // Wait for the update to propagate
     UTIL.waitFor(10000, 100, new Predicate<Exception>() {
@@ -141,11 +149,12 @@ public class TestZKPermissionWatcher {
 
     // update ACL: hubert R
     List<UserPermission> acl2 = new ArrayList<>(1);
-    acl2.add(new UserPermission(hubert.getShortName(), TEST_TABLE, TablePermission.Action.READ));
+    acl2.add(new UserPermission(hubert.getShortName(),
+        Permission.newBuilder(TEST_TABLE).withActions(TablePermission.Action.READ).build()));
     final long mtimeA = AUTH_A.getMTime();
     multimap.putAll(hubert.getShortName(), acl2);
-    byte[] serialized2 = AccessControlLists.writePermissionsAsBytes(multimap, conf);
-    AUTH_B.getZKPermissionWatcher().writeToZookeeper(TEST_TABLE.getName(), serialized2);
+    byte[] serialized2 = PermissionStorage.writePermissionsAsBytes(multimap, conf);
+    WATCHER_B.writeToZookeeper(TEST_TABLE.getName(), serialized2);
     // Wait for the update to propagate
     UTIL.waitFor(10000, 100, new Predicate<Exception>() {
       @Override

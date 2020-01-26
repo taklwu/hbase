@@ -35,7 +35,6 @@ import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hbase.HBaseClassTestRule;
 import org.apache.hadoop.hbase.HBaseTestingUtility;
 import org.apache.hadoop.hbase.HConstants;
-import org.apache.hadoop.hbase.HRegionInfo;
 import org.apache.hadoop.hbase.HRegionLocation;
 import org.apache.hadoop.hbase.MetaTableAccessor;
 import org.apache.hadoop.hbase.NamespaceDescriptor;
@@ -114,8 +113,8 @@ public class TestTableFavoredNodes {
   public void setup() throws IOException {
     fnm = TEST_UTIL.getMiniHBaseCluster().getMaster().getFavoredNodesManager();
     admin = TEST_UTIL.getAdmin();
-    admin.setBalancerRunning(false, true);
-    admin.enableCatalogJanitor(false);
+    admin.balancerSwitch(false, true);
+    admin.catalogJanitorSwitch(false);
   }
 
   /*
@@ -130,7 +129,7 @@ public class TestTableFavoredNodes {
     // All regions should have favored nodes
     checkIfFavoredNodeInformationIsCorrect(tableName);
 
-    List<HRegionInfo> regions = admin.getTableRegions(tableName);
+    List<RegionInfo> regions = admin.getRegions(tableName);
 
     TEST_UTIL.deleteTable(tableName);
 
@@ -149,13 +148,13 @@ public class TestTableFavoredNodes {
     // All regions should have favored nodes
     checkIfFavoredNodeInformationIsCorrect(tableName);
 
-    List<HRegionInfo> regions = admin.getTableRegions(tableName);
+    List<RegionInfo> regions = admin.getRegions(tableName);
     TEST_UTIL.truncateTable(tableName, true);
 
     checkNoFNForDeletedTable(regions);
     checkIfFavoredNodeInformationIsCorrect(tableName);
 
-    regions = admin.getTableRegions(tableName);
+    regions = admin.getRegions(tableName);
     TEST_UTIL.truncateTable(tableName, false);
     checkNoFNForDeletedTable(regions);
 
@@ -170,13 +169,13 @@ public class TestTableFavoredNodes {
     final TableName tableName = TableName.valueOf(name.getMethodName());
     Table t = TEST_UTIL.createTable(tableName, Bytes.toBytes("f"), splitKeys);
     TEST_UTIL.waitUntilAllRegionsAssigned(tableName);
-    final int numberOfRegions = admin.getTableRegions(t.getName()).size();
+    final int numberOfRegions = admin.getRegions(t.getName()).size();
 
     checkIfFavoredNodeInformationIsCorrect(tableName);
 
     byte[] splitPoint = Bytes.toBytes(0);
     RegionLocator locator = TEST_UTIL.getConnection().getRegionLocator(tableName);
-    HRegionInfo parent = locator.getRegionLocation(splitPoint).getRegionInfo();
+    RegionInfo parent = locator.getRegionLocation(splitPoint).getRegion();
     List<ServerName> parentFN = fnm.getFavoredNodes(parent);
     assertNotNull("FN should not be null for region: " + parent, parentFN);
 
@@ -190,10 +189,10 @@ public class TestTableFavoredNodes {
     // All regions should have favored nodes    checkIfFavoredNodeInformationIsCorrect(tableName);
 
     // Get the daughters of parent.
-    HRegionInfo daughter1 = locator.getRegionLocation(parent.getStartKey(), true).getRegionInfo();
+    RegionInfo daughter1 = locator.getRegionLocation(parent.getStartKey(), true).getRegion();
     List<ServerName> daughter1FN = fnm.getFavoredNodes(daughter1);
 
-    HRegionInfo daughter2 = locator.getRegionLocation(splitPoint, true).getRegionInfo();
+    RegionInfo daughter2 = locator.getRegionLocation(splitPoint, true).getRegion();
     List<ServerName> daughter2FN = fnm.getFavoredNodes(daughter2);
 
     checkIfDaughterInherits2FN(parentFN, daughter1FN);
@@ -211,14 +210,14 @@ public class TestTableFavoredNodes {
 
     // Major compact table and run catalog janitor. Parent's FN should be removed
     TEST_UTIL.getMiniHBaseCluster().compact(tableName, true);
-    admin.runCatalogScan();
+    admin.runCatalogJanitor();
     // Catalog cleanup is async. Wait on procedure to finish up.
     ProcedureTestingUtility.waitAllProcedures(
         TEST_UTIL.getMiniHBaseCluster().getMaster().getMasterProcedureExecutor());
     // assertEquals("Parent region should have been cleaned", 1, admin.runCatalogScan());
     assertNull("Parent FN should be null", fnm.getFavoredNodes(parent));
 
-    List<HRegionInfo> regions = admin.getTableRegions(tableName);
+    List<RegionInfo> regions = admin.getRegions(tableName);
     // Split and Table Disable interfere with each other around region replicas
     // TODO. Meantime pause a few seconds.
     Threads.sleep(2000);
@@ -240,8 +239,8 @@ public class TestTableFavoredNodes {
     checkIfFavoredNodeInformationIsCorrect(tableName);
 
     RegionLocator locator = TEST_UTIL.getConnection().getRegionLocator(tableName);
-    HRegionInfo regionA = locator.getRegionLocation(HConstants.EMPTY_START_ROW).getRegionInfo();
-    HRegionInfo regionB = locator.getRegionLocation(splitKeys[0]).getRegionInfo();
+    RegionInfo regionA = locator.getRegionLocation(HConstants.EMPTY_START_ROW).getRegion();
+    RegionInfo regionB = locator.getRegionLocation(splitKeys[0]).getRegion();
 
     List<ServerName> regionAFN = fnm.getFavoredNodes(regionA);
     LOG.info("regionA: " + regionA.getEncodedName() + " with FN: " + fnm.getFavoredNodes(regionA));
@@ -257,8 +256,8 @@ public class TestTableFavoredNodes {
     // All regions should have favored nodes
     checkIfFavoredNodeInformationIsCorrect(tableName);
 
-    HRegionInfo mergedRegion =
-      locator.getRegionLocation(HConstants.EMPTY_START_ROW).getRegionInfo();
+    RegionInfo mergedRegion =
+      locator.getRegionLocation(HConstants.EMPTY_START_ROW).getRegion();
     List<ServerName> mergedFN = fnm.getFavoredNodes(mergedRegion);
 
     assertArrayEquals("Merged region doesn't match regionA's FN",
@@ -266,22 +265,22 @@ public class TestTableFavoredNodes {
 
     // Major compact table and run catalog janitor. Parent FN should be removed
     TEST_UTIL.getMiniHBaseCluster().compact(tableName, true);
-    assertEquals("Merge parents should have been cleaned", 1, admin.runCatalogScan());
+    assertEquals("Merge parents should have been cleaned", 1, admin.runCatalogJanitor());
     // Catalog cleanup is async. Wait on procedure to finish up.
     ProcedureTestingUtility.waitAllProcedures(
         TEST_UTIL.getMiniHBaseCluster().getMaster().getMasterProcedureExecutor());
     assertNull("Parent FN should be null", fnm.getFavoredNodes(regionA));
     assertNull("Parent FN should be null", fnm.getFavoredNodes(regionB));
 
-    List<HRegionInfo> regions = admin.getTableRegions(tableName);
+    List<RegionInfo> regions = admin.getRegions(tableName);
 
     TEST_UTIL.deleteTable(tableName);
 
     checkNoFNForDeletedTable(regions);
   }
 
-  private void checkNoFNForDeletedTable(List<HRegionInfo> regions) {
-    for (HRegionInfo region : regions) {
+  private void checkNoFNForDeletedTable(List<RegionInfo> regions) {
+    for (RegionInfo region : regions) {
       LOG.info("Testing if FN data for " + region);
       assertNull("FN not null for deleted table's region: " + region, fnm.getFavoredNodes(region));
     }
@@ -315,7 +314,7 @@ public class TestTableFavoredNodes {
     RegionLocator regionLocator = admin.getConnection().getRegionLocator(tableName);
     for (HRegionLocation regionLocation : regionLocator.getAllRegionLocations()) {
 
-      HRegionInfo regionInfo = regionLocation.getRegionInfo();
+      RegionInfo regionInfo = regionLocation.getRegion();
       List<ServerName> fnList = fnm.getFavoredNodes(regionInfo);
 
       // 1. Does each region have favored node?
@@ -362,8 +361,8 @@ public class TestTableFavoredNodes {
 
     for (TableName sysTable :
         admin.listTableNamesByNamespace(NamespaceDescriptor.SYSTEM_NAMESPACE_NAME_STR)) {
-      List<HRegionInfo> regions = admin.getTableRegions(sysTable);
-      for (HRegionInfo region : regions) {
+      List<RegionInfo> regions = admin.getRegions(sysTable);
+      for (RegionInfo region : regions) {
         assertNull("FN should be null for sys region", fnm.getFavoredNodes(region));
       }
     }

@@ -66,7 +66,7 @@ module Hbase
             raise(ArgumentError, "Can't find a table: #{table_name}") unless exists?(table_name)
 
             tableName = org.apache.hadoop.hbase.TableName.valueOf(table_name)
-            htd = @admin.getTableDescriptor(tableName)
+            htd = org.apache.hadoop.hbase.HTableDescriptor.new(@admin.getDescriptor(tableName))
 
             unless family.nil?
               raise(ArgumentError, "Can't find a family: #{family}") unless htd.hasFamily(family.to_java_bytes)
@@ -111,7 +111,7 @@ module Hbase
             raise(ArgumentError, "Can't find a table: #{table_name}") unless exists?(table_name)
 
             tableName = org.apache.hadoop.hbase.TableName.valueOf(table_name)
-            htd = @admin.getTableDescriptor(tableName)
+            htd = org.apache.hadoop.hbase.HTableDescriptor.new(@admin.getDescriptor(tableName))
 
             unless family.nil?
               raise(ArgumentError, "Can't find a family: #{family}") unless htd.hasFamily(family.to_java_bytes)
@@ -150,7 +150,7 @@ module Hbase
         if !table_regex.nil? && isNamespace?(table_regex)
           nsPerm = permission.to_java(org.apache.hadoop.hbase.security.access.NamespacePermission)
           namespace = nsPerm.getNamespace
-        else
+        elsif !table_regex.nil?
           tblPerm = permission.to_java(org.apache.hadoop.hbase.security.access.TablePermission)
           namespace = tblPerm.getNamespace
           table = !tblPerm.getTableName.nil? ? tblPerm.getTableName.getNameAsString : ''
@@ -202,7 +202,7 @@ module Hbase
         # If we are unable to use getSecurityCapabilities, fall back with a check for
         # deployment of the ACL table
         raise(ArgumentError, 'DISABLED: Security features are not available') unless \
-          exists?(org.apache.hadoop.hbase.security.access.AccessControlLists::ACL_TABLE_NAME.getNameAsString)
+          exists?(org.apache.hadoop.hbase.security.access.PermissionStorage::ACL_TABLE_NAME.getNameAsString)
         return
       end
       raise(ArgumentError, 'DISABLED: Security features are not available') unless \

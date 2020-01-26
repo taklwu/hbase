@@ -353,13 +353,6 @@ public class TestPerColumnFamilyFlush {
       TEST_UTIL.getAdmin().createNamespace(
         NamespaceDescriptor.create(TABLENAME.getNamespaceAsString()).build());
       Table table = TEST_UTIL.createTable(TABLENAME, FAMILIES);
-      HTableDescriptor htd = table.getTableDescriptor();
-
-      for (byte[] family : FAMILIES) {
-        if (!htd.hasFamily(family)) {
-          htd.addFamily(new HColumnDescriptor(family));
-        }
-      }
 
       // Add 100 edits for CF1, 20 for CF2, 20 for CF3.
       // These will all be interleaved in the log.
@@ -494,7 +487,7 @@ public class TestPerColumnFamilyFlush {
       assertTrue(desiredRegion.getStore(FAMILY3).getMemStoreSize().getHeapSize() < cfFlushSizeLowerBound);
       table.put(createPut(1, 12345678));
       // Make numRolledLogFiles greater than maxLogs
-      desiredRegionAndServer.getSecond().walRoller.requestRollAll();
+      desiredRegionAndServer.getSecond().getWalRoller().requestRollAll();
       // Wait for some time till the flush caused by log rolling happens.
       TEST_UTIL.waitFor(30000, new Waiter.ExplainingPredicate<Exception>() {
 

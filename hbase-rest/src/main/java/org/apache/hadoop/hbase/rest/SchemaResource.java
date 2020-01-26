@@ -1,5 +1,4 @@
-/*
- *
+/**
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -16,38 +15,40 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 package org.apache.hadoop.hbase.rest;
 
 import java.io.IOException;
 import java.util.Map;
-
 import javax.ws.rs.Consumes;
 import javax.ws.rs.DELETE;
 import javax.ws.rs.GET;
 import javax.ws.rs.POST;
 import javax.ws.rs.PUT;
 import javax.ws.rs.Produces;
+import javax.ws.rs.WebApplicationException;
 import javax.ws.rs.core.CacheControl;
 import javax.ws.rs.core.Context;
 import javax.ws.rs.core.Response;
 import javax.ws.rs.core.Response.ResponseBuilder;
 import javax.ws.rs.core.UriInfo;
 import javax.xml.namespace.QName;
-
-import org.apache.hadoop.hbase.HColumnDescriptor;
 import org.apache.hadoop.hbase.HTableDescriptor;
 import org.apache.hadoop.hbase.TableExistsException;
 import org.apache.hadoop.hbase.TableName;
 import org.apache.hadoop.hbase.TableNotEnabledException;
 import org.apache.hadoop.hbase.TableNotFoundException;
+import org.apache.hadoop.hbase.client.Admin;
+import org.apache.hadoop.hbase.client.ColumnFamilyDescriptor;
+import org.apache.hadoop.hbase.client.ColumnFamilyDescriptorBuilder;
+import org.apache.hadoop.hbase.client.Table;
+import org.apache.hadoop.hbase.client.TableDescriptor;
+import org.apache.hadoop.hbase.client.TableDescriptorBuilder;
+import org.apache.hadoop.hbase.rest.model.ColumnSchemaModel;
+import org.apache.hadoop.hbase.rest.model.TableSchemaModel;
+import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.yetus.audience.InterfaceAudience;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.apache.hadoop.hbase.client.Admin;
-import org.apache.hadoop.hbase.client.Table;
-import org.apache.hadoop.hbase.rest.model.ColumnSchemaModel;
-import org.apache.hadoop.hbase.rest.model.TableSchemaModel;
 
 @InterfaceAudience.Private
 public class SchemaResource extends ResourceBase {
@@ -64,21 +65,15 @@ public class SchemaResource extends ResourceBase {
 
   /**
    * Constructor
-   * @param tableResource
-   * @throws IOException
    */
   public SchemaResource(TableResource tableResource) throws IOException {
     super();
     this.tableResource = tableResource;
   }
 
-  private HTableDescriptor getTableSchema() throws IOException,
-      TableNotFoundException {
-    Table table = servlet.getTable(tableResource.getName());
-    try {
-      return table.getTableDescriptor();
-    } finally {
-      table.close();
+  private HTableDescriptor getTableSchema() throws IOException, TableNotFoundException {
+    try (Table table = servlet.getTable(tableResource.getName())) {
+      return new HTableDescriptor(table.getDescriptor());
     }
   }
 
@@ -110,33 +105,40 @@ public class SchemaResource extends ResourceBase {
         .build();
     }
     try {
-      HTableDescriptor htd = new HTableDescriptor(name);
-      for (Map.Entry<QName,Object> e: model.getAny().entrySet()) {
-        htd.setValue(e.getKey().getLocalPart(), e.getValue().toString());
+      TableDescriptorBuilder tableDescriptorBuilder =
+        TableDescriptorBuilder.newBuilder(name);
+      for (Map.Entry<QName, Object> e : model.getAny().entrySet()) {
+        tableDescriptorBuilder.setValue(e.getKey().getLocalPart(), e.getValue().toString());
       }
-      for (ColumnSchemaModel family: model.getColumns()) {
-        HColumnDescriptor hcd = new HColumnDescriptor(family.getName());
-        for (Map.Entry<QName,Object> e: family.getAny().entrySet()) {
-          hcd.setValue(e.getKey().getLocalPart(), e.getValue().toString());
+      for (ColumnSchemaModel family : model.getColumns()) {
+        ColumnFamilyDescriptorBuilder columnFamilyDescriptorBuilder =
+          ColumnFamilyDescriptorBuilder.newBuilder(Bytes.toBytes(family.getName()));
+        for (Map.Entry<QName, Object> e : family.getAny().entrySet()) {
+          columnFamilyDescriptorBuilder.setValue(e.getKey().getLocalPart(),
+            e.getValue().toString());
         }
-        htd.addFamily(hcd);
+        tableDescriptorBuilder.setColumnFamily(columnFamilyDescriptorBuilder.build());
       }
+      TableDescriptor tableDescriptor = tableDescriptorBuilder.build();
       if (admin.tableExists(name)) {
         admin.disableTable(name);
-        admin.modifyTable(name, htd);
+        admin.modifyTable(tableDescriptor);
         admin.enableTable(name);
         servlet.getMetrics().incrementSucessfulPutRequests(1);
-      } else try {
-        admin.createTable(htd);
-        servlet.getMetrics().incrementSucessfulPutRequests(1);
-      } catch (TableExistsException e) {
-        // race, someone else created a table with the same name
-        return Response.status(Response.Status.NOT_MODIFIED)
-          .type(MIMETYPE_TEXT).entity("Not modified" + CRLF)
-          .build();
+      } else {
+        try {
+          admin.createTable(tableDescriptor);
+          servlet.getMetrics().incrementSucessfulPutRequests(1);
+        } catch (TableExistsException e) {
+          // race, someone else created a table with the same name
+          return Response.status(Response.Status.NOT_MODIFIED)
+            .type(MIMETYPE_TEXT).entity("Not modified" + CRLF)
+            .build();
+        }
       }
       return Response.created(uriInfo.getAbsolutePath()).build();
     } catch (Exception e) {
+      LOG.info("Caught exception", e);
       servlet.getMetrics().incrementFailedPutRequests(1);
       return processException(e);
     }
@@ -150,18 +152,23 @@ public class SchemaResource extends ResourceBase {
         .build();
     }
     try {
-      HTableDescriptor htd = admin.getTableDescriptor(name);
+      TableDescriptorBuilder tableDescriptorBuilder =
+        TableDescriptorBuilder.newBuilder(admin.getDescriptor(name));
       admin.disableTable(name);
       try {
-        for (ColumnSchemaModel family: model.getColumns()) {
-          HColumnDescriptor hcd = new HColumnDescriptor(family.getName());
-          for (Map.Entry<QName,Object> e: family.getAny().entrySet()) {
-            hcd.setValue(e.getKey().getLocalPart(), e.getValue().toString());
+        for (ColumnSchemaModel family : model.getColumns()) {
+          ColumnFamilyDescriptorBuilder columnFamilyDescriptorBuilder =
+            ColumnFamilyDescriptorBuilder.newBuilder(Bytes.toBytes(family.getName()));
+          for (Map.Entry<QName, Object> e : family.getAny().entrySet()) {
+            columnFamilyDescriptorBuilder.setValue(e.getKey().getLocalPart(),
+              e.getValue().toString());
           }
-          if (htd.hasFamily(hcd.getName())) {
-            admin.modifyColumnFamily(name, hcd);
+          TableDescriptor tableDescriptor = tableDescriptorBuilder.build();
+          ColumnFamilyDescriptor columnFamilyDescriptor = columnFamilyDescriptorBuilder.build();
+          if (tableDescriptor.hasColumnFamily(columnFamilyDescriptor.getName())) {
+            admin.modifyColumnFamily(name, columnFamilyDescriptor);
           } else {
-            admin.addColumnFamily(name, hcd);
+            admin.addColumnFamily(name, columnFamilyDescriptor);
           }
         }
       } catch (IOException e) {
@@ -191,6 +198,10 @@ public class SchemaResource extends ResourceBase {
       }
     } catch (Exception e) {
       servlet.getMetrics().incrementFailedPutRequests(1);
+      // Avoid re-unwrapping the exception
+      if (e instanceof WebApplicationException) {
+        throw (WebApplicationException) e;
+      }
       return processException(e);
     }
   }

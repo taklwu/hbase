@@ -25,7 +25,7 @@ pipeline {
   }
   options {
     // this should roughly match how long we tell the flaky dashboard to look at
-    buildDiscarder(logRotator(numToKeepStr: '80'))
+    buildDiscarder(logRotator(numToKeepStr: '30'))
     timeout (time: 2, unit: 'HOURS')
     timestamps()
   }
@@ -73,7 +73,7 @@ pipeline {
     always {
       junit testResults: "**/surefire-reports/*.xml", allowEmptyResults: true
       // TODO compress these logs
-      archive 'includes.txt,**/surefire-reports/*,**/test-data/*,target/machine/*'
+      archiveArtifacts artifacts: 'includes.txt,**/surefire-reports/*,**/test-data/*,target/machine/*'
     }
   }
 }

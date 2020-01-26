@@ -21,10 +21,14 @@ package org.apache.hadoop.hbase.security.access;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.EnumSet;
+import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
+import org.apache.hadoop.hbase.TableName;
 import org.apache.yetus.audience.InterfaceAudience;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -241,4 +245,97 @@ public class Permission extends VersionedWritable {
   public Scope getAccessScope() {
     return scope;
   }
+
+  /**
+   * Build a global permission
+   * @return global permission builder
+   */
+  public static Builder newBuilder() {
+    return new Builder();
+  }
+
+  /**
+   * Build a namespace permission
+   * @param namespace the specific namespace
+   * @return namespace permission builder
+   */
+  public static Builder newBuilder(String namespace) {
+    return new Builder(namespace);
+  }
+
+  /**
+   * Build a table permission
+   * @param tableName the specific table name
+   * @return table permission builder
+   */
+  public static Builder newBuilder(TableName tableName) {
+    return new Builder(tableName);
+  }
+
+  public static final class Builder {
+    private String namespace;
+    private TableName tableName;
+    private byte[] family;
+    private byte[] qualifier;
+    private List<Action> actions = new ArrayList<>();
+
+    private Builder() {
+    }
+
+    private Builder(String namespace) {
+      this.namespace = namespace;
+    }
+
+    private Builder(TableName tableName) {
+      this.tableName = tableName;
+    }
+
+    public Builder withFamily(byte[] family) {
+      Objects.requireNonNull(tableName, "The tableName can't be NULL");
+      this.family = family;
+      return this;
+    }
+
+    public Builder withQualifier(byte[] qualifier) {
+      Objects.requireNonNull(tableName, "The tableName can't be NULL");
+      this.qualifier = qualifier;
+      return this;
+    }
+
+    public Builder withActions(Action... actions) {
+      for (Action action : actions) {
+        if (action != null) {
+          this.actions.add(action);
+        }
+      }
+      return this;
+    }
+
+    public Builder withActionCodes(byte[] actionCodes) {
+      if (actionCodes != null) {
+        for (byte code : actionCodes) {
+          Action action = ACTION_BY_CODE.get(code);
+          if (action == null) {
+            LOG.error("Ignoring unknown action code '{}'",
+              Bytes.toStringBinary(new byte[] { code }));
+            continue;
+          }
+          this.actions.add(action);
+        }
+      }
+      return this;
+    }
+
+    public Permission build() {
+      Action[] actionArray = actions.toArray(new Action[actions.size()]);
+      if (namespace != null) {
+        return new NamespacePermission(namespace, actionArray);
+      } else if (tableName != null) {
+        return new TablePermission(tableName, family, qualifier, actionArray);
+      } else {
+        return new GlobalPermission(actionArray);
+      }
+    }
+  }
+
 }

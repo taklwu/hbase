@@ -33,6 +33,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Stream;
+
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
@@ -68,7 +69,7 @@ import org.apache.hadoop.hbase.util.EnvironmentEdgeManager;
 import org.apache.hadoop.hbase.util.FSUtils;
 import org.apache.hadoop.hbase.util.Pair;
 import org.apache.hadoop.hbase.util.Threads;
-import org.apache.hadoop.hbase.wal.WALSplitter;
+import org.apache.hadoop.hbase.wal.WALSplitUtil;
 import org.apache.hadoop.util.ReflectionUtils;
 import org.apache.yetus.audience.InterfaceAudience;
 import org.slf4j.Logger;
@@ -92,9 +93,8 @@ import org.apache.hadoop.hbase.shaded.protobuf.generated.MasterProcedureProtos.S
 public class SplitTableRegionProcedure
     extends AbstractStateMachineRegionProcedure<SplitTableRegionState> {
   private static final Logger LOG = LoggerFactory.getLogger(SplitTableRegionProcedure.class);
-  private Boolean traceEnabled = null;
-  private RegionInfo daughter_1_RI;
-  private RegionInfo daughter_2_RI;
+  private RegionInfo daughterOneRI;
+  private RegionInfo daughterTwoRI;
   private byte[] bestSplitRow;
   private RegionSplitPolicy splitPolicy;
 
@@ -113,13 +113,13 @@ public class SplitTableRegionProcedure
     checkSplittable(env, regionToSplit, bestSplitRow);
     final TableName table = regionToSplit.getTable();
     final long rid = getDaughterRegionIdTimestamp(regionToSplit);
-    this.daughter_1_RI = RegionInfoBuilder.newBuilder(table)
+    this.daughterOneRI = RegionInfoBuilder.newBuilder(table)
         .setStartKey(regionToSplit.getStartKey())
         .setEndKey(bestSplitRow)
         .setSplit(false)
         .setRegionId(rid)
         .build();
-    this.daughter_2_RI = RegionInfoBuilder.newBuilder(table)
+    this.daughterTwoRI = RegionInfoBuilder.newBuilder(table)
         .setStartKey(bestSplitRow)
         .setEndKey(regionToSplit.getEndKey())
         .setSplit(false)
@@ -135,6 +135,36 @@ public class SplitTableRegionProcedure
           RegionSplitPolicy.getSplitPolicyClass(htd, env.getMasterConfiguration());
       this.splitPolicy = ReflectionUtils.newInstance(clazz, env.getMasterConfiguration());
     }
+  }
+
+  @Override
+  protected LockState acquireLock(final MasterProcedureEnv env) {
+    if (env.getProcedureScheduler().waitRegions(this, getTableName(), getParentRegion(),
+      daughterOneRI, daughterTwoRI)) {
+      try {
+        LOG.debug(LockState.LOCK_EVENT_WAIT + " " + env.getProcedureScheduler().dumpLocks());
+      } catch (IOException e) {
+        // Ignore, just for logging
+      }
+      return LockState.LOCK_EVENT_WAIT;
+    }
+    return LockState.LOCK_ACQUIRED;
+  }
+
+  @Override
+  protected void releaseLock(final MasterProcedureEnv env) {
+    env.getProcedureScheduler().wakeRegions(this, getTableName(), getParentRegion(), daughterOneRI,
+      daughterTwoRI);
+  }
+
+  @VisibleForTesting
+  public RegionInfo getDaughterOneRI() {
+    return daughterOneRI;
+  }
+
+  @VisibleForTesting
+  public RegionInfo getDaughterTwoRI() {
+    return daughterTwoRI;
   }
 
   /**
@@ -311,9 +341,7 @@ public class SplitTableRegionProcedure
   @Override
   protected void rollbackState(final MasterProcedureEnv env, final SplitTableRegionState state)
       throws IOException, InterruptedException {
-    if (isTraceEnabled()) {
-      LOG.trace(this + " rollback state=" + state);
-    }
+    LOG.trace("{} rollback state={}", this, state);
 
     try {
       switch (state) {
@@ -396,8 +424,8 @@ public class SplitTableRegionProcedure
         MasterProcedureProtos.SplitTableRegionStateData.newBuilder()
         .setUserInfo(MasterProcedureUtil.toProtoUserInfo(getUser()))
         .setParentRegionInfo(ProtobufUtil.toRegionInfo(getRegion()))
-        .addChildRegionInfo(ProtobufUtil.toRegionInfo(daughter_1_RI))
-        .addChildRegionInfo(ProtobufUtil.toRegionInfo(daughter_2_RI));
+        .addChildRegionInfo(ProtobufUtil.toRegionInfo(daughterOneRI))
+        .addChildRegionInfo(ProtobufUtil.toRegionInfo(daughterTwoRI));
     serializer.serialize(splitTableRegionMsg.build());
   }
 
@@ -411,8 +439,8 @@ public class SplitTableRegionProcedure
     setUser(MasterProcedureUtil.toUserInfo(splitTableRegionsMsg.getUserInfo()));
     setRegion(ProtobufUtil.toRegionInfo(splitTableRegionsMsg.getParentRegionInfo()));
     assert(splitTableRegionsMsg.getChildRegionInfoCount() == 2);
-    daughter_1_RI = ProtobufUtil.toRegionInfo(splitTableRegionsMsg.getChildRegionInfo(0));
-    daughter_2_RI = ProtobufUtil.toRegionInfo(splitTableRegionsMsg.getChildRegionInfo(1));
+    daughterOneRI = ProtobufUtil.toRegionInfo(splitTableRegionsMsg.getChildRegionInfo(0));
+    daughterTwoRI = ProtobufUtil.toRegionInfo(splitTableRegionsMsg.getChildRegionInfo(1));
   }
 
   @Override
@@ -423,9 +451,9 @@ public class SplitTableRegionProcedure
     sb.append(", parent=");
     sb.append(getParentRegion().getShortNameToLog());
     sb.append(", daughterA=");
-    sb.append(daughter_1_RI.getShortNameToLog());
+    sb.append(daughterOneRI.getShortNameToLog());
     sb.append(", daughterB=");
-    sb.append(daughter_2_RI.getShortNameToLog());
+    sb.append(daughterTwoRI.getShortNameToLog());
   }
 
   private RegionInfo getParentRegion() {
@@ -443,7 +471,7 @@ public class SplitTableRegionProcedure
   }
 
   private byte[] getSplitRow() {
-    return daughter_2_RI.getStartKey();
+    return daughterTwoRI.getStartKey();
   }
 
   private static final State[] EXPECTED_SPLIT_STATES = new State[] { State.OPEN, State.CLOSED };
@@ -570,22 +598,22 @@ public class SplitTableRegionProcedure
     final FileSystem fs = mfs.getFileSystem();
     HRegionFileSystem regionFs = HRegionFileSystem.openRegionFromFileSystem(
       env.getMasterConfiguration(), fs, tabledir, getParentRegion(), false);
-    regionFs.createSplitsDir();
+    regionFs.createSplitsDir(daughterOneRI, daughterTwoRI);
 
     Pair<Integer, Integer> expectedReferences = splitStoreFiles(env, regionFs);
 
     assertReferenceFileCount(fs, expectedReferences.getFirst(),
-      regionFs.getSplitsDir(daughter_1_RI));
+      regionFs.getSplitsDir(daughterOneRI));
     //Move the files from the temporary .splits to the final /table/region directory
-    regionFs.commitDaughterRegion(daughter_1_RI);
+    regionFs.commitDaughterRegion(daughterOneRI);
     assertReferenceFileCount(fs, expectedReferences.getFirst(),
-      new Path(tabledir, daughter_1_RI.getEncodedName()));
+      new Path(tabledir, daughterOneRI.getEncodedName()));
 
     assertReferenceFileCount(fs, expectedReferences.getSecond(),
-      regionFs.getSplitsDir(daughter_2_RI));
-    regionFs.commitDaughterRegion(daughter_2_RI);
+      regionFs.getSplitsDir(daughterTwoRI));
+    regionFs.commitDaughterRegion(daughterTwoRI);
     assertReferenceFileCount(fs, expectedReferences.getSecond(),
-      new Path(tabledir, daughter_2_RI.getEncodedName()));
+      new Path(tabledir, daughterTwoRI.getEncodedName()));
   }
 
   /**
@@ -594,8 +622,8 @@ public class SplitTableRegionProcedure
    */
   private Pair<Integer, Integer> splitStoreFiles(final MasterProcedureEnv env,
       final HRegionFileSystem regionFs) throws IOException {
-    final MasterFileSystem mfs = env.getMasterServices().getMasterFileSystem();
     final Configuration conf = env.getMasterConfiguration();
+    TableDescriptor htd = env.getMasterServices().getTableDescriptors().get(getTableName());
     // The following code sets up a thread pool executor with as many slots as
     // there's files to split. It then fires up everything, waits for
     // completion and finally checks for any exception
@@ -605,12 +633,15 @@ public class SplitTableRegionProcedure
     // clean this up.
     int nbFiles = 0;
     final Map<String, Collection<StoreFileInfo>> files =
-      new HashMap<String, Collection<StoreFileInfo>>(regionFs.getFamilies().size());
-    for (String family: regionFs.getFamilies()) {
+        new HashMap<String, Collection<StoreFileInfo>>(htd.getColumnFamilyCount());
+    for (ColumnFamilyDescriptor cfd : htd.getColumnFamilies()) {
+      String family = cfd.getNameAsString();
       Collection<StoreFileInfo> sfis = regionFs.getStoreFiles(family);
-      if (sfis == null) continue;
+      if (sfis == null) {
+        continue;
+      }
       Collection<StoreFileInfo> filteredSfis = null;
-      for (StoreFileInfo sfi: sfis) {
+      for (StoreFileInfo sfi : sfis) {
         // Filter. There is a lag cleaning up compacted reference files. They get cleared
         // after a delay in case outstanding Scanners still have references. Because of this,
         // the listing of the Store content may have straggler reference files. Skip these.
@@ -631,7 +662,7 @@ public class SplitTableRegionProcedure
     }
     if (nbFiles == 0) {
       // no file needs to be splitted.
-      return new Pair<Integer, Integer>(0,0);
+      return new Pair<Integer, Integer>(0, 0);
     }
     // Max #threads is the smaller of the number of storefiles or the default max determined above.
     int maxThreads = Math.min(
@@ -639,12 +670,11 @@ public class SplitTableRegionProcedure
         conf.getInt(HStore.BLOCKING_STOREFILES_KEY, HStore.DEFAULT_BLOCKING_STOREFILE_COUNT)),
       nbFiles);
     LOG.info("pid=" + getProcId() + " splitting " + nbFiles + " storefiles, region=" +
-      getParentRegion().getShortNameToLog() + ", threads=" + maxThreads);
-    final ExecutorService threadPool = Executors.newFixedThreadPool(
-      maxThreads, Threads.getNamedThreadFactory("StoreFileSplitter-%1$d"));
-    final List<Future<Pair<Path,Path>>> futures = new ArrayList<Future<Pair<Path,Path>>>(nbFiles);
+        getParentRegion().getShortNameToLog() + ", threads=" + maxThreads);
+    final ExecutorService threadPool = Executors.newFixedThreadPool(maxThreads,
+      Threads.newDaemonThreadFactory("StoreFileSplitter-%1$d"));
+    final List<Future<Pair<Path, Path>>> futures = new ArrayList<Future<Pair<Path, Path>>>(nbFiles);
 
-    TableDescriptor htd = env.getMasterServices().getTableDescriptors().get(getTableName());
     // Split each store file.
     for (Map.Entry<String, Collection<StoreFileInfo>> e : files.entrySet()) {
       byte[] familyName = Bytes.toBytes(e.getKey());
@@ -654,9 +684,9 @@ public class SplitTableRegionProcedure
         for (StoreFileInfo storeFileInfo : storeFiles) {
           // As this procedure is running on master, use CacheConfig.DISABLED means
           // don't cache any block.
-          StoreFileSplitter sfs = new StoreFileSplitter(regionFs, familyName,
-              new HStoreFile(mfs.getFileSystem(), storeFileInfo, conf, CacheConfig.DISABLED,
-                  hcd.getBloomFilterType(), true));
+          StoreFileSplitter sfs =
+              new StoreFileSplitter(regionFs, familyName, new HStoreFile(
+                  storeFileInfo, hcd.getBloomFilterType(), CacheConfig.DISABLED));
           futures.add(threadPool.submit(sfs));
         }
       }
@@ -668,7 +698,7 @@ public class SplitTableRegionProcedure
     // When splits ran on the RegionServer, how-long-to-wait-configuration was named
     // hbase.regionserver.fileSplitTimeout. If set, use its value.
     long fileSplitTimeout = conf.getLong("hbase.master.fileSplitTimeout",
-        conf.getLong("hbase.regionserver.fileSplitTimeout", 600000));
+      conf.getLong("hbase.regionserver.fileSplitTimeout", 600000));
     try {
       boolean stillRunning = !threadPool.awaitTermination(fileSplitTimeout, TimeUnit.MILLISECONDS);
       if (stillRunning) {
@@ -677,11 +707,11 @@ public class SplitTableRegionProcedure
         while (!threadPool.isTerminated()) {
           Thread.sleep(50);
         }
-        throw new IOException("Took too long to split the" +
-            " files and create the references, aborting split");
+        throw new IOException(
+            "Took too long to split the" + " files and create the references, aborting split");
       }
     } catch (InterruptedException e) {
-      throw (InterruptedIOException)new InterruptedIOException().initCause(e);
+      throw (InterruptedIOException) new InterruptedIOException().initCause(e);
     }
 
     int daughterA = 0;
@@ -701,9 +731,8 @@ public class SplitTableRegionProcedure
 
     if (LOG.isDebugEnabled()) {
       LOG.debug("pid=" + getProcId() + " split storefiles for region " +
-        getParentRegion().getShortNameToLog() +
-          " Daughter A: " + daughterA + " storefiles, Daughter B: " +
-          daughterB + " storefiles.");
+          getParentRegion().getShortNameToLog() + " Daughter A: " + daughterA +
+          " storefiles, Daughter B: " + daughterB + " storefiles.");
     }
     return new Pair<Integer, Integer>(daughterA, daughterB);
   }
@@ -725,9 +754,9 @@ public class SplitTableRegionProcedure
 
     final byte[] splitRow = getSplitRow();
     final String familyName = Bytes.toString(family);
-    final Path path_first = regionFs.splitStoreFile(this.daughter_1_RI, familyName, sf, splitRow,
+    final Path path_first = regionFs.splitStoreFile(this.daughterOneRI, familyName, sf, splitRow,
         false, splitPolicy);
-    final Path path_second = regionFs.splitStoreFile(this.daughter_2_RI, familyName, sf, splitRow,
+    final Path path_second = regionFs.splitStoreFile(this.daughterTwoRI, familyName, sf, splitRow,
        true, splitPolicy);
     if (LOG.isDebugEnabled()) {
       LOG.debug("pid=" + getProcId() + " splitting complete for store file: " +
@@ -792,7 +821,7 @@ public class SplitTableRegionProcedure
    */
   private void updateMeta(final MasterProcedureEnv env) throws IOException {
     env.getAssignmentManager().markRegionAsSplit(getParentRegion(), getParentRegionServerName(env),
-      daughter_1_RI, daughter_2_RI);
+        daughterOneRI, daughterTwoRI);
   }
 
   /**
@@ -814,7 +843,7 @@ public class SplitTableRegionProcedure
   private void postSplitRegion(final MasterProcedureEnv env) throws IOException {
     final MasterCoprocessorHost cpHost = env.getMasterCoprocessorHost();
     if (cpHost != null) {
-      cpHost.postCompletedSplitRegionAction(daughter_1_RI, daughter_2_RI, getUser());
+      cpHost.postCompletedSplitRegionAction(daughterOneRI, daughterTwoRI, getUser());
     }
   }
 
@@ -832,8 +861,8 @@ public class SplitTableRegionProcedure
   private TransitRegionStateProcedure[] createAssignProcedures(MasterProcedureEnv env)
       throws IOException {
     List<RegionInfo> hris = new ArrayList<RegionInfo>(2);
-    hris.add(daughter_1_RI);
-    hris.add(daughter_2_RI);
+    hris.add(daughterOneRI);
+    hris.add(daughterTwoRI);
     return AssignmentManagerUtil.createAssignProceduresForOpeningNewRegions(env, hris,
       getRegionReplication(env), getParentRegionServerName(env));
   }
@@ -844,27 +873,15 @@ public class SplitTableRegionProcedure
   }
 
   private void writeMaxSequenceIdFile(MasterProcedureEnv env) throws IOException {
-    FileSystem walFS = env.getMasterServices().getMasterWalManager().getFileSystem();
-    long maxSequenceId =
-      WALSplitter.getMaxRegionSequenceId(walFS, getWALRegionDir(env, getParentRegion()));
+    MasterFileSystem fs = env.getMasterFileSystem();
+    long maxSequenceId = WALSplitUtil.getMaxRegionSequenceId(env.getMasterConfiguration(),
+      getParentRegion(), fs::getFileSystem, fs::getWALFileSystem);
     if (maxSequenceId > 0) {
-      WALSplitter.writeRegionSequenceIdFile(walFS, getWALRegionDir(env, daughter_1_RI),
-          maxSequenceId);
-      WALSplitter.writeRegionSequenceIdFile(walFS, getWALRegionDir(env, daughter_2_RI),
-          maxSequenceId);
+      WALSplitUtil.writeRegionSequenceIdFile(fs.getWALFileSystem(),
+        getWALRegionDir(env, daughterOneRI), maxSequenceId);
+      WALSplitUtil.writeRegionSequenceIdFile(fs.getWALFileSystem(),
+        getWALRegionDir(env, daughterTwoRI), maxSequenceId);
     }
-  }
-
-  /**
-   * The procedure could be restarted from a different machine. If the variable is null, we need to
-   * retrieve it.
-   * @return traceEnabled
-   */
-  private boolean isTraceEnabled() {
-    if (traceEnabled == null) {
-      traceEnabled = LOG.isTraceEnabled();
-    }
-    return traceEnabled;
   }
 
   @Override

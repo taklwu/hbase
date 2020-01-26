@@ -18,25 +18,31 @@
 
 package org.apache.hadoop.hbase.http;
 
-import org.apache.hadoop.net.NetUtils;
-import org.apache.hadoop.security.authorize.AccessControlList;
-import org.junit.Assert;
-import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.hbase.http.HttpServer.Builder;
-
+import java.io.BufferedReader;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.net.MalformedURLException;
 import java.net.ServerSocket;
 import java.net.URI;
 import java.net.URL;
-import java.net.MalformedURLException;
+import java.net.URLConnection;
+import java.nio.charset.StandardCharsets;
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.hbase.http.HttpServer.Builder;
+import org.apache.hadoop.net.NetUtils;
+import org.apache.hadoop.security.authorize.AccessControlList;
+import org.junit.Assert;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * This is a base class for functional tests of the {@link HttpServer}.
  * The methods are static for other classes to import statically.
  */
 public class HttpServerFunctionalTest extends Assert {
+  private static final Logger LOG = LoggerFactory.getLogger(HttpServerFunctionalTest.class);
   /** JVM property for the webapp test dir : {@value} */
   public static final String TEST_BUILD_WEBAPPS = "test.build.webapps";
   /** expected location of the test.build.webapps dir: {@value} */
@@ -114,9 +120,9 @@ public class HttpServerFunctionalTest extends Assert {
     File testWebappDir = new File(webapps +
         File.separatorChar + TEST);
     try {
-    if (!testWebappDir.exists()) {
-      fail("Test webapp dir " + testWebappDir.getCanonicalPath() + " missing");
-    }
+      if (!testWebappDir.exists()) {
+        fail("Test webapp dir " + testWebappDir.getCanonicalPath() + " missing");
+      }
     }
     catch (IOException e) {
     }
@@ -158,8 +164,8 @@ public class HttpServerFunctionalTest extends Assert {
     return localServerBuilder(webapp).setFindPort(true).setConf(conf).build();
   }
 
-  public static HttpServer createServer(String webapp, Configuration conf, AccessControlList adminsAcl)
-      throws IOException {
+  public static HttpServer createServer(String webapp, Configuration conf,
+      AccessControlList adminsAcl) throws IOException {
     return localServerBuilder(webapp).setFindPort(true).setConf(conf).setACL(adminsAcl).build();
   }
 
@@ -178,7 +184,8 @@ public class HttpServerFunctionalTest extends Assert {
    */
   public static HttpServer createServer(String webapp, Configuration conf,
       String[] pathSpecs) throws IOException {
-    return localServerBuilder(webapp).setFindPort(true).setConf(conf).setPathSpec(pathSpecs).build();
+    return localServerBuilder(webapp).setFindPort(true).setConf(conf).setPathSpec(pathSpecs)
+            .build();
   }
 
   /**
@@ -269,4 +276,25 @@ public class HttpServerFunctionalTest extends Assert {
       }
     }
   }
+
+  /**
+   * access a url, ignoring some IOException such as the page does not exist
+   */
+  public static void access(String urlstring) throws IOException {
+    URL url = new URL(urlstring);
+
+    URLConnection connection = url.openConnection();
+    connection.connect();
+
+    try (BufferedReader in = new BufferedReader(new InputStreamReader(
+        connection.getInputStream(), StandardCharsets.UTF_8))){
+      for(; in.readLine() != null;) {
+        continue;
+      }
+    } catch(IOException ioe) {
+      LOG.info("Got exception: ", ioe);
+    }
+  }
+
+
 }

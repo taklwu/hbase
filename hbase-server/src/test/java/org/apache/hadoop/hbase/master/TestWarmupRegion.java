@@ -24,7 +24,6 @@ import java.io.IOException;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hbase.HBaseClassTestRule;
 import org.apache.hadoop.hbase.HBaseTestingUtility;
-import org.apache.hadoop.hbase.HTableDescriptor;
 import org.apache.hadoop.hbase.MiniHBaseCluster;
 import org.apache.hadoop.hbase.TableName;
 import org.apache.hadoop.hbase.Waiter;
@@ -32,6 +31,7 @@ import org.apache.hadoop.hbase.client.CompactionState;
 import org.apache.hadoop.hbase.client.Put;
 import org.apache.hadoop.hbase.client.RegionInfo;
 import org.apache.hadoop.hbase.client.Table;
+import org.apache.hadoop.hbase.client.TableDescriptor;
 import org.apache.hadoop.hbase.regionserver.HRegion;
 import org.apache.hadoop.hbase.regionserver.HRegionServer;
 import org.apache.hadoop.hbase.testclassification.LargeTests;
@@ -48,7 +48,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Run tests that use the HBase clients; {@link org.apache.hadoop.hbase.client.HTable}.
+ * Run tests that use the HBase clients; {@link org.apache.hadoop.hbase.client.TableBuilder}.
  * Sets up the HBase mini cluster once at start and runs through all client tests.
  * Each creates a table named for the method and does its stuff against that.
  */
@@ -139,11 +139,10 @@ public class TestWarmupRegion {
         RegionInfo info = region.getRegionInfo();
 
         try {
-          HTableDescriptor htd = table.getTableDescriptor();
+          TableDescriptor htd = table.getDescriptor();
           for (int i = 0; i < 10; i++) {
             warmupHRegion(info, htd, rs.getWAL(info), rs.getConfiguration(), rs, null);
           }
-
         } catch (IOException ie) {
           LOG.error("Failed warming up region " + info.getRegionNameAsString(), ie);
         }

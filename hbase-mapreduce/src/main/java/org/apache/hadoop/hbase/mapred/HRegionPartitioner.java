@@ -76,13 +76,13 @@ implements Partitioner<ImmutableBytesWritable, V2> {
     try {
       // Not sure if this is cached after a split so we could have problems
       // here if a region splits while mapping
-      region = locator.getRegionLocation(key.get()).getRegionInfo().getStartKey();
+      region = locator.getRegionLocation(key.get()).getRegion().getStartKey();
     } catch (IOException e) {
       LOG.error(e.toString(), e);
     }
     for (int i = 0; i < this.startKeys.length; i++){
       if (Bytes.compareTo(region, this.startKeys[i]) == 0 ){
-        if (i >= numPartitions-1){
+        if (i >= numPartitions){
           // cover if we have less reduces then regions.
           return (Integer.toString(i).hashCode()
               & Integer.MAX_VALUE) % numPartitions;

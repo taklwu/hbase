@@ -31,7 +31,6 @@ import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.RejectedExecutionHandler;
-import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -47,6 +46,7 @@ import org.apache.hadoop.hbase.regionserver.compactions.CompactionRequestImpl;
 import org.apache.hadoop.hbase.regionserver.compactions.CompactionRequester;
 import org.apache.hadoop.hbase.regionserver.throttle.CompactionThroughputControllerFactory;
 import org.apache.hadoop.hbase.regionserver.throttle.ThroughputController;
+import org.apache.hadoop.hbase.security.Superusers;
 import org.apache.hadoop.hbase.security.User;
 import org.apache.hadoop.hbase.util.EnvironmentEdgeManager;
 import org.apache.hadoop.hbase.util.StealJobQueue;
@@ -55,8 +55,10 @@ import org.apache.hadoop.util.StringUtils;
 import org.apache.yetus.audience.InterfaceAudience;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
 import org.apache.hbase.thirdparty.com.google.common.annotations.VisibleForTesting;
 import org.apache.hbase.thirdparty.com.google.common.base.Preconditions;
+import org.apache.hbase.thirdparty.com.google.common.util.concurrent.ThreadFactoryBuilder;
 
 /**
  * Compact region on request and then run split if appropriate
@@ -117,14 +119,8 @@ public class CompactSplit implements CompactionRequester, PropagatingConfigurati
   private void createSplitExcecutors() {
     final String n = Thread.currentThread().getName();
     int splitThreads = conf.getInt(SPLIT_THREADS, SPLIT_THREADS_DEFAULT);
-    this.splits =
-        (ThreadPoolExecutor) Executors.newFixedThreadPool(splitThreads, new ThreadFactory() {
-          @Override
-          public Thread newThread(Runnable r) {
-            String name = n + "-splits-" + System.currentTimeMillis();
-            return new Thread(r, name);
-          }
-        });
+    this.splits = (ThreadPoolExecutor) Executors.newFixedThreadPool(splitThreads,
+      new ThreadFactoryBuilder().setNameFormat(n + "-splits-%d").setDaemon(true).build());
   }
 
   private void createCompactionExecutors() {
@@ -141,26 +137,14 @@ public class CompactSplit implements CompactionRequester, PropagatingConfigurati
     final String n = Thread.currentThread().getName();
 
     StealJobQueue<Runnable> stealJobQueue = new StealJobQueue<Runnable>(COMPARATOR);
-    this.longCompactions = new ThreadPoolExecutor(largeThreads, largeThreads, 60,
-        TimeUnit.SECONDS, stealJobQueue,
-        new ThreadFactory() {
-          @Override
-          public Thread newThread(Runnable r) {
-            String name = n + "-longCompactions-" + System.currentTimeMillis();
-            return new Thread(r, name);
-          }
-        });
+    this.longCompactions = new ThreadPoolExecutor(largeThreads, largeThreads, 60, TimeUnit.SECONDS,
+        stealJobQueue, new ThreadFactoryBuilder().setNameFormat(n + "-longCompactions-%d")
+            .setDaemon(true).build());
     this.longCompactions.setRejectedExecutionHandler(new Rejection());
     this.longCompactions.prestartAllCoreThreads();
-    this.shortCompactions = new ThreadPoolExecutor(smallThreads, smallThreads, 60,
-        TimeUnit.SECONDS, stealJobQueue.getStealFromQueue(),
-        new ThreadFactory() {
-          @Override
-          public Thread newThread(Runnable r) {
-            String name = n + "-shortCompactions-" + System.currentTimeMillis();
-            return new Thread(r, name);
-          }
-        });
+    this.shortCompactions = new ThreadPoolExecutor(smallThreads, smallThreads, 60, TimeUnit.SECONDS,
+        stealJobQueue.getStealFromQueue(), new ThreadFactoryBuilder()
+            .setNameFormat(n + "-shortCompactions-%d").setDaemon(true).build());
     this.shortCompactions.setRejectedExecutionHandler(new Rejection());
   }
 
@@ -341,8 +325,11 @@ public class CompactSplit implements CompactionRequester, PropagatingConfigurati
     }
     RegionServerSpaceQuotaManager spaceQuotaManager =
         this.server.getRegionServerSpaceQuotaManager();
-    if (spaceQuotaManager != null &&
-        spaceQuotaManager.areCompactionsDisabled(region.getTableDescriptor().getTableName())) {
+
+    if (user != null && !Superusers.isSuperUser(user) && spaceQuotaManager != null
+        && spaceQuotaManager.areCompactionsDisabled(region.getTableDescriptor().getTableName())) {
+      // Enter here only when:
+      // It's a user generated req, the user is super user, quotas enabled, compactions disabled.
       String reason = "Ignoring compaction request for " + region +
           " as an active space quota violation " + " policy disallows compactions.";
       tracker.notExecuted(store, reason);
@@ -663,8 +650,8 @@ public class CompactSplit implements CompactionRequester, PropagatingConfigurati
     @Override
     public void run() {
       Preconditions.checkNotNull(server);
-      if (server.isStopped()
-          || (region.getTableDescriptor() != null && !region.getTableDescriptor().isCompactionEnabled())) {
+      if (server.isStopped() || (region.getTableDescriptor() != null &&
+        !region.getTableDescriptor().isCompactionEnabled())) {
         region.decrementCompactionsQueuedCount();
         return;
       }

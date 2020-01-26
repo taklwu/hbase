@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -26,7 +26,6 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.apache.commons.lang3.RandomUtils;
 import org.apache.hadoop.conf.Configuration;
@@ -34,7 +33,6 @@ import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hbase.HBaseClassTestRule;
 import org.apache.hadoop.hbase.HBaseTestingUtility;
-import org.apache.hadoop.hbase.HConstants;
 import org.apache.hadoop.hbase.MetaTableAccessor;
 import org.apache.hadoop.hbase.MiniHBaseCluster;
 import org.apache.hadoop.hbase.ServerName;
@@ -63,6 +61,7 @@ import org.apache.hadoop.hbase.testclassification.LargeTests;
 import org.apache.hadoop.hbase.testclassification.RegionServerTests;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.hbase.util.FSUtils;
+import org.apache.hadoop.hbase.util.FutureUtils;
 import org.apache.hadoop.hbase.util.JVMClusterUtil.RegionServerThread;
 import org.apache.hadoop.hbase.util.Pair;
 import org.apache.hadoop.hbase.util.PairOfSameType;
@@ -197,7 +196,7 @@ public class TestRegionMergeTransactionOnCluster {
   @Test
   public void testCleanMergeReference() throws Exception {
     LOG.info("Starting " + name.getMethodName());
-    ADMIN.enableCatalogJanitor(false);
+    ADMIN.catalogJanitorSwitch(false);
     try {
       final TableName tableName = TableName.valueOf(name.getMethodName());
       // Create table and load data.
@@ -216,15 +215,12 @@ public class TestRegionMergeTransactionOnCluster {
         MASTER.getConnection(), mergedRegionInfo.getRegionName());
 
       // contains merge reference in META
-      assertTrue(mergedRegionResult.getValue(HConstants.CATALOG_FAMILY,
-          HConstants.MERGEA_QUALIFIER) != null);
-      assertTrue(mergedRegionResult.getValue(HConstants.CATALOG_FAMILY,
-          HConstants.MERGEB_QUALIFIER) != null);
+      assertTrue(MetaTableAccessor.hasMergeRegions(mergedRegionResult.rawCells()));
 
       // merging regions' directory are in the file system all the same
-      PairOfSameType<RegionInfo> p = MetaTableAccessor.getMergeRegions(mergedRegionResult);
-      RegionInfo regionA = p.getFirst();
-      RegionInfo regionB = p.getSecond();
+      List<RegionInfo> p = MetaTableAccessor.getMergeRegions(mergedRegionResult.rawCells());
+      RegionInfo regionA = p.get(0);
+      RegionInfo regionB = p.get(1);
       FileSystem fs = MASTER.getMasterFileSystem().getFileSystem();
       Path rootDir = MASTER.getMasterFileSystem().getRootDir();
 
@@ -278,7 +274,7 @@ public class TestRegionMergeTransactionOnCluster {
       // files of merging regions
       int cleaned = 0;
       while (cleaned == 0) {
-        cleaned = ADMIN.runCatalogScan();
+        cleaned = ADMIN.runCatalogJanitor();
         LOG.debug("catalog janitor returned " + cleaned);
         Thread.sleep(50);
         // Cleanup is async so wait till all procedures are done running.
@@ -291,13 +287,9 @@ public class TestRegionMergeTransactionOnCluster {
 
       mergedRegionResult = MetaTableAccessor.getRegionResult(
         TEST_UTIL.getConnection(), mergedRegionInfo.getRegionName());
-      assertFalse(mergedRegionResult.getValue(HConstants.CATALOG_FAMILY,
-          HConstants.MERGEA_QUALIFIER) != null);
-      assertFalse(mergedRegionResult.getValue(HConstants.CATALOG_FAMILY,
-          HConstants.MERGEB_QUALIFIER) != null);
-
+      assertFalse(MetaTableAccessor.hasMergeRegions(mergedRegionResult.rawCells()));
     } finally {
-      ADMIN.enableCatalogJanitor(true);
+      ADMIN.catalogJanitorSwitch(true);
     }
   }
 
@@ -312,7 +304,6 @@ public class TestRegionMergeTransactionOnCluster {
     LOG.info("Starting " + name.getMethodName());
     final TableName tableName = TableName.valueOf(name.getMethodName());
     final Admin admin = TEST_UTIL.getAdmin();
-    final int syncWaitTimeout = 10 * 60000; // 10min
 
     try {
       // Create table and load data.
@@ -326,8 +317,8 @@ public class TestRegionMergeTransactionOnCluster {
       am.offlineRegion(b);
       try {
         // Merge offline region. Region a is offline here
-        admin.mergeRegionsAsync(a.getEncodedNameAsBytes(), b.getEncodedNameAsBytes(), false)
-                .get(syncWaitTimeout, TimeUnit.MILLISECONDS);
+        FutureUtils.get(
+          admin.mergeRegionsAsync(a.getEncodedNameAsBytes(), b.getEncodedNameAsBytes(), false));
         fail("Offline regions should not be able to merge");
       } catch (DoNotRetryRegionException ie) {
         System.out.println(ie);
@@ -336,21 +327,21 @@ public class TestRegionMergeTransactionOnCluster {
 
       try {
         // Merge the same region: b and b.
-        admin.mergeRegionsAsync(b.getEncodedNameAsBytes(), b.getEncodedNameAsBytes(), true);
-        fail("A region should not be able to merge with itself, even forcifully");
+        FutureUtils
+          .get(admin.mergeRegionsAsync(b.getEncodedNameAsBytes(), b.getEncodedNameAsBytes(), true));
+        fail("A region should not be able to merge with itself, even forcfully");
       } catch (IOException ie) {
         assertTrue("Exception should mention regions not online",
-          StringUtils.stringifyException(ie).contains("region to itself")
-            && ie instanceof MergeRegionException);
+          StringUtils.stringifyException(ie).contains("region to itself") &&
+            ie instanceof MergeRegionException);
       }
 
       try {
         // Merge unknown regions
-        admin.mergeRegionsAsync(Bytes.toBytes("-f1"), Bytes.toBytes("-f2"), true);
+        FutureUtils.get(admin.mergeRegionsAsync(Bytes.toBytes("-f1"), Bytes.toBytes("-f2"), true));
         fail("Unknown region could not be merged");
       } catch (IOException ie) {
-        assertTrue("UnknownRegionException should be thrown",
-          ie instanceof UnknownRegionException);
+        assertTrue("UnknownRegionException should be thrown", ie instanceof UnknownRegionException);
       }
       table.close();
     } finally {

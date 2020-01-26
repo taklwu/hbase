@@ -340,7 +340,7 @@ public class PerformanceEvaluation extends Configured implements Tool {
         "Must specify an existing table for read commands. Run a write command first.");
     }
     HTableDescriptor desc =
-      exists ? admin.getTableDescriptor(TableName.valueOf(opts.tableName)) : null;
+      exists ? new HTableDescriptor(admin.getDescriptor(TableName.valueOf(opts.tableName))) : null;
     byte[][] splits = getSplits(opts);
 
     // recreate the table when user has requested presplit or when existing
@@ -383,7 +383,11 @@ public class PerformanceEvaluation extends Configured implements Tool {
           }
         }
       }
-      admin.createTable(desc, splits);
+      if (splits != null) {
+        admin.createTable(desc, splits);
+      } else {
+        admin.createTable(desc);
+      }
       LOG.info("Table " + desc + " created");
     }
     return admin.tableExists(tableName);
@@ -2711,6 +2715,7 @@ public class PerformanceEvaluation extends Configured implements Tool {
       final String blockSize = "--blockSize=";
       if(cmd.startsWith(blockSize) ) {
         opts.blockSize = Integer.parseInt(cmd.substring(blockSize.length()));
+        continue;
       }
 
       final String valueSize = "--valueSize=";

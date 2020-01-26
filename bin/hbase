@@ -91,35 +91,37 @@ if [ $# = 0 ]; then
   echo ""
   echo "Commands:"
   echo "Some commands take arguments. Pass no args or -h for usage."
-  echo "  shell           Run the HBase shell"
-  echo "  hbck            Run the HBase 'fsck' tool. Defaults read-only hbck1."
-  echo "                  Pass '-j /path/to/HBCK2.jar' to run hbase-2.x HBCK2."
-  echo "  snapshot        Tool for managing snapshots"
+  echo "  shell            Run the HBase shell"
+  echo "  hbck             Run the HBase 'fsck' tool. Defaults read-only hbck1."
+  echo "                   Pass '-j /path/to/HBCK2.jar' to run hbase-2.x HBCK2."
+  echo "  snapshot         Tool for managing snapshots"
   if [ "${in_omnibus_tarball}" = "true" ]; then
-    echo "  wal             Write-ahead-log analyzer"
-    echo "  hfile           Store file analyzer"
-    echo "  zkcli           Run the ZooKeeper shell"
-    echo "  master          Run an HBase HMaster node"
-    echo "  regionserver    Run an HBase HRegionServer node"
-    echo "  zookeeper       Run a ZooKeeper server"
-    echo "  rest            Run an HBase REST server"
-    echo "  thrift          Run the HBase Thrift server"
-    echo "  thrift2         Run the HBase Thrift2 server"
-    echo "  clean           Run the HBase clean up script"
+    echo "  wal              Write-ahead-log analyzer"
+    echo "  hfile            Store file analyzer"
+    echo "  zkcli            Run the ZooKeeper shell"
+    echo "  master           Run an HBase HMaster node"
+    echo "  regionserver     Run an HBase HRegionServer node"
+    echo "  zookeeper        Run a ZooKeeper server"
+    echo "  rest             Run an HBase REST server"
+    echo "  thrift           Run the HBase Thrift server"
+    echo "  thrift2          Run the HBase Thrift2 server"
+    echo "  clean            Run the HBase clean up script"
   fi
-  echo "  classpath       Dump hbase CLASSPATH"
-  echo "  mapredcp        Dump CLASSPATH entries required by mapreduce"
-  echo "  pe              Run PerformanceEvaluation"
-  echo "  ltt             Run LoadTestTool"
-  echo "  canary          Run the Canary tool"
-  echo "  version         Print the version"
-  echo "  backup          Backup tables for recovery"
-  echo "  restore         Restore tables from existing backup image"
-  echo "  regionsplitter  Run RegionSplitter tool"
-  echo "  rowcounter      Run RowCounter tool"
-  echo "  cellcounter     Run CellCounter tool"
-  echo "  pre-upgrade     Run Pre-Upgrade validator tool"
-  echo "  CLASSNAME       Run the class named CLASSNAME"
+  echo "  classpath        Dump hbase CLASSPATH"
+  echo "  mapredcp         Dump CLASSPATH entries required by mapreduce"
+  echo "  pe               Run PerformanceEvaluation"
+  echo "  ltt              Run LoadTestTool"
+  echo "  canary           Run the Canary tool"
+  echo "  version          Print the version"
+  echo "  backup           Backup tables for recovery"
+  echo "  restore          Restore tables from existing backup image"
+  echo "  completebulkload Run BulkLoadHFiles tool"
+  echo "  regionsplitter   Run RegionSplitter tool"
+  echo "  rowcounter       Run RowCounter tool"
+  echo "  cellcounter      Run CellCounter tool"
+  echo "  pre-upgrade      Run Pre-Upgrade validator tool"
+  echo "  hbtop            Run HBTop tool"
+  echo "  CLASSNAME        Run the class named CLASSNAME"
   exit 1
 fi
 
@@ -182,19 +184,10 @@ if [ -d "$HBASE_HOME/hbase-server/target/hbase-webapps" ]; then
     add_to_cp_if_exists "${HBASE_HOME}/hbase-rest/target"
   else
     add_to_cp_if_exists "${HBASE_HOME}/hbase-server/target"
+    # Needed for GetJavaProperty check below
+    add_to_cp_if_exists "${HBASE_HOME}/hbase-server/target/classes"
   fi
 fi
-
-#add the hbase jars for each module
-for f in $HBASE_HOME/hbase-jars/hbase*.jar; do
-	if [[ $f = *sources.jar ]]
-  then
-    : # Skip sources.jar
-  elif [ -f $f ]
-  then
-    CLASSPATH=${CLASSPATH}:$f;
-  fi
-done
 
 #If avail, add Hadoop to the CLASSPATH and to the JAVA_LIBRARY_PATH
 # Allow this functionality to be disabled
@@ -222,7 +215,7 @@ if [ "${INTERNAL_CLASSPATH}" != "true" ]; then
   done
 
   # If command can use our shaded client, use it
-  declare -a commands_in_client_jar=("classpath" "version")
+  declare -a commands_in_client_jar=("classpath" "version" "hbtop")
   for c in "${commands_in_client_jar[@]}"; do
     if [ "${COMMAND}" = "${c}" ]; then
       if [ -n "${HADOOP_IN_PATH}" ] && [ -f "${HADOOP_IN_PATH}" ]; then
@@ -316,7 +309,15 @@ fi
 
 #If configured and available, add Hadoop to the CLASSPATH and to the JAVA_LIBRARY_PATH
 if [ -n "${HADOOP_IN_PATH}" ] && [ -f "${HADOOP_IN_PATH}" ]; then
-  HADOOP_JAVA_LIBRARY_PATH=$(HADOOP_CLASSPATH="$CLASSPATH" "${HADOOP_IN_PATH}" \
+  # If built hbase, temporarily add hbase-server*.jar to classpath for GetJavaProperty
+  # Exclude hbase-server*-tests.jar
+  temporary_cp=
+  for f in "${HBASE_HOME}"/lib/hbase-server*.jar; do
+    if [[ ! "${f}" =~ ^.*\-tests\.jar$ ]]; then
+      temporary_cp=":$f"
+    fi
+  done
+  HADOOP_JAVA_LIBRARY_PATH=$(HADOOP_CLASSPATH="$CLASSPATH${temporary_cp}" "${HADOOP_IN_PATH}" \
                              org.apache.hadoop.hbase.util.GetJavaProperty java.library.path)
   if [ -n "$HADOOP_JAVA_LIBRARY_PATH" ]; then
     JAVA_LIBRARY_PATH=$(append_path "${JAVA_LIBRARY_PATH}" "$HADOOP_JAVA_LIBRARY_PATH")
@@ -439,6 +440,14 @@ add_maven_deps_to_classpath() {
       exit 1
   fi
   CLASSPATH=${CLASSPATH}:$(cat "${f}")
+}
+
+add_jdk11_deps_to_classpath() {
+  for f in ${HBASE_HOME}/lib/jdk11/*; do
+    if [ -f "${f}" ]; then
+      CLASSPATH="${CLASSPATH}:${f}"
+    fi
+  done
 }
 
 #Add the development env class path stuff
@@ -633,7 +642,7 @@ elif [ "$COMMAND" = "ltt" ] ; then
   CLASS='org.apache.hadoop.hbase.util.LoadTestTool'
   HBASE_OPTS="$HBASE_OPTS $HBASE_LTT_OPTS"
 elif [ "$COMMAND" = "canary" ] ; then
-  CLASS='org.apache.hadoop.hbase.tool.Canary'
+  CLASS='org.apache.hadoop.hbase.tool.CanaryTool'
   HBASE_OPTS="$HBASE_OPTS $HBASE_CANARY_OPTS"
 elif [ "$COMMAND" = "version" ] ; then
   CLASS='org.apache.hadoop.hbase.util.VersionInfo'
@@ -645,8 +654,86 @@ elif [ "$COMMAND" = "cellcounter" ] ; then
   CLASS='org.apache.hadoop.hbase.mapreduce.CellCounter'
 elif [ "$COMMAND" = "pre-upgrade" ] ; then
   CLASS='org.apache.hadoop.hbase.tool.PreUpgradeValidator'
+elif [ "$COMMAND" = "completebulkload" ] ; then
+  CLASS='org.apache.hadoop.hbase.tool.BulkLoadHFilesTool'
+elif [ "$COMMAND" = "hbtop" ] ; then
+  CLASS='org.apache.hadoop.hbase.hbtop.HBTop'
+  if [ -n "${shaded_jar}" ] ; then
+    for f in "${HBASE_HOME}"/lib/hbase-hbtop*.jar; do
+      if [ -f "${f}" ]; then
+        CLASSPATH="${CLASSPATH}:${f}"
+        break
+      fi
+    done
+    for f in "${HBASE_HOME}"/lib/commons-lang3*.jar; do
+      if [ -f "${f}" ]; then
+        CLASSPATH="${CLASSPATH}:${f}"
+        break
+      fi
+    done
+  fi
+
+  if [ -f "${HBASE_HOME}/conf/log4j-hbtop.properties" ] ; then
+    HBASE_HBTOP_OPTS="${HBASE_HBTOP_OPTS} -Dlog4j.configuration=file:${HBASE_HOME}/conf/log4j-hbtop.properties"
+  fi
+  HBASE_OPTS="${HBASE_OPTS} ${HBASE_HBTOP_OPTS}"
 else
   CLASS=$COMMAND
+fi
+
+# Add lib/jdk11 jars to the classpath
+
+if [ "${DEBUG}" = "true" ]; then
+  echo "Deciding on addition of lib/jdk11 jars to the classpath"
+fi
+
+addJDK11Jars=false
+
+if [ "${HBASE_JDK11}" != "" ]; then
+  # Use the passed Environment Variable HBASE_JDK11
+  if [ "${HBASE_JDK11}" = "include" ]; then
+    addJDK11Jars=true
+    if [ "${DEBUG}" = "true" ]; then
+      echo "HBASE_JDK11 set as 'include' hence adding JDK11 jars to classpath."
+    fi
+  elif [ "${HBASE_JDK11}" = "exclude" ]; then
+    if [ "${DEBUG}" = "true" ]; then
+      echo "HBASE_JDK11 set as 'exclude' hence skipping JDK11 jars to classpath."
+    fi
+  else
+    echo "[HBASE_JDK11] contains unsupported value(s) - ${HBASE_JDK11}. Ignoring passed value."
+    echo "[HBASE_JDK11] supported values: [include, exclude]."
+  fi
+else
+  # Use JDK detection
+  JAVA=$JAVA_HOME/bin/java
+
+  version=$($JAVA -version 2>&1 | awk -F '"' '/version/ {print $2}')
+  # '-' check is for cases such as "13-ea"
+  version_number=$(echo "$version" | cut -d'.' -f1 | cut -d'-' -f1)
+
+  if [ "${DEBUG}" = "true" ]; then
+    echo "HBASE_JDK11 not set hence using JDK detection."
+    echo "Extracted JDK version - ${version}, version_number - ${version_number}"
+  fi
+
+  if [[ "$version_number" -ge "11" ]]; then
+    if [ "${DEBUG}" = "true" ]; then
+      echo "Version ${version} is greater-than/equal to 11 hence adding JDK11 jars to classpath."
+    fi
+    addJDK11Jars=true
+  elif [ "${DEBUG}" = "true" ]; then
+      echo "Version ${version} is lesser than 11 hence skipping JDK11 jars from classpath."
+  fi
+fi
+
+if [ "${addJDK11Jars}" = "true" ]; then
+  add_jdk11_deps_to_classpath
+  if [ "${DEBUG}" = "true" ]; then
+      echo "Added JDK11 jars to classpath."
+    fi
+elif [ "${DEBUG}" = "true" ]; then
+  echo "JDK11 jars skipped from classpath."
 fi
 
 # Have JVM dump heap if we run out of memory.  Files will be 'launch directory'
@@ -689,5 +776,6 @@ fi
 if [ "${HBASE_NOEXEC}" != "" ]; then
   "$JAVA" -Dproc_$COMMAND -XX:OnOutOfMemoryError="kill -9 %p" $HEAP_SETTINGS $HBASE_OPTS $CLASS "$@"
 else
+  export JVM_PID="$$"
   exec "$JAVA" -Dproc_$COMMAND -XX:OnOutOfMemoryError="kill -9 %p" $HEAP_SETTINGS $HBASE_OPTS $CLASS "$@"
 fi

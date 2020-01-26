@@ -16,7 +16,6 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 package org.apache.hadoop.hbase.rest;
 
 import java.io.IOException;
@@ -30,8 +29,12 @@ import org.apache.hadoop.hbase.client.Get;
 import org.apache.hadoop.hbase.client.Result;
 import org.apache.hadoop.hbase.client.Table;
 import org.apache.hadoop.hbase.filter.Filter;
+import org.apache.hadoop.hbase.security.AccessDeniedException;
+
 import org.apache.hadoop.util.StringUtils;
+
 import org.apache.yetus.audience.InterfaceAudience;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -45,11 +48,10 @@ public class RowResultGenerator extends ResultGenerator {
   public RowResultGenerator(final String tableName, final RowSpec rowspec,
       final Filter filter, final boolean cacheBlocks)
       throws IllegalArgumentException, IOException {
-    Table table = RESTServlet.getInstance().getTable(tableName);
-    try {
+    try (Table table = RESTServlet.getInstance().getTable(tableName)) {
       Get get = new Get(rowspec.getRow());
       if (rowspec.hasColumns()) {
-        for (byte[] col: rowspec.getColumns()) {
+        for (byte[] col : rowspec.getColumns()) {
           byte[][] split = CellUtil.parseColumn(col);
           if (split.length == 1) {
             get.addFamily(split[0]);
@@ -61,7 +63,7 @@ public class RowResultGenerator extends ResultGenerator {
         }
       }
       get.setTimeRange(rowspec.getStartTime(), rowspec.getEndTime());
-      get.setMaxVersions(rowspec.getMaxVersions());
+      get.readVersions(rowspec.getMaxVersions());
       if (filter != null) {
         get.setFilter(filter);
       }
@@ -78,8 +80,10 @@ public class RowResultGenerator extends ResultGenerator {
       // help to avoid confusion by leaving a record of what happened here in
       // the log.
       LOG.warn(StringUtils.stringifyException(e));
-    } finally {
-      table.close();
+      // Lets get the exception rethrown to get a more meaningful error message than 404
+      if (e instanceof AccessDeniedException) {
+        throw e;
+      }
     }
   }
 

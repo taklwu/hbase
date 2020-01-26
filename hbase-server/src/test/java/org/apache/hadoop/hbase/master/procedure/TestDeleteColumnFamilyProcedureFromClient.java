@@ -39,7 +39,7 @@ import org.apache.hadoop.hbase.testclassification.LargeTests;
 import org.apache.hadoop.hbase.testclassification.MasterTests;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.hbase.util.FSUtils;
-import org.apache.hadoop.hbase.wal.WALSplitter;
+import org.apache.hadoop.hbase.wal.WALSplitUtil;
 import org.junit.After;
 import org.junit.AfterClass;
 import org.junit.Assert;
@@ -103,7 +103,7 @@ public class TestDeleteColumnFamilyProcedureFromClient {
   @Test
   public void deleteColumnFamilyWithMultipleRegions() throws Exception {
     Admin admin = TEST_UTIL.getAdmin();
-    HTableDescriptor beforehtd = admin.getTableDescriptor(TABLENAME);
+    HTableDescriptor beforehtd = new HTableDescriptor(admin.getDescriptor(TABLENAME));
 
     FileSystem fs = TEST_UTIL.getDFSCluster().getFileSystem();
 
@@ -150,7 +150,7 @@ public class TestDeleteColumnFamilyProcedureFromClient {
     admin.deleteColumnFamily(TABLENAME, Bytes.toBytes("cf2"));
 
     // 5 - Check if only 2 column families exist in the descriptor
-    HTableDescriptor afterhtd = admin.getTableDescriptor(TABLENAME);
+    HTableDescriptor afterhtd = new HTableDescriptor(admin.getDescriptor(TABLENAME));
     assertEquals(2, afterhtd.getColumnFamilyCount());
     HColumnDescriptor[] newFamilies = afterhtd.getColumnFamilies();
     assertTrue(newFamilies[0].getNameAsString().equals("cf1"));
@@ -163,7 +163,7 @@ public class TestDeleteColumnFamilyProcedureFromClient {
         FileStatus[] cf = fs.listStatus(fileStatus[i].getPath(), new PathFilter() {
           @Override
           public boolean accept(Path p) {
-            if (WALSplitter.isSequenceIdFile(p)) {
+            if (WALSplitUtil.isSequenceIdFile(p)) {
               return false;
             }
             return true;
@@ -181,7 +181,7 @@ public class TestDeleteColumnFamilyProcedureFromClient {
   @Test
   public void deleteColumnFamilyTwice() throws Exception {
     Admin admin = TEST_UTIL.getAdmin();
-    HTableDescriptor beforehtd = admin.getTableDescriptor(TABLENAME);
+    HTableDescriptor beforehtd = new HTableDescriptor(admin.getDescriptor(TABLENAME));
     String cfToDelete = "cf1";
 
     FileSystem fs = TEST_UTIL.getDFSCluster().getFileSystem();
@@ -244,7 +244,7 @@ public class TestDeleteColumnFamilyProcedureFromClient {
         FileStatus[] cf = fs.listStatus(fileStatus[i].getPath(), new PathFilter() {
           @Override
           public boolean accept(Path p) {
-            if (WALSplitter.isSequenceIdFile(p)) {
+            if (WALSplitUtil.isSequenceIdFile(p)) {
               return false;
             }
             return true;

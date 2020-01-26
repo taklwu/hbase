@@ -33,7 +33,7 @@ import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
-
+import java.util.function.Supplier;
 import org.apache.hadoop.hbase.ServerName;
 import org.apache.yetus.audience.InterfaceAudience;
 import org.apache.hbase.thirdparty.com.google.protobuf.Descriptors.MethodDescriptor;
@@ -246,8 +246,7 @@ public class MetricsConnection implements StatisticTrackable {
   /** Default load factor from {@link java.util.HashMap#DEFAULT_LOAD_FACTOR} */
   private static final float LOAD_FACTOR = 0.75f;
   /**
-   * Anticipated number of concurrent accessor threads, from
-   * {@link ConnectionImplementation#getBatchPool()}
+   * Anticipated number of concurrent accessor threads
    */
   private static final int CONCURRENCY_LEVEL = 256;
 
@@ -305,30 +304,30 @@ public class MetricsConnection implements StatisticTrackable {
   private final ConcurrentMap<String, Counter> cacheDroppingExceptions =
     new ConcurrentHashMap<>(CAPACITY, LOAD_FACTOR, CONCURRENCY_LEVEL);
 
-  MetricsConnection(final ConnectionImplementation conn) {
-    this.scope = conn.toString();
+  MetricsConnection(String scope, Supplier<ThreadPoolExecutor> batchPool,
+      Supplier<ThreadPoolExecutor> metaPool) {
+    this.scope = scope;
     this.registry = new MetricRegistry();
-
     this.registry.register(getExecutorPoolName(),
         new RatioGauge() {
           @Override
           protected Ratio getRatio() {
-            ThreadPoolExecutor batchPool = (ThreadPoolExecutor) conn.getCurrentBatchPool();
-            if (batchPool == null) {
+            ThreadPoolExecutor pool = batchPool.get();
+            if (pool == null) {
               return Ratio.of(0, 0);
             }
-            return Ratio.of(batchPool.getActiveCount(), batchPool.getMaximumPoolSize());
+            return Ratio.of(pool.getActiveCount(), pool.getMaximumPoolSize());
           }
         });
     this.registry.register(getMetaPoolName(),
         new RatioGauge() {
           @Override
           protected Ratio getRatio() {
-            ThreadPoolExecutor metaPool = (ThreadPoolExecutor) conn.getCurrentMetaLookupPool();
-            if (metaPool == null) {
+            ThreadPoolExecutor pool = metaPool.get();
+            if (pool == null) {
               return Ratio.of(0, 0);
             }
-            return Ratio.of(metaPool.getActiveCount(), metaPool.getMaximumPoolSize());
+            return Ratio.of(pool.getActiveCount(), pool.getMaximumPoolSize());
           }
         });
     this.metaCacheHits = registry.counter(name(this.getClass(), "metaCacheHits", scope));
@@ -401,6 +400,11 @@ public class MetricsConnection implements StatisticTrackable {
     metaCacheNumClearRegion.inc();
   }
 
+  /** Increment the number of meta cache drops requested for individual region. */
+  public void incrMetaCacheNumClearRegion(int count) {
+    metaCacheNumClearRegion.inc(count);
+  }
+
   /** Increment the number of hedged read that have occurred. */
   public void incrHedgedReadOps() {
     hedgedReadOps.inc();
@@ -416,13 +420,9 @@ public class MetricsConnection implements StatisticTrackable {
     this.runnerStats.incrNormalRunners();
   }
 
-  /** Increment the number of delay runner counts. */
-  public void incrDelayRunners() {
+  /** Increment the number of delay runner counts and update delay interval of delay runner. */
+  public void incrDelayRunnersAndUpdateDelayInterval(long interval) {
     this.runnerStats.incrDelayRunners();
-  }
-
-  /** Update delay interval of delay runner. */
-  public void updateDelayInterval(long interval) {
     this.runnerStats.updateDelayInterval(interval);
   }
 

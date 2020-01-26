@@ -28,6 +28,7 @@ import "HBase.proto";
 import "RPC.proto";
 import "Snapshot.proto";
 import "Replication.proto";
+import "RegionServerStatus.proto";
 
 // ============================================================================
 //  WARNING - Compatibility rules
@@ -78,6 +79,7 @@ message ModifyTableStateData {
   optional TableSchema unmodified_table_schema = 2;
   required TableSchema modified_table_schema = 3;
   required bool delete_column_family_in_modify = 4;
+  optional bool should_check_descriptor = 5;
 }
 
 enum TruncateTableState {
@@ -373,6 +375,8 @@ message GCRegionStateData {
   required RegionInfo region_info = 1;
 }
 
+// NOTE: This message is used by GCMergedRegionStateProcedure
+// AND GCMultipleMergedRegionStateProcedure.
 enum GCMergedRegionsState {
   GC_MERGED_REGIONS_PREPARE = 1;
   GC_MERGED_REGIONS_PURGE = 2;
@@ -380,9 +384,16 @@ enum GCMergedRegionsState {
 }
 
 message GCMergedRegionsStateData {
+  // Use GCMultipleMergedRegionsStateData instead.
+  option deprecated = true;
   required RegionInfo parent_a = 1;
   required RegionInfo parent_b = 2;
   required RegionInfo merged_child = 3;
+}
+
+message GCMultipleMergedRegionsStateData {
+  repeated RegionInfo parents = 1;
+  required RegionInfo merged_child = 2;
 }
 
 enum PeerModificationState {
@@ -534,17 +545,32 @@ enum RegionStateTransitionState {
   REGION_STATE_TRANSITION_CONFIRM_CLOSED = 5;
 }
 
+enum RegionTransitionType {
+  ASSIGN = 1;
+  UNASSIGN = 2;
+  MOVE = 3;
+  REOPEN = 4;
+}
+
 message RegionStateTransitionStateData {
-  required RegionStateTransitionState initialState = 1;
-  required RegionStateTransitionState lastState = 2;
-  optional ServerName assign_candidate = 3;
-  required bool force_new_plan = 4;
-  optional bool override = 5 [default = false];
+  required RegionTransitionType type = 1;
+  optional ServerName assign_candidate = 2;
+  required bool force_new_plan = 3;
+}
+
+enum RegionRemoteProcedureBaseState {
+  REGION_REMOTE_PROCEDURE_DISPATCH = 1;
+  REGION_REMOTE_PROCEDURE_REPORT_SUCCEED = 2;
+  REGION_REMOTE_PROCEDURE_DISPATCH_FAIL = 3;
+  REGION_REMOTE_PROCEDURE_SERVER_CRASH = 4;
 }
 
 message RegionRemoteProcedureBaseStateData {
   required RegionInfo region = 1;
   required ServerName target_server = 2;
+  required RegionRemoteProcedureBaseState state = 3;
+  optional RegionStateTransition.TransitionCode transition_code = 4;
+  optional int64 seq_id = 5;
 }
 
 message OpenRegionProcedureStateData {

@@ -26,13 +26,13 @@ import org.apache.hadoop.hbase.TableName;
 import org.apache.hadoop.hbase.backup.impl.BackupAdminImpl;
 import org.apache.hadoop.hbase.backup.impl.BackupSystemTable;
 import org.apache.hadoop.hbase.backup.util.BackupUtils;
+import org.apache.hadoop.hbase.client.Admin;
 import org.apache.hadoop.hbase.client.Connection;
 import org.apache.hadoop.hbase.client.ConnectionFactory;
-import org.apache.hadoop.hbase.client.HBaseAdmin;
-import org.apache.hadoop.hbase.client.HTable;
 import org.apache.hadoop.hbase.client.Put;
+import org.apache.hadoop.hbase.client.Table;
 import org.apache.hadoop.hbase.testclassification.LargeTests;
-import org.apache.hadoop.hbase.tool.TestLoadIncrementalHFiles;
+import org.apache.hadoop.hbase.tool.TestBulkLoadHFiles;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.hbase.util.Pair;
 import org.junit.Assert;
@@ -70,7 +70,7 @@ public class TestIncrementalBackupWithBulkLoad extends TestBackupBase {
 
     List<TableName> tables = Lists.newArrayList(table1);
     Connection conn = ConnectionFactory.createConnection(conf1);
-    HBaseAdmin admin = (HBaseAdmin) conn.getAdmin();
+    Admin admin = conn.getAdmin();
     BackupAdminImpl client = new BackupAdminImpl(conn);
 
     BackupRequest request = createBackupRequest(BackupType.FULL, tables, BACKUP_ROOT_DIR);
@@ -79,7 +79,7 @@ public class TestIncrementalBackupWithBulkLoad extends TestBackupBase {
     assertTrue(checkSucceeded(backupIdFull));
 
     // #2 - insert some data to table table1
-    HTable t1 = (HTable) conn.getTable(table1);
+    Table t1 = conn.getTable(table1);
     Put p1;
     for (int i = 0; i < NB_ROWS_IN_BATCH; i++) {
       p1 = new Put(Bytes.toBytes("row-t1" + i));
@@ -92,7 +92,7 @@ public class TestIncrementalBackupWithBulkLoad extends TestBackupBase {
 
     int NB_ROWS2 = 20;
     LOG.debug("bulk loading into " + testName);
-    int actual = TestLoadIncrementalHFiles.loadHFiles(testName, table1Desc, TEST_UTIL, famName,
+    int actual = TestBulkLoadHFiles.loadHFiles(testName, table1Desc, TEST_UTIL, famName,
         qualName, false, null, new byte[][][] {
           new byte[][]{ Bytes.toBytes("aaaa"), Bytes.toBytes("cccc") },
           new byte[][]{ Bytes.toBytes("ddd"), Bytes.toBytes("ooo") },
@@ -105,7 +105,7 @@ public class TestIncrementalBackupWithBulkLoad extends TestBackupBase {
     assertTrue(checkSucceeded(backupIdIncMultiple));
     // #4 bulk load again
     LOG.debug("bulk loading into " + testName);
-    int actual1 = TestLoadIncrementalHFiles.loadHFiles(testName, table1Desc, TEST_UTIL, famName,
+    int actual1 = TestBulkLoadHFiles.loadHFiles(testName, table1Desc, TEST_UTIL, famName,
       qualName, false, null,
       new byte[][][] { new byte[][] { Bytes.toBytes("ppp"), Bytes.toBytes("qqq") },
         new byte[][] { Bytes.toBytes("rrr"), Bytes.toBytes("sss") }, },
@@ -119,7 +119,7 @@ public class TestIncrementalBackupWithBulkLoad extends TestBackupBase {
     // Delete all data in table1
     TEST_UTIL.deleteTableData(table1);
     // #5.1 - check tables for full restore */
-    HBaseAdmin hAdmin = TEST_UTIL.getHBaseAdmin();
+    Admin hAdmin = TEST_UTIL.getAdmin();
 
     // #6 - restore incremental backup for table1
     TableName[] tablesRestoreIncMultiple = new TableName[] { table1 };
@@ -127,7 +127,7 @@ public class TestIncrementalBackupWithBulkLoad extends TestBackupBase {
     client.restore(BackupUtils.createRestoreRequest(BACKUP_ROOT_DIR, backupIdIncMultiple1,
       false, tablesRestoreIncMultiple, tablesRestoreIncMultiple, true));
 
-    HTable hTable = (HTable) conn.getTable(table1);
+    Table hTable = conn.getTable(table1);
     Assert.assertEquals(TEST_UTIL.countRows(hTable), NB_ROWS_IN_BATCH * 2 + actual + actual1);
     request = createBackupRequest(BackupType.FULL, tables, BACKUP_ROOT_DIR);
 

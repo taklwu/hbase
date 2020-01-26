@@ -50,10 +50,11 @@ public class TestSnapshotDFSTemporaryDirectory
    *
    * @throws Exception on failure
    */
-  @BeforeClass public static void setupCluster() throws Exception {
+  @BeforeClass
+  public static void setupCluster() throws Exception {
     setupConf(UTIL.getConfiguration());
     UTIL.startMiniCluster(NUM_RS);
-    admin = UTIL.getHBaseAdmin();
+    admin = UTIL.getAdmin();
   }
 
   private static void setupConf(Configuration conf) throws IOException {
@@ -72,8 +73,8 @@ public class TestSnapshotDFSTemporaryDirectory
     conf.set(HConstants.HBASE_REGION_SPLIT_POLICY_KEY,
         ConstantSizeRegionSplitPolicy.class.getName());
 
-    conf.set(SnapshotDescriptionUtils.SNAPSHOT_WORKING_DIR, UTIL.getDefaultRootDirPath().toString()
-        + Path.SEPARATOR + UUID.randomUUID().toString() + Path.SEPARATOR + ".tmpdir"
-        + Path.SEPARATOR);
+    String snapshotPath = UTIL.getDefaultRootDirPath().toString() + Path.SEPARATOR +
+        UUID.randomUUID().toString() + Path.SEPARATOR + ".tmpdir" + Path.SEPARATOR;
+    conf.set(SnapshotDescriptionUtils.SNAPSHOT_WORKING_DIR, "file://" + new Path(snapshotPath).toUri());
   }
 }

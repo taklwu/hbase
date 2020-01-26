@@ -57,23 +57,20 @@ public class ZKAclReset extends Configured implements Tool {
 
     ZooKeeper zk = zkw.getRecoverableZooKeeper().getZooKeeper();
     if (eraseAcls) {
-      LOG.info(" - erase ACLs for " + znode);
+      LOG.info(" - erase ACLs for {}", znode);
       zk.setACL(znode, ZooDefs.Ids.OPEN_ACL_UNSAFE, -1);
     } else {
-      LOG.info(" - set ACLs for " + znode);
+      LOG.info(" - set ACLs for {}", znode);
       zk.setACL(znode, ZKUtil.createACL(zkw, znode, true), -1);
     }
   }
 
   private static void resetAcls(final Configuration conf, boolean eraseAcls)
       throws Exception {
-    ZKWatcher zkw = new ZKWatcher(conf, "ZKAclReset", null);
-    try {
-      LOG.info((eraseAcls ? "Erase" : "Set") + " HBase ACLs for " +
-                zkw.getQuorum() + " " + zkw.getZNodePaths().baseZNode);
+    try (ZKWatcher zkw = new ZKWatcher(conf, "ZKAclReset", null)) {
+      LOG.info((eraseAcls ? "Erase" : "Set") + " HBase ACLs for {} {}", zkw.getQuorum(),
+        zkw.getZNodePaths().baseZNode);
       resetAcls(zkw, zkw.getZNodePaths().baseZNode, eraseAcls);
-    } finally {
-      zkw.close();
     }
   }
 
@@ -96,13 +93,20 @@ public class ZKAclReset extends Configured implements Tool {
   public int run(String[] args) throws Exception {
     boolean eraseAcls = true;
 
-    for (int i = 0; i < args.length; ++i) {
-      if (args[i].equals("-help")) {
-        printUsageAndExit();
-      } else if (args[i].equals("-set-acls")) {
-        eraseAcls = false;
-      } else {
-        printUsageAndExit();
+    for (String arg : args) {
+      switch (arg) {
+        case "-help": {
+          printUsageAndExit();
+          break;
+        }
+        case "-set-acls": {
+          eraseAcls = false;
+          break;
+        }
+        default: {
+          printUsageAndExit();
+          break;
+        }
       }
     }
 

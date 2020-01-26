@@ -71,6 +71,8 @@ import org.apache.hadoop.hbase.procedure2.ProcedureExecutor;
 import org.apache.hadoop.hbase.security.AccessDeniedException;
 import org.apache.hadoop.hbase.security.User;
 import org.apache.hadoop.hbase.security.access.AccessChecker;
+import org.apache.hadoop.hbase.security.access.SnapshotScannerHDFSAclCleaner;
+import org.apache.hadoop.hbase.security.access.SnapshotScannerHDFSAclHelper;
 import org.apache.hadoop.hbase.snapshot.ClientSnapshotDescriptionUtils;
 import org.apache.hadoop.hbase.snapshot.HBaseSnapshotException;
 import org.apache.hadoop.hbase.snapshot.RestoreSnapshotException;
@@ -85,6 +87,7 @@ import org.apache.hadoop.hbase.snapshot.UnknownSnapshotException;
 import org.apache.hadoop.hbase.util.EnvironmentEdgeManager;
 import org.apache.hadoop.hbase.util.FSUtils;
 import org.apache.hadoop.hbase.util.NonceKey;
+import org.apache.hadoop.hbase.util.TableDescriptorChecker;
 import org.apache.yetus.audience.InterfaceAudience;
 import org.apache.yetus.audience.InterfaceStability;
 import org.apache.zookeeper.KeeperException;
@@ -143,10 +146,10 @@ public class SnapshotManager extends MasterProcedureManager implements Stoppable
   public static final String ONLINE_SNAPSHOT_CONTROLLER_DESCRIPTION = "online-snapshot";
 
   /** Conf key for # of threads used by the SnapshotManager thread pool */
-  private static final String SNAPSHOT_POOL_THREADS_KEY = "hbase.snapshot.master.threads";
+  public static final String SNAPSHOT_POOL_THREADS_KEY = "hbase.snapshot.master.threads";
 
   /** number of current operations running on the master */
-  private static final int SNAPSHOT_POOL_THREADS_DEFAULT = 1;
+  public static final int SNAPSHOT_POOL_THREADS_DEFAULT = 1;
 
   private boolean stopped;
   private MasterServices master;  // Needed by TableEventHandlers
@@ -826,6 +829,9 @@ public class SnapshotManager extends MasterProcedureManager implements Stoppable
     TableDescriptor snapshotTableDesc = manifest.getTableDescriptor();
     TableName tableName = TableName.valueOf(reqSnapshot.getTable());
 
+    // sanity check the new table descriptor
+    TableDescriptorChecker.sanityCheck(master.getConfiguration(), snapshotTableDesc);
+
     // stop tracking "abandoned" handlers
     cleanupSentinels();
 
@@ -1119,6 +1125,10 @@ public class SnapshotManager extends MasterProcedureManager implements Stoppable
       // Inject snapshot cleaners, if snapshot.enable is true
       hfileCleaners.add(SnapshotHFileCleaner.class.getName());
       hfileCleaners.add(HFileLinkCleaner.class.getName());
+      // If sync acl to HDFS feature is enabled, then inject the cleaner
+      if (SnapshotScannerHDFSAclHelper.isAclSyncToHdfsEnabled(conf)) {
+        hfileCleaners.add(SnapshotScannerHDFSAclCleaner.class.getName());
+      }
 
       // Set cleaners conf
       conf.setStrings(HFileCleaner.MASTER_HFILE_CLEANER_PLUGINS,
@@ -1169,8 +1179,9 @@ public class SnapshotManager extends MasterProcedureManager implements Stoppable
     // get the configuration for the coordinator
     Configuration conf = master.getConfiguration();
     long wakeFrequency = conf.getInt(SNAPSHOT_WAKE_MILLIS_KEY, SNAPSHOT_WAKE_MILLIS_DEFAULT);
-    long timeoutMillis = Math.max(conf.getLong(SnapshotDescriptionUtils.SNAPSHOT_TIMEOUT_MILLIS_KEY,
-                    SnapshotDescriptionUtils.SNAPSHOT_TIMEOUT_MILLIS_DEFAULT),
+    long timeoutMillis = Math.max(
+            conf.getLong(SnapshotDescriptionUtils.MASTER_SNAPSHOT_TIMEOUT_MILLIS,
+                    SnapshotDescriptionUtils.DEFAULT_MAX_WAIT_TIME),
             conf.getLong(SnapshotDescriptionUtils.MASTER_SNAPSHOT_TIMEOUT_MILLIS,
                     SnapshotDescriptionUtils.DEFAULT_MAX_WAIT_TIME));
     int opThreads = conf.getInt(SNAPSHOT_POOL_THREADS_KEY, SNAPSHOT_POOL_THREADS_DEFAULT);

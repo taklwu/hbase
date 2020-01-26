@@ -18,17 +18,13 @@
 package org.apache.hadoop.hbase.client;
 
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.apache.hadoop.hbase.Cell;
@@ -37,8 +33,6 @@ import org.apache.hadoop.hbase.CoprocessorEnvironment;
 import org.apache.hadoop.hbase.HBaseClassTestRule;
 import org.apache.hadoop.hbase.HBaseTestingUtility;
 import org.apache.hadoop.hbase.HConstants;
-import org.apache.hadoop.hbase.HRegionLocation;
-import org.apache.hadoop.hbase.ServerName;
 import org.apache.hadoop.hbase.TableName;
 import org.apache.hadoop.hbase.Waiter;
 import org.apache.hadoop.hbase.codec.KeyValueCodec;
@@ -52,7 +46,6 @@ import org.apache.hadoop.hbase.testclassification.FlakeyTests;
 import org.apache.hadoop.hbase.testclassification.MediumTests;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.hbase.util.JVMClusterUtil;
-import org.apache.hadoop.hbase.util.Threads;
 import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.Before;
@@ -170,38 +163,6 @@ public class TestMultiParallel {
     return keys.toArray(new byte [][] {new byte [] {}});
   }
 
-
-  /**
-   * This is for testing the active number of threads that were used while
-   * doing a batch operation. It inserts one row per region via the batch
-   * operation, and then checks the number of active threads.
-   * <p/>
-   * For HBASE-3553
-   */
-  @Test
-  public void testActiveThreadsCount() throws Exception {
-    UTIL.getConfiguration().setLong("hbase.htable.threads.coresize", slaves + 1);
-    try (Connection connection = ConnectionFactory.createConnection(UTIL.getConfiguration())) {
-      ThreadPoolExecutor executor = HTable.getDefaultExecutor(UTIL.getConfiguration());
-      try {
-        try (Table t = connection.getTable(TEST_TABLE, executor)) {
-          List<Put> puts = constructPutRequests(); // creates a Put for every region
-          t.batch(puts, null);
-          HashSet<ServerName> regionservers = new HashSet<>();
-          try (RegionLocator locator = connection.getRegionLocator(TEST_TABLE)) {
-            for (Row r : puts) {
-              HRegionLocation location = locator.getRegionLocation(r.getRow());
-              regionservers.add(location.getServerName());
-            }
-          }
-          assertEquals(regionservers.size(), executor.getLargestPoolSize());
-        }
-      } finally {
-        executor.shutdownNow();
-      }
-    }
-  }
-
   @Test
   public void testBatchWithGet() throws Exception {
     LOG.info("test=testBatchWithGet");
@@ -256,14 +217,12 @@ public class TestMultiParallel {
 
     // row1 and row2 should be in the same region.
 
-    Object [] r = new Object[actions.size()];
+    Object[] r = new Object[actions.size()];
     try {
       table.batch(actions, r);
       fail();
-    } catch (RetriesExhaustedWithDetailsException ex) {
-      LOG.debug(ex.toString(), ex);
-      // good!
-      assertFalse(ex.mayHaveClusterIssues());
+    } catch (RetriesExhaustedException ex) {
+      // expected
     }
     assertEquals(2, r.length);
     assertTrue(r[0] instanceof Throwable);
@@ -434,7 +393,6 @@ public class TestMultiParallel {
       deletes.add(delete);
     }
     table.delete(deletes);
-    Assert.assertTrue(deletes.isEmpty());
 
     // Get to make sure ...
     for (byte[] k : KEYS) {
@@ -517,106 +475,6 @@ public class TestMultiParallel {
     validateResult(multiRes[0], QUAL2, Bytes.toBytes(2L));
     validateResult(multiRes[0], QUAL3, Bytes.toBytes(1L));
     table.close();
-  }
-
-  @Test
-  public void testNonceCollision() throws Exception {
-    LOG.info("test=testNonceCollision");
-    final Connection connection = ConnectionFactory.createConnection(UTIL.getConfiguration());
-    Table table = connection.getTable(TEST_TABLE);
-    Put put = new Put(ONE_ROW);
-    put.addColumn(BYTES_FAMILY, QUALIFIER, Bytes.toBytes(0L));
-
-    // Replace nonce manager with the one that returns each nonce twice.
-    NonceGenerator cnm = new NonceGenerator() {
-
-      private final PerClientRandomNonceGenerator delegate = PerClientRandomNonceGenerator.get();
-
-      private long lastNonce = -1;
-
-      @Override
-      public synchronized long newNonce() {
-        long nonce = 0;
-        if (lastNonce == -1) {
-          lastNonce = nonce = delegate.newNonce();
-        } else {
-          nonce = lastNonce;
-          lastNonce = -1L;
-        }
-        return nonce;
-      }
-
-      @Override
-      public long getNonceGroup() {
-        return delegate.getNonceGroup();
-      }
-    };
-
-    NonceGenerator oldCnm =
-      ConnectionUtils.injectNonceGeneratorForTesting((ClusterConnection)connection, cnm);
-
-    // First test sequential requests.
-    try {
-      Increment inc = new Increment(ONE_ROW);
-      inc.addColumn(BYTES_FAMILY, QUALIFIER, 1L);
-      table.increment(inc);
-
-      // duplicate increment
-      inc = new Increment(ONE_ROW);
-      inc.addColumn(BYTES_FAMILY, QUALIFIER, 1L);
-      Result result = table.increment(inc);
-      validateResult(result, QUALIFIER, Bytes.toBytes(1L));
-
-      Get get = new Get(ONE_ROW);
-      get.addColumn(BYTES_FAMILY, QUALIFIER);
-      result = table.get(get);
-      validateResult(result, QUALIFIER, Bytes.toBytes(1L));
-
-      // Now run a bunch of requests in parallel, exactly half should succeed.
-      int numRequests = 40;
-      final CountDownLatch startedLatch = new CountDownLatch(numRequests);
-      final CountDownLatch startLatch = new CountDownLatch(1);
-      final CountDownLatch doneLatch = new CountDownLatch(numRequests);
-      for (int i = 0; i < numRequests; ++i) {
-        Runnable r = new Runnable() {
-          @Override
-          public void run() {
-            Table table = null;
-            try {
-              table = connection.getTable(TEST_TABLE);
-            } catch (IOException e) {
-              fail("Not expected");
-            }
-            Increment inc = new Increment(ONE_ROW);
-            inc.addColumn(BYTES_FAMILY, QUALIFIER, 1L);
-            startedLatch.countDown();
-            try {
-              startLatch.await();
-            } catch (InterruptedException e) {
-              fail("Not expected");
-            }
-            try {
-              table.increment(inc);
-            } catch (IOException ioEx) {
-              fail("Not expected");
-            }
-            doneLatch.countDown();
-          }
-        };
-        Threads.setDaemonThreadRunning(new Thread(r));
-      }
-      startedLatch.await(); // Wait until all threads are ready...
-      startLatch.countDown(); // ...and unleash the herd!
-      doneLatch.await();
-      // Now verify
-      get = new Get(ONE_ROW);
-      get.addColumn(BYTES_FAMILY, QUALIFIER);
-      result = table.get(get);
-      validateResult(result, QUALIFIER, Bytes.toBytes((numRequests / 2) + 1L));
-      table.close();
-    } finally {
-      ConnectionImplementation.injectNonceGeneratorForTesting((ClusterConnection) connection, oldCnm);
-    }
   }
 
   @Test

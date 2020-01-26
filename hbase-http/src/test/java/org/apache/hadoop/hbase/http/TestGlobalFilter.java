@@ -17,11 +17,7 @@
  */
 package org.apache.hadoop.hbase.http;
 
-import java.io.BufferedReader;
 import java.io.IOException;
-import java.io.InputStreamReader;
-import java.net.URL;
-import java.net.URLConnection;
 import java.util.Set;
 import java.util.TreeSet;
 import javax.servlet.Filter;
@@ -44,13 +40,12 @@ import org.slf4j.LoggerFactory;
 
 @Category({MiscTests.class, SmallTests.class})
 public class TestGlobalFilter extends HttpServerFunctionalTest {
-
   @ClassRule
   public static final HBaseClassTestRule CLASS_RULE =
       HBaseClassTestRule.forClass(TestGlobalFilter.class);
 
   private static final Logger LOG = LoggerFactory.getLogger(HttpServer.class);
-  static final Set<String> RECORDS = new TreeSet<>();
+  private static final Set<String> RECORDS = new TreeSet<>();
 
   /** A very simple filter that records accessed uri's */
   static public class RecordingFilter implements Filter {
@@ -67,10 +62,11 @@ public class TestGlobalFilter extends HttpServerFunctionalTest {
     }
 
     @Override
-    public void doFilter(ServletRequest request, ServletResponse response,
-        FilterChain chain) throws IOException, ServletException {
-      if (filterConfig == null)
-         return;
+    public void doFilter(ServletRequest request, ServletResponse response, FilterChain chain)
+            throws IOException, ServletException {
+      if (filterConfig == null) {
+        return;
+      }
 
       String uri = ((HttpServletRequest)request).getRequestURI();
       LOG.info("filtering " + uri);
@@ -89,32 +85,11 @@ public class TestGlobalFilter extends HttpServerFunctionalTest {
     }
   }
 
-
-  /** access a url, ignoring some IOException such as the page does not exist */
-  static void access(String urlstring) throws IOException {
-    LOG.warn("access " + urlstring);
-    URL url = new URL(urlstring);
-    URLConnection connection = url.openConnection();
-    connection.connect();
-
-    try {
-      BufferedReader in = new BufferedReader(new InputStreamReader(
-          connection.getInputStream()));
-      try {
-        for(; in.readLine() != null; );
-      } finally {
-        in.close();
-      }
-    } catch(IOException ioe) {
-      LOG.warn("urlstring=" + urlstring, ioe);
-    }
-  }
-
   @Test
   public void testServletFilter() throws Exception {
     Configuration conf = new Configuration();
 
-    //start a http server with CountingFilter
+    //start an http server with CountingFilter
     conf.set(HttpServer.FILTER_INITIALIZERS_PROPERTY,
         RecordingFilter.Initializer.class.getName());
     HttpServer http = createTestServer(conf);
@@ -131,15 +106,17 @@ public class TestGlobalFilter extends HttpServerFunctionalTest {
     final String outURL = "/static/a.out";
     final String logURL = "/logs/a.log";
 
-    final String[] urls = {fsckURL, stacksURL, ajspURL, listPathsURL,
-        dataURL, streamFile, rootURL, allURL, outURL, logURL};
+    final String[] urls = {
+      fsckURL, stacksURL, ajspURL, listPathsURL, dataURL, streamFile, rootURL, allURL,
+      outURL, logURL
+    };
 
     //access the urls
     final String prefix = "http://"
         + NetUtils.getHostPortString(http.getConnectorAddress(0));
     try {
-      for(int i = 0; i < urls.length; i++) {
-        access(prefix + urls[i]);
+      for (String url : urls) {
+        access(prefix + url);
       }
     } finally {
       http.stop();
@@ -148,8 +125,8 @@ public class TestGlobalFilter extends HttpServerFunctionalTest {
     LOG.info("RECORDS = " + RECORDS);
 
     //verify records
-    for(int i = 0; i < urls.length; i++) {
-      assertTrue(RECORDS.remove(urls[i]));
+    for (String url : urls) {
+      assertTrue(RECORDS.remove(url));
     }
     assertTrue(RECORDS.isEmpty());
   }

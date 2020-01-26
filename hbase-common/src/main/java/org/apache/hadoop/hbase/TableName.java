@@ -82,8 +82,9 @@ public final class TableName implements Comparable<TableName> {
 
   /**
    * The Namespace table's name.
-   * @deprecated We have folded the data in namespace table into meta table, so do not use it any
-   *             more.
+   * @deprecated since 3.0.0 and will be removed in 4.0.0. We have folded the data in namespace
+   *   table into meta table, so do not use it any more.
+   * @see <a href="https://issues.apache.org/jira/browse/HBASE-21154">HBASE-21154</a>
    */
   @Deprecated
   public static final TableName NAMESPACE_TABLE_NAME =
@@ -291,6 +292,9 @@ public final class TableName implements Comparable<TableName> {
     return qualifierAsString;
   }
 
+  /**
+   * @return A pointer to TableName as String bytes.
+   */
   public byte[] toBytes() {
     return name;
   }

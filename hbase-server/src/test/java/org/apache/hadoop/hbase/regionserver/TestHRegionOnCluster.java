@@ -27,12 +27,12 @@ import java.util.List;
 import org.apache.hadoop.hbase.HBaseClassTestRule;
 import org.apache.hadoop.hbase.HBaseTestingUtility;
 import org.apache.hadoop.hbase.HColumnDescriptor;
-import org.apache.hadoop.hbase.HRegionInfo;
 import org.apache.hadoop.hbase.HTableDescriptor;
 import org.apache.hadoop.hbase.MiniHBaseCluster;
 import org.apache.hadoop.hbase.TableName;
 import org.apache.hadoop.hbase.client.Admin;
 import org.apache.hadoop.hbase.client.Put;
+import org.apache.hadoop.hbase.client.RegionInfo;
 import org.apache.hadoop.hbase.client.RegionLocator;
 import org.apache.hadoop.hbase.client.Result;
 import org.apache.hadoop.hbase.client.ResultScanner;
@@ -96,9 +96,9 @@ public class TestHRegionOnCluster {
       TEST_UTIL.waitUntilAllRegionsAssigned(table.getName());
       // Move region to target server
 
-      HRegionInfo regionInfo;
+      RegionInfo regionInfo;
       try (RegionLocator locator = TEST_UTIL.getConnection().getRegionLocator(tableName)) {
-        regionInfo = locator.getRegionLocation(Bytes.toBytes("r1")).getRegionInfo();
+        regionInfo = locator.getRegionLocation(Bytes.toBytes("r1")).getRegion();
       }
 
       int originServerNum = cluster.getServerWith(regionInfo.getRegionName());
@@ -109,8 +109,7 @@ public class TestHRegionOnCluster {
 
       TEST_UTIL.waitUntilAllRegionsAssigned(table.getName());
       LOG.info("Moving " + regionInfo.getEncodedName() + " to " + targetServer.getServerName());
-      hbaseAdmin.move(regionInfo.getEncodedNameAsBytes(),
-          Bytes.toBytes(targetServer.getServerName().getServerName()));
+      hbaseAdmin.move(regionInfo.getEncodedNameAsBytes(), targetServer.getServerName());
       do {
         Thread.sleep(1);
       } while (cluster.getServerWith(regionInfo.getRegionName()) == originServerNum);
@@ -122,8 +121,7 @@ public class TestHRegionOnCluster {
       TEST_UTIL.waitUntilAllRegionsAssigned(table.getName());
       // Move region to origin server
       LOG.info("Moving " + regionInfo.getEncodedName() + " to " + originServer.getServerName());
-      hbaseAdmin.move(regionInfo.getEncodedNameAsBytes(),
-          Bytes.toBytes(originServer.getServerName().getServerName()));
+      hbaseAdmin.move(regionInfo.getEncodedNameAsBytes(), originServer.getServerName());
       do {
         Thread.sleep(1);
       } while (cluster.getServerWith(regionInfo.getRegionName()) == targetServerNum);

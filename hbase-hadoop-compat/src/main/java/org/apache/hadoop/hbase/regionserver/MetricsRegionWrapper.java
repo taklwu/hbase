@@ -159,4 +159,15 @@ public interface MetricsRegionWrapper {
    * Get the replica id of this region.
    */
   int getReplicaId();
+
+  /**
+   * @return the number of references active on the store
+   */
+  long getStoreRefCount();
+
+  /**
+   * @return the max number of references active on any store file among
+   *   all compacted store files that belong to this region
+   */
+  long getMaxCompactedStoreFileRefCount();
 }

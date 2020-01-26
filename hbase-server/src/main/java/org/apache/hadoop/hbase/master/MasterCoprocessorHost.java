@@ -28,12 +28,12 @@ import org.apache.hadoop.hbase.ClusterMetrics;
 import org.apache.hadoop.hbase.MetaMutationAnnotation;
 import org.apache.hadoop.hbase.NamespaceDescriptor;
 import org.apache.hadoop.hbase.ServerName;
-import org.apache.hadoop.hbase.SharedConnection;
 import org.apache.hadoop.hbase.TableName;
 import org.apache.hadoop.hbase.client.Connection;
 import org.apache.hadoop.hbase.client.MasterSwitchType;
 import org.apache.hadoop.hbase.client.Mutation;
 import org.apache.hadoop.hbase.client.RegionInfo;
+import org.apache.hadoop.hbase.client.SharedConnection;
 import org.apache.hadoop.hbase.client.SnapshotDescription;
 import org.apache.hadoop.hbase.client.TableDescriptor;
 import org.apache.hadoop.hbase.coprocessor.BaseEnvironment;
@@ -58,6 +58,7 @@ import org.apache.hadoop.hbase.quotas.GlobalQuotaSettings;
 import org.apache.hadoop.hbase.replication.ReplicationPeerConfig;
 import org.apache.hadoop.hbase.replication.SyncReplicationState;
 import org.apache.hadoop.hbase.security.User;
+import org.apache.hadoop.hbase.security.access.Permission;
 import org.apache.hadoop.hbase.security.access.UserPermission;
 import org.apache.yetus.audience.InterfaceAudience;
 import org.slf4j.Logger;
@@ -292,6 +293,24 @@ public class MasterCoprocessorHost
       @Override
       public void call(MasterObserver observer) throws IOException {
         observer.postGetNamespaceDescriptor(this, ns);
+      }
+    });
+  }
+
+  public void preListNamespaces(final List<String> namespaces) throws IOException {
+    execOperation(coprocEnvironments.isEmpty() ? null : new MasterObserverOperation() {
+      @Override
+      public void call(MasterObserver oserver) throws IOException {
+        oserver.preListNamespaces(this, namespaces);
+      }
+    });
+  }
+
+  public void postListNamespaces(final List<String> namespaces) throws IOException {
+    execOperation(coprocEnvironments.isEmpty() ? null : new MasterObserverOperation() {
+      @Override
+      public void call(MasterObserver oserver) throws IOException {
+        oserver.postListNamespaces(this, namespaces);
       }
     });
   }
@@ -1044,6 +1063,16 @@ public class MasterCoprocessorHost
       @Override
       public void call(MasterObserver observer) throws IOException {
         observer.postSnapshot(this, snapshot, hTableDescriptor);
+      }
+    });
+  }
+
+  public void postCompletedSnapshotAction(SnapshotDescription snapshot,
+      TableDescriptor hTableDescriptor) throws IOException {
+    execOperation(coprocEnvironments.isEmpty() ? null : new MasterObserverOperation() {
+      @Override
+      public void call(MasterObserver observer) throws IOException {
+        observer.postCompletedSnapshotAction(this, snapshot, hTableDescriptor);
       }
     });
   }
@@ -1889,6 +1918,46 @@ public class MasterCoprocessorHost
       @Override
       public void call(MasterObserver observer) throws IOException {
         observer.postRevoke(this, userPermission);
+      }
+    });
+  }
+
+  public void preGetUserPermissions(String userName, String namespace, TableName tableName,
+      byte[] family, byte[] qualifier) throws IOException {
+    execOperation(coprocEnvironments.isEmpty() ? null : new MasterObserverOperation() {
+      @Override
+      public void call(MasterObserver observer) throws IOException {
+        observer.preGetUserPermissions(this, userName, namespace, tableName, family, qualifier);
+      }
+    });
+  }
+
+  public void postGetUserPermissions(String userName, String namespace, TableName tableName,
+      byte[] family, byte[] qualifier) throws IOException {
+    execOperation(coprocEnvironments.isEmpty() ? null : new MasterObserverOperation() {
+      @Override
+      public void call(MasterObserver observer) throws IOException {
+        observer.postGetUserPermissions(this, userName, namespace, tableName, family, qualifier);
+      }
+    });
+  }
+
+  public void preHasUserPermissions(String userName, List<Permission> permissions)
+      throws IOException {
+    execOperation(coprocEnvironments.isEmpty() ? null : new MasterObserverOperation() {
+      @Override
+      public void call(MasterObserver observer) throws IOException {
+        observer.preHasUserPermissions(this, userName, permissions);
+      }
+    });
+  }
+
+  public void postHasUserPermissions(String userName, List<Permission> permissions)
+      throws IOException {
+    execOperation(coprocEnvironments.isEmpty() ? null : new MasterObserverOperation() {
+      @Override
+      public void call(MasterObserver observer) throws IOException {
+        observer.postHasUserPermissions(this, userName, permissions);
       }
     });
   }

@@ -47,7 +47,10 @@ import junit.framework.TestCase;
 /**
  * Abstract HBase test class.  Initializes a few things that can come in handly
  * like an HBaseConfiguration and filesystem.
- * @deprecated Write junit4 unit tests using {@link HBaseTestingUtility}
+ * @deprecated since 2.0.0 and will be removed in 3.0.0. Write junit4 unit tests using
+ *   {@link HBaseTestingUtility}.
+ * @see HBaseTestingUtility
+ * @see <a href="https://issues.apache.org/jira/browse/HBASE-11912">HBASE-11912</a>
  */
 @Deprecated
 public abstract class HBaseTestCase extends TestCase {
@@ -173,7 +176,7 @@ public abstract class HBaseTestCase extends TestCase {
   }
 
   /**
-   * Create a table of name <code>name</code> with {@link COLUMNS} for
+   * Create a table of name {@code name} with {@link #COLUMNS} for
    * families.
    * @param name Name to give table.
    * @return Column descriptor.
@@ -183,7 +186,7 @@ public abstract class HBaseTestCase extends TestCase {
   }
 
   /**
-   * Create a table of name <code>name</code> with {@link COLUMNS} for
+   * Create a table of name {@code name} with {@link #COLUMNS} for
    * families.
    * @param name Name to give table.
    * @param versions How many versions to allow per column.
@@ -196,7 +199,7 @@ public abstract class HBaseTestCase extends TestCase {
   }
 
   /**
-   * Create a table of name <code>name</code> with {@link COLUMNS} for
+   * Create a table of name {@code name} with {@link #COLUMNS} for
    * families.
    * @param name Name to give table.
    * @param versions How many versions to allow per column.

@@ -28,7 +28,7 @@ import org.apache.hadoop.hbase.HBaseClassTestRule;
 import org.apache.hadoop.hbase.HBaseTestingUtility;
 import org.apache.hadoop.hbase.TableName;
 import org.apache.hadoop.hbase.Waiter;
-import org.apache.hadoop.hbase.client.HBaseAdmin;
+import org.apache.hadoop.hbase.client.Admin;
 import org.apache.hadoop.hbase.client.Put;
 import org.apache.hadoop.hbase.ipc.RpcServer;
 import org.apache.hadoop.hbase.replication.ReplicationPeerConfig;
@@ -59,21 +59,20 @@ public class TestReplicator extends TestReplicationBase {
   @BeforeClass
   public static void setUpBeforeClass() throws Exception {
     // Set RPC size limit to 10kb (will be applied to both source and sink clusters)
-    conf1.setInt(RpcServer.MAX_REQUEST_SIZE, 1024 * 10);
+    CONF1.setInt(RpcServer.MAX_REQUEST_SIZE, 1024 * 10);
     TestReplicationBase.setUpBeforeClass();
   }
 
   @Test
   public void testReplicatorBatching() throws Exception {
     // Clear the tables
-    truncateTable(utility1, tableName);
-    truncateTable(utility2, tableName);
+    truncateTable(UTIL1, tableName);
+    truncateTable(UTIL2, tableName);
 
     // Replace the peer set up for us by the base class with a wrapper for this test
-    admin.addPeer("testReplicatorBatching",
-      new ReplicationPeerConfig().setClusterKey(utility2.getClusterKey())
-          .setReplicationEndpointImpl(ReplicationEndpointForTest.class.getName()),
-      null);
+    hbaseAdmin.addReplicationPeer("testReplicatorBatching",
+      new ReplicationPeerConfig().setClusterKey(UTIL2.getClusterKey())
+          .setReplicationEndpointImpl(ReplicationEndpointForTest.class.getName()));
 
     ReplicationEndpointForTest.setBatchCount(0);
     ReplicationEndpointForTest.setEntriesCount(0);
@@ -92,7 +91,7 @@ public class TestReplicator extends TestReplicationBase {
       }
 
       // Wait for replication to complete.
-      Waiter.waitFor(conf1, 60000, new Waiter.ExplainingPredicate<Exception>() {
+      Waiter.waitFor(CONF1, 60000, new Waiter.ExplainingPredicate<Exception>() {
         @Override
         public boolean evaluate() throws Exception {
           LOG.info("Count=" + ReplicationEndpointForTest.getBatchCount());
@@ -107,23 +106,22 @@ public class TestReplicator extends TestReplicationBase {
 
       assertEquals("We sent an incorrect number of batches", NUM_ROWS,
         ReplicationEndpointForTest.getBatchCount());
-      assertEquals("We did not replicate enough rows", NUM_ROWS, utility2.countRows(htable2));
+      assertEquals("We did not replicate enough rows", NUM_ROWS, UTIL2.countRows(htable2));
     } finally {
-      admin.removePeer("testReplicatorBatching");
+      hbaseAdmin.removeReplicationPeer("testReplicatorBatching");
     }
   }
 
   @Test
   public void testReplicatorWithErrors() throws Exception {
     // Clear the tables
-    truncateTable(utility1, tableName);
-    truncateTable(utility2, tableName);
+    truncateTable(UTIL1, tableName);
+    truncateTable(UTIL2, tableName);
 
     // Replace the peer set up for us by the base class with a wrapper for this test
-    admin.addPeer("testReplicatorWithErrors",
-      new ReplicationPeerConfig().setClusterKey(utility2.getClusterKey())
-          .setReplicationEndpointImpl(FailureInjectingReplicationEndpointForTest.class.getName()),
-      null);
+    hbaseAdmin.addReplicationPeer("testReplicatorWithErrors",
+      new ReplicationPeerConfig().setClusterKey(UTIL2.getClusterKey())
+          .setReplicationEndpointImpl(FailureInjectingReplicationEndpointForTest.class.getName()));
 
     FailureInjectingReplicationEndpointForTest.setBatchCount(0);
     FailureInjectingReplicationEndpointForTest.setEntriesCount(0);
@@ -143,7 +141,7 @@ public class TestReplicator extends TestReplicationBase {
 
       // Wait for replication to complete.
       // We can expect 10 batches
-      Waiter.waitFor(conf1, 60000, new Waiter.ExplainingPredicate<Exception>() {
+      Waiter.waitFor(CONF1, 60000, new Waiter.ExplainingPredicate<Exception>() {
         @Override
         public boolean evaluate() throws Exception {
           return FailureInjectingReplicationEndpointForTest.getEntriesCount() >= NUM_ROWS;
@@ -155,9 +153,9 @@ public class TestReplicator extends TestReplicationBase {
         }
       });
 
-      assertEquals("We did not replicate enough rows", NUM_ROWS, utility2.countRows(htable2));
+      assertEquals("We did not replicate enough rows", NUM_ROWS, UTIL2.countRows(htable2));
     } finally {
-      admin.removePeer("testReplicatorWithErrors");
+      hbaseAdmin.removeReplicationPeer("testReplicatorWithErrors");
     }
   }
 
@@ -167,7 +165,7 @@ public class TestReplicator extends TestReplicationBase {
   }
 
   private void truncateTable(HBaseTestingUtility util, TableName tablename) throws IOException {
-    HBaseAdmin admin = util.getHBaseAdmin();
+    Admin admin = util.getAdmin();
     admin.disableTable(tableName);
     admin.truncateTable(tablename, false);
   }
@@ -229,9 +227,9 @@ public class TestReplicator extends TestReplicationBase {
     }
 
     @Override
-    protected Callable<Integer> createReplicator(List<Entry> entries, int ordinal) {
+    protected Callable<Integer> createReplicator(List<Entry> entries, int ordinal, int timeout) {
       return () -> {
-        int batchIndex = replicateEntries(entries, ordinal);
+        int batchIndex = replicateEntries(entries, ordinal, timeout);
         entriesCount += entries.size();
         int count = batchCount.incrementAndGet();
         LOG.info(
@@ -246,10 +244,10 @@ public class TestReplicator extends TestReplicationBase {
     private final AtomicBoolean failNext = new AtomicBoolean(false);
 
     @Override
-    protected Callable<Integer> createReplicator(List<Entry> entries, int ordinal) {
+    protected Callable<Integer> createReplicator(List<Entry> entries, int ordinal, int timeout) {
       return () -> {
         if (failNext.compareAndSet(false, true)) {
-          int batchIndex = replicateEntries(entries, ordinal);
+          int batchIndex = replicateEntries(entries, ordinal, timeout);
           entriesCount += entries.size();
           int count = batchCount.incrementAndGet();
           LOG.info(

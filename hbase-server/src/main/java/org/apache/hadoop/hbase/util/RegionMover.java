@@ -271,7 +271,7 @@ public class RegionMover extends AbstractHBaseTool implements Closeable {
           LOG.info("Retry " + Integer.toString(count) + " of maximum " + Integer.toString(retries));
         }
         count = count + 1;
-        admin.move(region.getEncodedNameAsBytes(), Bytes.toBytes(targetServer.getServerName()));
+        admin.move(region.getEncodedNameAsBytes(), targetServer);
         long maxWait = startTime + (maxWaitInSeconds * 1000);
         while (EnvironmentEdgeManager.currentTime() < maxWait) {
           sameServer = isSameServer(region, sourceServer);
@@ -321,7 +321,7 @@ public class RegionMover extends AbstractHBaseTool implements Closeable {
       try {
         LOG.info("Moving region:" + region.getEncodedName() + " from " + sourceServer + " to "
             + targetServer);
-        admin.move(region.getEncodedNameAsBytes(), Bytes.toBytes(targetServer.getServerName()));
+        admin.move(region.getEncodedNameAsBytes(), targetServer);
         LOG.info("Moved " + region.getEncodedName() + " from " + sourceServer + " to "
             + targetServer);
       } catch (Exception e) {
@@ -416,11 +416,15 @@ public class RegionMover extends AbstractHBaseTool implements Closeable {
       try {
         // Get Online RegionServers
         List<ServerName> regionServers = new ArrayList<>();
-        regionServers.addAll(
-            admin.getClusterMetrics(EnumSet.of(Option.LIVE_SERVERS)).getLiveServerMetrics()
-                .keySet());
+        regionServers.addAll(admin.getRegionServers());
         // Remove the host Region server from target Region Servers list
         ServerName server = stripServer(regionServers, hostname, port);
+        if (server == null) {
+          LOG.info("Could not find server '{}:{}' in the set of region servers. giving up.",
+              hostname, port);
+          LOG.debug("List of region servers: {}", regionServers);
+          return false;
+        }
         // Remove RS present in the exclude file
         stripExcludes(regionServers);
         stripMaster(regionServers);
@@ -544,9 +548,7 @@ public class RegionMover extends AbstractHBaseTool implements Closeable {
     while (EnvironmentEdgeManager.currentTime() < maxWait) {
       try {
         List<ServerName> regionServers = new ArrayList<>();
-        regionServers.addAll(
-            admin.getClusterMetrics(EnumSet.of(Option.LIVE_SERVERS)).getLiveServerMetrics()
-                .keySet());
+        regionServers.addAll(admin.getRegionServers());
         // Remove the host Region server from target Region Servers list
         server = stripServer(regionServers, hostname, port);
         if (server != null) {

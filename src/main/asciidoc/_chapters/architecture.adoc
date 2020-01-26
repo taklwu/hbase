@@ -410,6 +410,20 @@ See link:https://hbase.apache.org/apidocs/org/apache/hadoop/hbase/filter/BinaryP
 
 See link:https://hbase.apache.org/apidocs/org/apache/hadoop/hbase/filter/BinaryComparator.html[BinaryComparator].
 
+[[client.filter.cvp.bcc]]
+==== BinaryComponentComparator
+
+link:https://hbase.apache.org/apidocs/org/apache/hadoop/hbase/filter/BinaryComponentComparator.html[BinaryComponentComparator] can be used to compare specific value at specific location with in the cell value. The comparison can be done for both ascii and binary data.
+
+[source,java]
+----
+byte[] partialValue = Bytes.toBytes("partial_value");
+    int partialValueOffset =
+    Filter partialValueFilter = new ValueFilter(CompareFilter.CompareOp.GREATER,
+            new BinaryComponentComparator(partialValue,partialValueOffset));
+----
+See link:https://issues.apache.org/jira/browse/HBASE-22969[HBASE-22969] for other use cases and details.
+
 [[client.filter.kvm]]
 === KeyValue Metadata
 
@@ -452,8 +466,8 @@ scan.setFilter(f);
 scan.setBatch(10); // set this if there could be many columns returned
 ResultScanner rs = t.getScanner(scan);
 for (Result r = rs.next(); r != null; r = rs.next()) {
-  for (KeyValue kv : r.raw()) {
-    // each kv represents a column
+  for (Cell cell : result.listCells()) {
+    // each cell represents a column
   }
 }
 rs.close();
@@ -482,8 +496,8 @@ scan.setFilter(f);
 scan.setBatch(10); // set this if there could be many columns returned
 ResultScanner rs = t.getScanner(scan);
 for (Result r = rs.next(); r != null; r = rs.next()) {
-  for (KeyValue kv : r.raw()) {
-    // each kv represents a column
+  for (Cell cell : result.listCells()) {
+    // each cell represents a column
   }
 }
 rs.close();
@@ -518,8 +532,8 @@ scan.setFilter(f);
 scan.setBatch(10); // set this if there could be many columns returned
 ResultScanner rs = t.getScanner(scan);
 for (Result r = rs.next(); r != null; r = rs.next()) {
-  for (KeyValue kv : r.raw()) {
-    // each kv represents a column
+  for (Cell cell : result.listCells()) {
+    // each cell represents a column
   }
 }
 rs.close();
@@ -534,6 +548,8 @@ Note:  Introduced in HBase 0.92
 ==== RowFilter
 
 It is generally a better idea to use the startRow/stopRow methods on Scan for row selection, however link:https://hbase.apache.org/apidocs/org/apache/hadoop/hbase/filter/RowFilter.html[RowFilter] can also be used.
+
+You can supplement a scan (both bounded and unbounded) with RowFilter constructed from link:https://hbase.apache.org/apidocs/org/apache/hadoop/hbase/filter/BinaryComponentComparator.html[BinaryComponentComparator] for further filtering out or filtering in rows. See link:https://issues.apache.org/jira/browse/HBASE-22969[HBASE-22969] for use cases and other details.
 
 [[client.filter.utility]]
 === Utility
@@ -733,6 +749,8 @@ See configurations, sizings, current usage, time-in-the-cache, and even detail o
 
 `LruBlockCache` is the original implementation, and is entirely within the Java heap.
 `BucketCache` is optional and mainly intended for keeping block cache data off-heap, although `BucketCache` can also be a file-backed cache.
+ In file-backed we can either use it in the file mode or the mmaped mode.
+ We also have pmem mode where the bucket cache resides on the persistent memory device.
 
 When you enable BucketCache, you are enabling a two tier caching system. We used to describe the
 tiers as "L1" and "L2" but have deprecated this terminology as of hbase-2.0.0. The "L1" cache referred to an
@@ -835,7 +853,7 @@ Here are two use cases:
   Setting block caching on such a table is a waste of memory and CPU cycles, more so that it will generate more garbage to pick up by the JVM.
   For more information on monitoring GC, see <<trouble.log.gc>>.
 * Mapping a table: In a typical MapReduce job that takes a table in input, every row will be read only once so there's no need to put them into the block cache.
-  The Scan object has the option of turning this off via the setCaching method (set it to false). You can still keep block caching turned on on this table if you need fast random read access.
+  The Scan object has the option of turning this off via the setCacheBlocks method (set it to false). You can still keep block caching turned on on this table if you need fast random read access.
   An example would be counting the number of rows in a table that serves live traffic, caching every block of that table would create massive churn and would surely evict data that's currently in use.
 
 [[data.blocks.in.fscache]]
@@ -887,8 +905,9 @@ benefit of NOT provoking GC.
 From HBase 2.0.0 onwards, the notions of L1 and L2 have been deprecated. When BucketCache is turned on, the DATA blocks will always go to BucketCache and INDEX/BLOOM blocks go to on heap LRUBlockCache. `cacheDataInL1` support hase been removed.
 ====
 
-The BucketCache Block Cache can be deployed _off-heap_, _file_ or _mmaped_ file mode.
-
+[[bc.deloy.modes]]
+====== BucketCache Deploy Modes
+The BucketCache Block Cache can be deployed _offheap_, _file_ or _mmaped_ file mode.
 
 You set which via the `hbase.bucketcache.ioengine` setting.
 Setting it to `offheap` will have BucketCache make its allocations off-heap, and an ioengine setting of `file:PATH_TO_FILE` will direct BucketCache to use file caching (Useful in particular if you have some fast I/O attached to the box such as SSDs). From 2.0.0, it is possible to have more than one file backing the BucketCache. This is very useful specially when the Cache size requirement is high. For multiple backing files, configure ioengine as `files:PATH_TO_FILE1,PATH_TO_FILE2,PATH_TO_FILE3`. BucketCache can be configured to use an mmapped file also. Configure ioengine as `mmap:PATH_TO_FILE` for this.
@@ -907,6 +926,7 @@ See the link:https://hbase.apache.org/devapidocs/org/apache/hadoop/hbase/io/hfil
 To check it enabled, look for the log line describing cache setup; it will detail how BucketCache has been deployed.
 Also see the UI. It will detail the cache tiering and their configuration.
 
+[[bc.example]]
 ====== BucketCache Example Configuration
 This sample provides a configuration for a 4 GB off-heap BucketCache with a 1 GB on-heap cache.
 
@@ -1002,54 +1022,6 @@ For a RegionServer hosting more data than can fit into cache, enabling this feat
 For a RegionServer hosting data that can comfortably fit into cache, or if your workload is sensitive to extra CPU or garbage-collection load, you may receive less benefit.
 
 The compressed BlockCache is disabled by default. To enable it, set `hbase.block.data.cachecompressed` to `true` in _hbase-site.xml_ on all RegionServers.
-
-[[regionserver.offheap]]
-=== RegionServer Offheap Read/Write Path
-
-[[regionserver.offheap.readpath]]
-==== Offheap read-path
-In hbase-2.0.0, link:https://issues.apache.org/jira/browse/HBASE-11425[HBASE-11425] changed the HBase read path so it
-could hold the read-data off-heap avoiding copying of cached data on to the java heap.
-This reduces GC pauses given there is less garbage made and so less to clear. The off-heap read path has a performance
-that is similar/better to that of the on-heap LRU cache.  This feature is available since HBase 2.0.0.
-If the BucketCache is in `file` mode, fetching will always be slower compared to the native on-heap LruBlockCache.
-Refer to below blogs for more details and test results on off heaped read path
-link:https://blogs.apache.org/hbase/entry/offheaping_the_read_path_in[Offheaping the Read Path in Apache HBase: Part 1 of 2]
-and link:https://blogs.apache.org/hbase/entry/offheap-read-path-in-production[Offheap Read-Path in Production - The Alibaba story]
-
-For an end-to-end off-heaped read-path, first of all there should be an off-heap backed <<offheap.blockcache>>(BC). Configure 'hbase.bucketcache.ioengine' to off-heap in
-_hbase-site.xml_. Also specify the total capacity of the BC using `hbase.bucketcache.size` config. Please remember to adjust value of 'HBASE_OFFHEAPSIZE' in
-_hbase-env.sh_. This is how we specify the max possible off-heap memory allocation for the
-RegionServer java process. This should be bigger than the off-heap BC size. Please keep in mind that there is no default for `hbase.bucketcache.ioengine`
-which means the BC is turned OFF by default (See <<direct.memory>>). 
-
-Next thing to tune is the ByteBuffer pool on the RPC server side.
-The buffers from this pool will be used to accumulate the cell bytes and create a result cell block to send back to the client side.
-`hbase.ipc.server.reservoir.enabled` can be used to turn this pool ON or OFF. By default this pool is ON and available. HBase will create off heap ByteBuffers
-and pool them. Please make sure not to turn this OFF if you want end-to-end off-heaping in read path.
-If this pool is turned off, the server will create temp buffers on heap to accumulate the cell bytes and make a result cell block. This can impact the GC on a highly read loaded server.
-The user can tune this pool with respect to how many buffers are in the pool and what should be the size of each ByteBuffer. 
-Use the config `hbase.ipc.server.reservoir.initial.buffer.size` to tune each of the buffer sizes. Default is 64 KB. 
-
-When the read pattern is a random row read load and each of the rows are smaller in size compared to this 64 KB, try reducing this.
-When the result size is larger than one ByteBuffer size, the server will try to grab more than one buffer and make a result cell block out of these. When the pool is running out of buffers, the server will end up creating temporary on-heap buffers. 
-
-The maximum number of ByteBuffers in the pool can be tuned using the config 'hbase.ipc.server.reservoir.initial.max'. Its value defaults to 64 * region server handlers configured (See the config 'hbase.regionserver.handler.count'). The math is such that by default we consider 2 MB as the result cell block size per read result and each handler will be handling a read. For 2 MB size, we need 32 buffers each of size 64 KB (See default buffer size in pool). So per handler 32 ByteBuffers(BB). We allocate twice this size as the max BBs count such that one handler can be creating the response and handing it to the RPC Responder thread and then handling a new request creating a new response cell block (using pooled buffers). Even if the responder could not send back the first TCP reply immediately, our count should allow that we should still have enough buffers in our pool without having to make temporary buffers on the heap. Again for smaller sized random row reads, tune this max count. There are lazily created buffers and the count is the max count to be pooled. 
-
-If you still see GC issues even after making end-to-end read path off-heap, look for issues in the appropriate buffer pool. Check the below RegionServer log with INFO level:
-[source]
-----
-Pool already reached its max capacity : XXX and no free buffers now. Consider increasing the value for 'hbase.ipc.server.reservoir.initial.max' ?
-----
-
-The setting for _HBASE_OFFHEAPSIZE_ in _hbase-env.sh_ should consider this off heap buffer pool at the RPC side also. We need to config this max off heap size for the RegionServer as a bit higher than the sum of this max pool size and the off heap cache size. The TCP layer will also need to create direct bytebuffers for TCP communication. Also the DFS client will need some off-heap to do its workings especially if short-circuit reads are configured. Allocating an extra of 1 - 2 GB for the max direct memory size has worked in tests. 
-
-If you are using co processors and refer the Cells in the read results, DO NOT store reference to these Cells out of the scope of the CP hook methods. Some times the CPs need store info about the cell (Like its row key) for considering in the next CP hook call etc. For such cases, pls clone the required fields of the entire Cell as per the use cases. [ See CellUtil#cloneXXX(Cell) APIs ]
-
-[[regionserver.offheap.writepath]]
-==== Offheap write-path
-
-TODO
 
 [[regionserver_splitting_implementation]]
 === RegionServer Splitting Implementation
@@ -1311,6 +1283,26 @@ It is possible to set _durability_ on each Mutation or on a Table basis. Options
 
 Do not confuse the _ASYNC_WAL_ option on a Mutation or Table with the _AsyncFSWAL_ writer; they are distinct
 options unfortunately closely named
+
+[[arch.custom.wal.dir]]
+==== Custom WAL Directory
+HBASE-17437 added support for specifying a WAL directory outside the HBase root directory or even in a different FileSystem since 1.3.3/2.0+. Some FileSystems (such as Amazon S3) don’t support append or consistent writes, in such scenario WAL directory needs to be configured in a different FileSystem to avoid loss of writes.
+
+Following configurations are added to accomplish this:
+
+. `hbase.wal.dir`
++
+This defines where the root WAL directory is located, could be on a different FileSystem than the root directory. WAL directory can not be set to a subdirectory of the root directory. The default value of this is the root directory if unset.
+
+. `hbase.rootdir.perms`
++
+Configures FileSystem permissions to set on the root directory. This is '700' by default.
+
+. `hbase.wal.dir.perms`
++
+Configures FileSystem permissions to set on the WAL directory FileSystem. This is '700' by default.
+
+NOTE: While migrating to custom WAL dir (outside the HBase root directory or a different FileSystem) existing WAL files must be copied manually to new WAL dir, otherwise it may lead to data loss/inconsistency as HMaster has no information about previous WAL directory.
 
 [[wal.disable]]
 ==== Disabling the WAL
@@ -1814,8 +1806,8 @@ Instead, the expired data is filtered out and is not written back to the compact
 
 [[compaction.and.versions]]
 .Compaction and Versions
-When you create a Column Family, you can specify the maximum number of versions to keep, by specifying `HColumnDescriptor.setMaxVersions(int versions)`.
-The default value is `3`.
+When you create a Column Family, you can specify the maximum number of versions to keep, by specifying `ColumnFamilyDescriptorBuilder.setMaxVersions(int versions)`.
+The default value is `1`.
 If more versions than the specified maximum exist, the excess versions are filtered out and not written back to the compacted StoreFile.
 
 .Major Compactions Can Impact Query Results
@@ -2456,8 +2448,8 @@ To control these for stripe compactions, use `hbase.store.stripe.compaction.minF
 HBase includes several methods of loading data into tables.
 The most straightforward method is to either use the `TableOutputFormat` class from a MapReduce job, or use the normal client APIs; however, these are not always the most efficient methods.
 
-The bulk load feature uses a MapReduce job to output table data in HBase's internal data format, and then directly loads the generated StoreFiles into a running cluster.
-Using bulk load will use less CPU and network resources than simply using the HBase API.
+The bulk load feature uses a MapReduce job to output table data in HBase's internal data format, and then directly load the generated StoreFiles into a running cluster.
+Using bulk load will use less CPU and network resources than loading via the HBase API.
 
 [[arch.bulk.load.arch]]
 === Bulk Load Architecture
@@ -2468,7 +2460,7 @@ The HBase bulk load process consists of two main steps.
 ==== Preparing data via a MapReduce job
 
 The first step of a bulk load is to generate HBase data files (StoreFiles) from a MapReduce job using `HFileOutputFormat2`.
-This output format writes out data in HBase's internal storage format so that they can be later loaded very efficiently into the cluster.
+This output format writes out data in HBase's internal storage format so that they can be later loaded efficiently into the cluster.
 
 In order to function efficiently, `HFileOutputFormat2` must be configured such that each output HFile fits within a single region.
 In order to do this, jobs whose output will be bulk loaded into HBase use Hadoop's `TotalOrderPartitioner` class to partition the map output into disjoint ranges of the key space, corresponding to the key ranges of the regions in the table.
@@ -2485,22 +2477,20 @@ It then contacts the appropriate RegionServer which adopts the HFile, moving it 
 If the region boundaries have changed during the course of bulk load preparation, or between the preparation and completion steps, the `completebulkload` utility will automatically split the data files into pieces corresponding to the new boundaries.
 This process is not optimally efficient, so users should take care to minimize the delay between preparing a bulk load and importing it into the cluster, especially if other clients are simultaneously loading data through other means.
 
+[[arch.bulk.load.complete.help]]
 [source,bash]
 ----
-$ hadoop jar hbase-server-VERSION.jar completebulkload [-c /path/to/hbase/config/hbase-site.xml] /user/todd/myoutput mytable
+$ hadoop jar hbase-mapreduce-VERSION.jar completebulkload [-c /path/to/hbase/config/hbase-site.xml] /user/todd/myoutput mytable
 ----
 
 The `-c config-file` option can be used to specify a file containing the appropriate hbase parameters (e.g., hbase-site.xml) if not supplied already on the CLASSPATH (In addition, the CLASSPATH must contain the directory that has the zookeeper configuration file if zookeeper is NOT managed by HBase).
-
-NOTE: If the target table does not already exist in HBase, this tool will create the table automatically.
-
 
 [[arch.bulk.load.also]]
 === See Also
 
 For more information about the referenced utilities, see <<importtsv>> and  <<completebulkload>>.
 
-See link:http://blog.cloudera.com/blog/2013/09/how-to-use-hbase-bulk-loading-and-why/[How-to: Use HBase Bulk Loading, and Why] for a recent blog on current state of bulk loading.
+See link:http://blog.cloudera.com/blog/2013/09/how-to-use-hbase-bulk-loading-and-why/[How-to: Use HBase Bulk Loading, and Why] for an old blog post on loading.
 
 [[arch.bulk.load.adv]]
 === Advanced Usage
@@ -2510,6 +2500,53 @@ To get started doing so, dig into `ImportTsv.java` and check the JavaDoc for HFi
 
 The import step of the bulk load can also be done programmatically.
 See the `LoadIncrementalHFiles` class for more information.
+
+[[arch.bulk.load.complete.strays]]
+==== 'Adopting' Stray Data
+Should an HBase cluster lose account of regions or files during an outage or error, you can use
+the `completebulkload` tool to add back the dropped data. HBase operator tooling such as
+link:https://github.com/apache/hbase-operator-tools/tree/master/hbase-hbck2[HBCK2] or
+the reporting added to the Master's UI under the `HBCK Report` (Since HBase 2.0.6/2.1.6/2.2.1)
+can identify such 'orphan' directories.
+
+Before you begin the 'adoption', ensure the `hbase:meta` table is in a healthy state.
+Run the `CatalogJanitor` by executing the `catalogjanitor_run` command on the HBase shell.
+When finished, check the `HBCK Report` page on the Master UI. Work on fixing any
+inconsistencies, holes, or overlaps found before proceeding. The `hbase:meta` table
+is the authority on where all data is to be found and must be consistent for
+the `completebulkload` tool to work properly.
+
+The `completebulkload` tool takes a directory and a `tablename`.
+The directory has subdirectories named for column families of the targeted `tablename`.
+In these subdirectories are `hfiles` to load. Given this structure, you can pass
+errant region directories (and the table name to which the region directory belongs)
+and the tool will bring the data files back into the fold by moving them under the
+approprate serving directory. If stray files, then you will need to mock up this
+structure before invoking the `completebulkload` tool; you may have to look at the
+file content using the <<hfile.tool>> to see what the column family to use is.
+When the tool completes its run, you will notice that the
+source errant directory has had its storefiles moved/removed. It is now desiccated
+since its data has been drained, and the pointed-to directory can be safely
+removed. It may still have `.regioninfo` files and other
+subdirectories but they are of no relevance now (There may be content still
+under the _recovered_edits_ directory; a TODO is tooling to replay the
+content of _recovered_edits_ if needed; see
+link:https://issues.apache.org/jira/browse/HBASE-22976[Add RecoveredEditsPlayer]).
+If you pass `completebulkload` a directory without store files, it will run and
+note the directory is storefile-free. Just remove such 'empty' directories.
+
+For example, presuming a directory at the top level in HDFS named
+`eb3352fb5c9c9a05feeb2caba101e1cc` has data we need to re-add to the
+HBase `TestTable`:
+
+[source,bash]
+----
+$ ${HBASE_HOME}/bin/hbase --config ~/hbase-conf completebulkload hdfs://server.example.org:9000/eb3352fb5c9c9a05feeb2caba101e1cc TestTable
+----
+
+After it successfully completes, any files that were in  `eb3352fb5c9c9a05feeb2caba101e1cc` have been moved
+under hbase and the  `eb3352fb5c9c9a05feeb2caba101e1cc` directory can be deleted (Check content
+before and after by running `ls -r` on the HDFS directory).
 
 [[arch.bulk.load.replication]]
 === Bulk Loading Replication

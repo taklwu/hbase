@@ -24,7 +24,6 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -36,7 +35,6 @@ import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hbase.Cell;
 import org.apache.hadoop.hbase.CellUtil;
-import org.apache.hadoop.hbase.ClusterMetrics.Option;
 import org.apache.hadoop.hbase.HBaseConfiguration;
 import org.apache.hadoop.hbase.HBaseTestingUtility;
 import org.apache.hadoop.hbase.IntegrationTestBase;
@@ -50,7 +48,6 @@ import org.apache.hadoop.hbase.client.Consistency;
 import org.apache.hadoop.hbase.client.RegionLocator;
 import org.apache.hadoop.hbase.client.Result;
 import org.apache.hadoop.hbase.client.Scan;
-import org.apache.hadoop.hbase.client.Table;
 import org.apache.hadoop.hbase.client.TableDescriptor;
 import org.apache.hadoop.hbase.client.TableDescriptorBuilder;
 import org.apache.hadoop.hbase.coprocessor.ObserverContext;
@@ -60,7 +57,7 @@ import org.apache.hadoop.hbase.coprocessor.RegionObserver;
 import org.apache.hadoop.hbase.io.ImmutableBytesWritable;
 import org.apache.hadoop.hbase.regionserver.InternalScanner;
 import org.apache.hadoop.hbase.testclassification.IntegrationTests;
-import org.apache.hadoop.hbase.tool.LoadIncrementalHFiles;
+import org.apache.hadoop.hbase.tool.BulkLoadHFiles;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.hbase.util.EnvironmentEdgeManager;
 import org.apache.hadoop.hbase.util.RegionSplitter;
@@ -86,6 +83,7 @@ import org.junit.Test;
 import org.junit.experimental.categories.Category;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
 import org.apache.hbase.thirdparty.com.google.common.base.Joiner;
 import org.apache.hbase.thirdparty.com.google.common.collect.Sets;
 import org.apache.hbase.thirdparty.org.apache.commons.cli.CommandLine;
@@ -292,24 +290,18 @@ public class IntegrationTestBulkLoad extends IntegrationTestBase {
 
     // Set where to place the hfiles.
     FileOutputFormat.setOutputPath(job, p);
-    try (Connection conn = ConnectionFactory.createConnection(conf);
-        Admin admin = conn.getAdmin();
-        Table table = conn.getTable(getTablename());
-        RegionLocator regionLocator = conn.getRegionLocator(getTablename())) {
-
+    try (Connection conn = ConnectionFactory.createConnection(conf); Admin admin = conn.getAdmin();
+      RegionLocator regionLocator = conn.getRegionLocator(getTablename())) {
       // Configure the partitioner and other things needed for HFileOutputFormat.
-      HFileOutputFormat2.configureIncrementalLoad(job, table.getTableDescriptor(), regionLocator);
-
+      HFileOutputFormat2.configureIncrementalLoad(job, admin.getDescriptor(getTablename()),
+        regionLocator);
       // Run the job making sure it works.
       assertEquals(true, job.waitForCompletion(true));
-
-      // Create a new loader.
-      LoadIncrementalHFiles loader = new LoadIncrementalHFiles(conf);
-
-      // Load the HFiles in.
-      loader.doBulkLoad(p, admin, table, regionLocator);
     }
-
+    // Create a new loader.
+    BulkLoadHFiles loader = BulkLoadHFiles.create(conf);
+    // Load the HFiles in.
+    loader.bulkLoad(getTablename(), p);
     // Delete the files.
     util.getTestFileSystem().delete(p, true);
   }
@@ -670,9 +662,9 @@ public class IntegrationTestBulkLoad extends IntegrationTestBase {
       LOG.error("Failure in chain verification: " + msg);
       try (Connection connection = ConnectionFactory.createConnection(context.getConfiguration());
           Admin admin = connection.getAdmin()) {
-        LOG.error("cluster status:\n" + admin.getClusterStatus());
+        LOG.error("cluster metrics:\n" + admin.getClusterMetrics());
         LOG.error("table regions:\n"
-            + Joiner.on("\n").join(admin.getTableRegions(table)));
+            + Joiner.on("\n").join(admin.getRegions(table)));
       }
     }
   }
@@ -755,10 +747,7 @@ public class IntegrationTestBulkLoad extends IntegrationTestBase {
     // Scale this up on a real cluster
     if (util.isDistributedCluster()) {
       util.getConfiguration().setIfUnset(NUM_MAPS_KEY,
-          Integer.toString(util.getAdmin()
-                               .getClusterMetrics(EnumSet.of(Option.LIVE_SERVERS))
-                               .getLiveServerMetrics().size() * 10)
-      );
+        Integer.toString(util.getAdmin().getRegionServers().size() * 10));
       util.getConfiguration().setIfUnset(NUM_IMPORT_ROUNDS_KEY, "5");
     } else {
       util.startMiniMapReduceCluster();

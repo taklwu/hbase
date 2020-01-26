@@ -1030,7 +1030,12 @@ public interface RegionObserver {
    * @param oldCell old cell containing previous value
    * @param newCell the new cell containing the computed value
    * @return the new cell, possibly changed
-   * @deprecated Use {@link #postIncrementBeforeWAL} or {@link #postAppendBeforeWAL} instead.
+   * @deprecated since 2.2.0 and will be removedin 4.0.0. Use
+   *   {@link #postIncrementBeforeWAL(ObserverContext, Mutation, List)} or
+   *   {@link #postAppendBeforeWAL(ObserverContext, Mutation, List)} instead.
+   * @see #postIncrementBeforeWAL(ObserverContext, Mutation, List)
+   * @see #postAppendBeforeWAL(ObserverContext, Mutation, List)
+   * @see <a href="https://issues.apache.org/jira/browse/HBASE-21643">HBASE-21643</a>
    */
   @Deprecated
   default Cell postMutationBeforeWAL(ObserverContext<RegionCoprocessorEnvironment> ctx,
@@ -1098,5 +1103,17 @@ public interface RegionObserver {
       ObserverContext<RegionCoprocessorEnvironment> ctx, DeleteTracker delTracker)
       throws IOException {
     return delTracker;
+  }
+
+  /**
+   * Called just before the WAL Entry is appended to the WAL. Implementing this hook allows
+   * coprocessors to add extended attributes to the WALKey that then get persisted to the
+   * WAL, and are available to replication endpoints to use in processing WAL Entries.
+   * @param ctx the environment provided by the region server
+   * @param key the WALKey associated with a particular append to a WAL
+   */
+  default void preWALAppend(ObserverContext<RegionCoprocessorEnvironment> ctx, WALKey key,
+                            WALEdit edit)
+    throws IOException {
   }
 }

@@ -17,10 +17,15 @@
  */
 package org.apache.hadoop.hbase.filter;
 
+import org.apache.hadoop.hbase.CompareOperator;
 import org.apache.hadoop.hbase.HBaseClassTestRule;
 import org.apache.hadoop.hbase.HBaseTestingUtility;
 import org.apache.hadoop.hbase.TableName;
-import org.apache.hadoop.hbase.client.*;
+import org.apache.hadoop.hbase.client.Put;
+import org.apache.hadoop.hbase.client.Result;
+import org.apache.hadoop.hbase.client.ResultScanner;
+import org.apache.hadoop.hbase.client.Scan;
+import org.apache.hadoop.hbase.client.Table;
 import org.apache.hadoop.hbase.filter.FilterList.Operator;
 import org.apache.hadoop.hbase.testclassification.FilterTests;
 import org.apache.hadoop.hbase.testclassification.MediumTests;
@@ -76,9 +81,9 @@ public class TestFilterListOnMini {
     put2.addColumn(CF2, Bytes.toBytes("col_b"), Bytes.toBytes(0));
     table.put(put2);
     FamilyFilter filterCF1 =
-        new FamilyFilter(CompareFilter.CompareOp.EQUAL, new BinaryComparator(CF1));
+        new FamilyFilter(CompareOperator.EQUAL, new BinaryComparator(CF1));
     FamilyFilter filterCF2 =
-        new FamilyFilter(CompareFilter.CompareOp.EQUAL, new BinaryComparator(CF2));
+        new FamilyFilter(CompareOperator.EQUAL, new BinaryComparator(CF2));
     FilterList filterList = new FilterList(FilterList.Operator.MUST_PASS_ONE);
     filterList.addFilter(filterCF1);
     filterList.addFilter(filterCF2);

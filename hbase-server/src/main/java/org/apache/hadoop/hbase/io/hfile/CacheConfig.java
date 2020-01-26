@@ -21,6 +21,7 @@ import java.util.Optional;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hbase.client.ColumnFamilyDescriptor;
+import org.apache.hadoop.hbase.io.ByteBuffAllocator;
 import org.apache.hadoop.hbase.io.hfile.BlockType.BlockCategory;
 import org.apache.yetus.audience.InterfaceAudience;
 import org.slf4j.Logger;
@@ -80,6 +81,12 @@ public class CacheConfig {
    */
   public static final String PREFETCH_BLOCKS_ON_OPEN_KEY = "hbase.rs.prefetchblocksonopen";
 
+  /**
+   * Configuration key to cache blocks when a compacted file is written
+   */
+  public static final String CACHE_COMPACTED_BLOCKS_ON_WRITE_KEY =
+      "hbase.rs.cachecompactedblocksonwrite";
+
   public static final String DROP_BEHIND_CACHE_COMPACTION_KEY =
       "hbase.hfile.drop.behind.compaction";
 
@@ -92,6 +99,7 @@ public class CacheConfig {
   public static final boolean DEFAULT_EVICT_ON_CLOSE = false;
   public static final boolean DEFAULT_CACHE_DATA_COMPRESSED = false;
   public static final boolean DEFAULT_PREFETCH_ON_OPEN = false;
+  public static final boolean DEFAULT_CACHE_COMPACTED_BLOCKS_ON_WRITE = false;
   public static final boolean DROP_BEHIND_CACHE_COMPACTION_DEFAULT = true;
 
   /**
@@ -109,10 +117,10 @@ public class CacheConfig {
   private boolean cacheDataOnWrite;
 
   /** Whether index blocks should be cached when new files are written */
-  private final boolean cacheIndexesOnWrite;
+  private boolean cacheIndexesOnWrite;
 
   /** Whether compound bloom filter blocks should be cached on write */
-  private final boolean cacheBloomsOnWrite;
+  private boolean cacheBloomsOnWrite;
 
   /** Whether blocks of a file should be evicted when the file is closed */
   private boolean evictOnClose;
@@ -123,10 +131,17 @@ public class CacheConfig {
   /** Whether data blocks should be prefetched into the cache */
   private final boolean prefetchOnOpen;
 
+  /**
+   * Whether data blocks should be cached when compacted file is written
+   */
+  private final boolean cacheCompactedDataOnWrite;
+
   private final boolean dropBehindCompaction;
 
   // Local reference to the block cache
   private final BlockCache blockCache;
+
+  private final ByteBuffAllocator byteBuffAllocator;
 
   /**
    * Create a cache configuration using the specified configuration object and
@@ -138,7 +153,7 @@ public class CacheConfig {
   }
 
   public CacheConfig(Configuration conf, BlockCache blockCache) {
-    this(conf, null, blockCache);
+    this(conf, null, blockCache, ByteBuffAllocator.HEAP);
   }
 
   /**
@@ -147,7 +162,8 @@ public class CacheConfig {
    * @param conf hbase configuration
    * @param family column family configuration
    */
-  public CacheConfig(Configuration conf, ColumnFamilyDescriptor family, BlockCache blockCache) {
+  public CacheConfig(Configuration conf, ColumnFamilyDescriptor family, BlockCache blockCache,
+      ByteBuffAllocator byteBuffAllocator) {
     this.cacheDataOnRead = conf.getBoolean(CACHE_DATA_ON_READ_KEY, DEFAULT_CACHE_DATA_ON_READ) &&
         (family == null ? true : family.isBlockCacheEnabled());
     this.inMemory = family == null ? DEFAULT_IN_MEMORY : family.isInMemory();
@@ -170,7 +186,10 @@ public class CacheConfig {
         (family == null ? false : family.isEvictBlocksOnClose());
     this.prefetchOnOpen = conf.getBoolean(PREFETCH_BLOCKS_ON_OPEN_KEY, DEFAULT_PREFETCH_ON_OPEN) ||
         (family == null ? false : family.isPrefetchBlocksOnOpen());
+    this.cacheCompactedDataOnWrite = conf.getBoolean(CACHE_COMPACTED_BLOCKS_ON_WRITE_KEY,
+      DEFAULT_CACHE_COMPACTED_BLOCKS_ON_WRITE);
     this.blockCache = blockCache;
+    this.byteBuffAllocator = byteBuffAllocator;
     LOG.info("Created cacheConfig: " + this + (family == null ? "" : " for family " + family) +
         " with blockCache=" + blockCache);
   }
@@ -188,8 +207,10 @@ public class CacheConfig {
     this.evictOnClose = cacheConf.evictOnClose;
     this.cacheDataCompressed = cacheConf.cacheDataCompressed;
     this.prefetchOnOpen = cacheConf.prefetchOnOpen;
+    this.cacheCompactedDataOnWrite = cacheConf.cacheCompactedDataOnWrite;
     this.dropBehindCompaction = cacheConf.dropBehindCompaction;
     this.blockCache = cacheConf.blockCache;
+    this.byteBuffAllocator = cacheConf.byteBuffAllocator;
   }
 
   private CacheConfig() {
@@ -201,8 +222,10 @@ public class CacheConfig {
     this.evictOnClose = false;
     this.cacheDataCompressed = false;
     this.prefetchOnOpen = false;
+    this.cacheCompactedDataOnWrite = false;
     this.dropBehindCompaction = false;
     this.blockCache = null;
+    this.byteBuffAllocator = ByteBuffAllocator.HEAP;
   }
 
   /**
@@ -251,6 +274,20 @@ public class CacheConfig {
   public void setCacheDataOnWrite(boolean cacheDataOnWrite) {
     this.cacheDataOnWrite = cacheDataOnWrite;
   }
+
+
+  /**
+   * Enable cache on write including:
+   * cacheDataOnWrite
+   * cacheIndexesOnWrite
+   * cacheBloomsOnWrite
+   */
+  public void enableCacheOnWrite() {
+    this.cacheDataOnWrite = true;
+    this.cacheIndexesOnWrite = true;
+    this.cacheBloomsOnWrite = true;
+  }
+
 
   /**
    * @return true if index blocks should be written to the cache when an HFile
@@ -313,6 +350,13 @@ public class CacheConfig {
   }
 
   /**
+   * @return true if blocks should be cached while writing during compaction, false if not
+   */
+  public boolean shouldCacheCompactedBlocksOnWrite() {
+    return this.cacheCompactedDataOnWrite;
+  }
+
+  /**
    * Return true if we may find this type of block in block cache.
    * <p>
    * TODO: today {@code family.isBlockCacheEnabled()} only means {@code cacheDataOnRead}, so here we
@@ -358,6 +402,14 @@ public class CacheConfig {
    */
   public Optional<BlockCache> getBlockCache() {
     return Optional.ofNullable(this.blockCache);
+  }
+
+  public boolean isCombinedBlockCache() {
+    return blockCache instanceof CombinedBlockCache;
+  }
+
+  public ByteBuffAllocator getByteBuffAllocator() {
+    return this.byteBuffAllocator;
   }
 
   @Override

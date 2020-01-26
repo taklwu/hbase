@@ -104,23 +104,18 @@ public class DeleteTableProcedure
           // Call coprocessors
           preDelete(env);
 
-          setNextState(DeleteTableState.DELETE_TABLE_REMOVE_FROM_META);
-          break;
-        case DELETE_TABLE_REMOVE_FROM_META:
-          LOG.debug("Deleting regions from META for {}", this);
-          DeleteTableProcedure.deleteFromMeta(env, getTableName(), regions);
           setNextState(DeleteTableState.DELETE_TABLE_CLEAR_FS_LAYOUT);
           break;
         case DELETE_TABLE_CLEAR_FS_LAYOUT:
           LOG.debug("Deleting regions from filesystem for {}", this);
           DeleteTableProcedure.deleteFromFs(env, getTableName(), regions, true);
-          setNextState(DeleteTableState.DELETE_TABLE_UPDATE_DESC_CACHE);
-          regions = null;
+          setNextState(DeleteTableState.DELETE_TABLE_REMOVE_FROM_META);
           break;
-        case DELETE_TABLE_UPDATE_DESC_CACHE:
-          LOG.debug("Deleting descriptor for {}", this);
-          DeleteTableProcedure.deleteTableDescriptorCache(env, getTableName());
+        case DELETE_TABLE_REMOVE_FROM_META:
+          LOG.debug("Deleting regions from META for {}", this);
+          DeleteTableProcedure.deleteFromMeta(env, getTableName(), regions);
           setNextState(DeleteTableState.DELETE_TABLE_UNASSIGN_REGIONS);
+          regions = null;
           break;
         case DELETE_TABLE_UNASSIGN_REGIONS:
           LOG.debug("Deleting assignment state for {}", this);
@@ -319,12 +314,11 @@ public class DeleteTableProcedure
 
     // Archive regions from FS (temp directory)
     if (archive) {
-      List<Path> regionDirList = regions.stream()
-        .filter(RegionReplicaUtil::isDefaultReplica)
-        .map(region -> FSUtils.getRegionDir(tempTableDir, region))
+      List<Path> regionDirList = regions.stream().filter(RegionReplicaUtil::isDefaultReplica)
+        .map(region -> FSUtils.getRegionDirFromTableDir(tempTableDir, region))
         .collect(Collectors.toList());
-      HFileArchiver.archiveRegions(env.getMasterConfiguration(), fs, mfs.getRootDir(),
-        tempTableDir, regionDirList);
+      HFileArchiver.archiveRegions(env.getMasterConfiguration(), fs, mfs.getRootDir(), tempTableDir,
+        regionDirList);
       LOG.debug("Table '{}' archived!", tableName);
     }
 
@@ -348,15 +342,22 @@ public class DeleteTableProcedure
         throw new IOException("Couldn't delete mob dir " + mobTableDir);
       }
     }
+
+    // Delete the directory on wal filesystem
+    FileSystem walFs = mfs.getWALFileSystem();
+    Path tableWALDir = FSUtils.getWALTableDir(env.getMasterConfiguration(), tableName);
+    if (walFs.exists(tableWALDir) && !walFs.delete(tableWALDir, true)) {
+      throw new IOException("Couldn't delete table dir on wal filesystem" + tableWALDir);
+    }
   }
 
   /**
-   * There may be items for this table still up in hbase:meta in the case where the
-   * info:regioninfo column was empty because of some write error. Remove ALL rows from hbase:meta
-   * that have to do with this table. See HBASE-12980.
+   * There may be items for this table still up in hbase:meta in the case where the info:regioninfo
+   * column was empty because of some write error. Remove ALL rows from hbase:meta that have to do
+   * with this table. See HBASE-12980.
    */
-  private static void cleanAnyRemainingRows(final MasterProcedureEnv env,
-      final TableName tableName) throws IOException {
+  private static void cleanRegionsInMeta(final MasterProcedureEnv env, final TableName tableName)
+      throws IOException {
     Connection connection = env.getMasterServices().getConnection();
     Scan tableScan = MetaTableAccessor.getScanForTableName(connection, tableName);
     try (Table metaTable = connection.getTable(TableName.META_TABLE_NAME)) {
@@ -367,19 +368,17 @@ public class DeleteTableProcedure
         }
       }
       if (!deletes.isEmpty()) {
-        LOG.warn("Deleting some vestigial " + deletes.size() + " rows of " + tableName +
-          " from " + TableName.META_TABLE_NAME);
+        LOG.warn("Deleting some vestigial " + deletes.size() + " rows of " + tableName + " from "
+            + TableName.META_TABLE_NAME);
         metaTable.delete(deletes);
       }
     }
   }
 
-  protected static void deleteFromMeta(final MasterProcedureEnv env,
-      final TableName tableName, List<RegionInfo> regions) throws IOException {
-    MetaTableAccessor.deleteRegions(env.getMasterServices().getConnection(), regions);
-
+  protected static void deleteFromMeta(final MasterProcedureEnv env, final TableName tableName,
+      List<RegionInfo> regions) throws IOException {
     // Clean any remaining rows for this table.
-    cleanAnyRemainingRows(env, tableName);
+    cleanRegionsInMeta(env, tableName);
 
     // clean region references from the server manager
     env.getMasterServices().getServerManager().removeRegions(regions);
@@ -389,6 +388,8 @@ public class DeleteTableProcedure
     if (fnm != null) {
       fnm.deleteFavoredNodesForRegions(regions);
     }
+
+    deleteTableDescriptorCache(env, tableName);
   }
 
   protected static void deleteAssignmentState(final MasterProcedureEnv env,

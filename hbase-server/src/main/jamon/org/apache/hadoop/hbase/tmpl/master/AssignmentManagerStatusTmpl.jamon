@@ -17,27 +17,32 @@ See the License for the specific language governing permissions and
 limitations under the License.
 </%doc>
 <%import>
-org.apache.hadoop.hbase.master.assignment.AssignmentManager;
-org.apache.hadoop.hbase.master.assignment.AssignmentManager.RegionInTransitionStat;
-org.apache.hadoop.hbase.master.assignment.RegionStates.RegionFailedOpen;
-org.apache.hadoop.hbase.master.RegionState;
+java.util.Map;
+java.util.Set;
+java.util.SortedSet;
+java.util.concurrent.atomic.AtomicInteger;
+java.util.stream.Collectors;
 org.apache.hadoop.conf.Configuration;
 org.apache.hadoop.hbase.HBaseConfiguration;
 org.apache.hadoop.hbase.HConstants;
+org.apache.hadoop.hbase.ServerName;
+org.apache.hadoop.hbase.client.RegionInfo;
 org.apache.hadoop.hbase.client.RegionInfoDisplay;
-java.util.HashSet;
-java.util.SortedSet;
-java.util.Map;
-java.util.concurrent.atomic.AtomicInteger;
+org.apache.hadoop.hbase.master.RegionState;
+org.apache.hadoop.hbase.master.assignment.AssignmentManager;
+org.apache.hadoop.hbase.master.assignment.AssignmentManager.RegionInTransitionStat;
+org.apache.hadoop.hbase.master.assignment.RegionStates.RegionFailedOpen;
+org.apache.hadoop.hbase.util.Pair;
 </%import>
 <%args>
 AssignmentManager assignmentManager;
 int limit = 100;
 </%args>
 
-<%java SortedSet<RegionState> rit = assignmentManager
-  .getRegionStates().getRegionsInTransitionOrderedByTimestamp();
-%>
+<%java>
+SortedSet<RegionState> rit = assignmentManager.getRegionStates()
+    .getRegionsInTransitionOrderedByTimestamp();
+</%java>
 
 <%if !rit.isEmpty() %>
 <%java>
@@ -114,18 +119,8 @@ int numOfPages = (int) Math.ceil(numOfRITs * 1.0 / ritsPerPage);
              </div>
          </%if>
          </div>
-         <nav>
-             <ul class="nav nav-pills pagination">
-             <%for int i = 1 ; i <= numOfPages; i++ %>
-                 <%if i == 1 %>
-                 <li class="active">
-                 <%else>
-                 <li>
-                 </%if>
-                 <a href="#tab_rits<% i %>"><% i %></a></li>
-             </%for>
-             </ul>
-         </nav>
+         <input type="hidden" id ="rit_page_num" value="<% numOfRITs %>" />
+         <nav id="rit_pagination"></nav>
      </div>
    </section>
  </%if>

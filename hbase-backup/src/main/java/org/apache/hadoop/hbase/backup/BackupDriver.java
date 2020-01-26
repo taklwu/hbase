@@ -40,6 +40,7 @@ import static org.apache.hadoop.hbase.backup.BackupRestoreConstants.OPTION_YARN_
 
 import java.io.IOException;
 import java.net.URI;
+import java.util.Objects;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
@@ -50,12 +51,13 @@ import org.apache.hadoop.hbase.backup.impl.BackupManager;
 import org.apache.hadoop.hbase.util.AbstractHBaseTool;
 import org.apache.hadoop.hbase.util.FSUtils;
 import org.apache.hadoop.util.ToolRunner;
-import org.apache.hbase.thirdparty.org.apache.commons.cli.CommandLine;
 import org.apache.log4j.Level;
 import org.apache.log4j.LogManager;
 import org.apache.yetus.audience.InterfaceAudience;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import org.apache.hbase.thirdparty.org.apache.commons.cli.CommandLine;
 
 /**
  *
@@ -186,10 +188,7 @@ public class BackupDriver extends AbstractHBaseTool {
 
   @Override
   public int run(String[] args) throws IOException {
-    if (conf == null) {
-      LOG.error("Tool configuration is not initialized");
-      throw new NullPointerException("conf");
-    }
+    Objects.requireNonNull(conf, "Tool configuration is not initialized");
 
     CommandLine cmd;
     try {

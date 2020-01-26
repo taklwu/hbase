@@ -18,7 +18,6 @@
  */
 package org.apache.hadoop.hbase.protobuf;
 
-
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Iterator;
@@ -27,10 +26,10 @@ import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hbase.Cell;
 import org.apache.hadoop.hbase.CellScanner;
 import org.apache.hadoop.hbase.PrivateCellUtil;
+import org.apache.hadoop.hbase.client.AsyncRegionServerAdmin;
 import org.apache.hadoop.hbase.io.SizedCellScanner;
-import org.apache.hadoop.hbase.ipc.HBaseRpcController;
-import org.apache.hadoop.hbase.ipc.HBaseRpcControllerImpl;
 import org.apache.hadoop.hbase.regionserver.wal.WALCellCodec;
+import org.apache.hadoop.hbase.util.FutureUtils;
 import org.apache.hadoop.hbase.util.Pair;
 import org.apache.hadoop.hbase.wal.WAL.Entry;
 import org.apache.hadoop.hbase.wal.WALEdit;
@@ -38,45 +37,37 @@ import org.apache.yetus.audience.InterfaceAudience;
 
 import org.apache.hbase.thirdparty.com.google.protobuf.UnsafeByteOperations;
 
-import org.apache.hadoop.hbase.shaded.protobuf.generated.AdminProtos;
-import org.apache.hadoop.hbase.shaded.protobuf.generated.AdminProtos.AdminService;
+import org.apache.hadoop.hbase.shaded.protobuf.generated.AdminProtos.ReplicateWALEntryRequest;
+import org.apache.hadoop.hbase.shaded.protobuf.generated.AdminProtos.WALEntry;
 import org.apache.hadoop.hbase.shaded.protobuf.generated.WALProtos;
 
 @InterfaceAudience.Private
 public class ReplicationProtbufUtil {
+
   /**
-   * A helper to replicate a list of WAL entries using admin protocol.
-   * @param admin Admin service
+   * A helper to replicate a list of WAL entries using region server admin
+   * @param admin the region server admin
    * @param entries Array of WAL entries to be replicated
    * @param replicationClusterId Id which will uniquely identify source cluster FS client
    *          configurations in the replication configuration directory
    * @param sourceBaseNamespaceDir Path to source cluster base namespace directory
    * @param sourceHFileArchiveDir Path to the source cluster hfile archive directory
-   * @throws java.io.IOException
    */
-  public static void replicateWALEntry(final AdminService.BlockingInterface admin,
-      final Entry[] entries, String replicationClusterId, Path sourceBaseNamespaceDir,
-      Path sourceHFileArchiveDir) throws IOException {
-    Pair<AdminProtos.ReplicateWALEntryRequest, CellScanner> p =
-        buildReplicateWALEntryRequest(entries, null, replicationClusterId, sourceBaseNamespaceDir,
-          sourceHFileArchiveDir);
-    HBaseRpcController controller = new HBaseRpcControllerImpl(p.getSecond());
-    try {
-      admin.replicateWALEntry(controller, p.getFirst());
-    } catch (org.apache.hbase.thirdparty.com.google.protobuf.ServiceException e) {
-      throw ProtobufUtil.getServiceException(e);
-    }
+  public static void replicateWALEntry(AsyncRegionServerAdmin admin, Entry[] entries,
+      String replicationClusterId, Path sourceBaseNamespaceDir, Path sourceHFileArchiveDir,
+      int timeout) throws IOException {
+    Pair<ReplicateWALEntryRequest, CellScanner> p = buildReplicateWALEntryRequest(entries, null,
+      replicationClusterId, sourceBaseNamespaceDir, sourceHFileArchiveDir);
+    FutureUtils.get(admin.replicateWALEntry(p.getFirst(), p.getSecond(), timeout));
   }
 
   /**
    * Create a new ReplicateWALEntryRequest from a list of WAL entries
-   *
    * @param entries the WAL entries to be replicated
-   * @return a pair of ReplicateWALEntryRequest and a CellScanner over all the WALEdit values
-   * found.
+   * @return a pair of ReplicateWALEntryRequest and a CellScanner over all the WALEdit values found.
    */
-  public static Pair<AdminProtos.ReplicateWALEntryRequest, CellScanner>
-      buildReplicateWALEntryRequest(final Entry[] entries) throws IOException {
+  public static Pair<ReplicateWALEntryRequest, CellScanner> buildReplicateWALEntryRequest(
+      final Entry[] entries) {
     return buildReplicateWALEntryRequest(entries, null, null, null, null);
   }
 
@@ -90,16 +81,14 @@ public class ReplicationProtbufUtil {
    * @param sourceHFileArchiveDir Path to the source cluster hfile archive directory
    * @return a pair of ReplicateWALEntryRequest and a CellScanner over all the WALEdit values found.
    */
-  public static Pair<AdminProtos.ReplicateWALEntryRequest, CellScanner>
-      buildReplicateWALEntryRequest(final Entry[] entries, byte[] encodedRegionName,
-          String replicationClusterId, Path sourceBaseNamespaceDir, Path sourceHFileArchiveDir)
-          throws IOException {
+  public static Pair<ReplicateWALEntryRequest, CellScanner> buildReplicateWALEntryRequest(
+      final Entry[] entries, byte[] encodedRegionName, String replicationClusterId,
+      Path sourceBaseNamespaceDir, Path sourceHFileArchiveDir) {
     // Accumulate all the Cells seen in here.
     List<List<? extends Cell>> allCells = new ArrayList<>(entries.length);
     int size = 0;
-    AdminProtos.WALEntry.Builder entryBuilder = AdminProtos.WALEntry.newBuilder();
-    AdminProtos.ReplicateWALEntryRequest.Builder builder =
-      AdminProtos.ReplicateWALEntryRequest.newBuilder();
+    WALEntry.Builder entryBuilder = WALEntry.newBuilder();
+    ReplicateWALEntryRequest.Builder builder = ReplicateWALEntryRequest.newBuilder();
 
     for (Entry entry: entries) {
       entryBuilder.clear();
@@ -107,8 +96,8 @@ public class ReplicationProtbufUtil {
       try {
         keyBuilder = entry.getKey().getBuilder(WALCellCodec.getNoneCompressor());
       } catch (IOException e) {
-        throw new IOException(
-            "There should not throw exception since NoneCompressor do not throw any exceptions", e);
+        throw new AssertionError(
+          "There should not throw exception since NoneCompressor do not throw any exceptions", e);
       }
       if(encodedRegionName != null){
         keyBuilder.setEncodedRegionName(

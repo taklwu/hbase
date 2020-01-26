@@ -147,8 +147,7 @@ public class SerialReplicationTestBase {
   }
 
   protected static void moveRegion(RegionInfo region, HRegionServer rs) throws Exception {
-    UTIL.getAdmin().move(region.getEncodedNameAsBytes(),
-      Bytes.toBytes(rs.getServerName().getServerName()));
+    UTIL.getAdmin().move(region.getEncodedNameAsBytes(), rs.getServerName());
     UTIL.waitFor(30000, new ExplainingPredicate<Exception>() {
 
       @Override
@@ -171,8 +170,11 @@ public class SerialReplicationTestBase {
 
       @Override
       public boolean evaluate() throws Exception {
-        return UTIL.getMiniHBaseCluster().getLiveRegionServerThreads().stream()
-          .map(t -> t.getRegionServer()).allMatch(HRegionServer::walRollRequestFinished);
+        return UTIL.getMiniHBaseCluster()
+            .getLiveRegionServerThreads()
+            .stream()
+            .map(RegionServerThread::getRegionServer)
+            .allMatch(HRegionServer::walRollRequestFinished);
       }
 
       @Override

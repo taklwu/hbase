@@ -24,11 +24,11 @@ import org.apache.hadoop.hbase.HBaseClassTestRule;
 import org.apache.hadoop.hbase.TableName;
 import org.apache.hadoop.hbase.backup.impl.BackupAdminImpl;
 import org.apache.hadoop.hbase.backup.util.BackupUtils;
+import org.apache.hadoop.hbase.client.Admin;
 import org.apache.hadoop.hbase.client.Connection;
 import org.apache.hadoop.hbase.client.ConnectionFactory;
-import org.apache.hadoop.hbase.client.HBaseAdmin;
-import org.apache.hadoop.hbase.client.HTable;
 import org.apache.hadoop.hbase.client.Put;
+import org.apache.hadoop.hbase.client.Table;
 import org.apache.hadoop.hbase.testclassification.LargeTests;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.junit.Assert;
@@ -64,9 +64,8 @@ public class TestIncrementalBackupDeleteTable extends TestBackupBase {
     LOG.info("create full backup image for all tables");
 
     List<TableName> tables = Lists.newArrayList(table1, table2);
-    HBaseAdmin admin = null;
     Connection conn = ConnectionFactory.createConnection(conf1);
-    admin = (HBaseAdmin) conn.getAdmin();
+    Admin admin = conn.getAdmin();
     BackupAdminImpl client = new BackupAdminImpl(conn);
 
     BackupRequest request = createBackupRequest(BackupType.FULL, tables, BACKUP_ROOT_DIR);
@@ -75,7 +74,7 @@ public class TestIncrementalBackupDeleteTable extends TestBackupBase {
     assertTrue(checkSucceeded(backupIdFull));
 
     // #2 - insert some data to table table1
-    HTable t1 = (HTable) conn.getTable(table1);
+    Table t1 = conn.getTable(table1);
     Put p1;
     for (int i = 0; i < NB_ROWS_IN_BATCH; i++) {
       p1 = new Put(Bytes.toBytes("row-t1" + i));
@@ -105,16 +104,16 @@ public class TestIncrementalBackupDeleteTable extends TestBackupBase {
       tablesRestoreFull, tablesMapFull, false));
 
     // #5.1 - check tables for full restore
-    HBaseAdmin hAdmin = TEST_UTIL.getHBaseAdmin();
+    Admin hAdmin = TEST_UTIL.getAdmin();
     assertTrue(hAdmin.tableExists(table1_restore));
     assertTrue(hAdmin.tableExists(table2_restore));
 
     // #5.2 - checking row count of tables for full restore
-    HTable hTable = (HTable) conn.getTable(table1_restore);
+    Table hTable = conn.getTable(table1_restore);
     Assert.assertEquals(TEST_UTIL.countRows(hTable), NB_ROWS_IN_BATCH);
     hTable.close();
 
-    hTable = (HTable) conn.getTable(table2_restore);
+    hTable = conn.getTable(table2_restore);
     Assert.assertEquals(TEST_UTIL.countRows(hTable), NB_ROWS_IN_BATCH);
     hTable.close();
 
@@ -124,7 +123,7 @@ public class TestIncrementalBackupDeleteTable extends TestBackupBase {
     client.restore(BackupUtils.createRestoreRequest(BACKUP_ROOT_DIR, backupIdIncMultiple,
       false, tablesRestoreIncMultiple, tablesMapIncMultiple, true));
 
-    hTable = (HTable) conn.getTable(table1_restore);
+    hTable = conn.getTable(table1_restore);
     Assert.assertEquals(TEST_UTIL.countRows(hTable), NB_ROWS_IN_BATCH * 2);
     hTable.close();
     admin.close();

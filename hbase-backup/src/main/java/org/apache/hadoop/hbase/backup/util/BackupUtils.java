@@ -30,7 +30,6 @@ import java.util.List;
 import java.util.Map.Entry;
 import java.util.TreeMap;
 import java.util.TreeSet;
-
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FSDataOutputStream;
 import org.apache.hadoop.fs.FileStatus;
@@ -53,8 +52,7 @@ import org.apache.hadoop.hbase.backup.impl.BackupManifest.BackupImage;
 import org.apache.hadoop.hbase.client.Connection;
 import org.apache.hadoop.hbase.client.RegionInfo;
 import org.apache.hadoop.hbase.client.TableDescriptor;
-import org.apache.hadoop.hbase.regionserver.HRegion;
-import org.apache.hadoop.hbase.tool.LoadIncrementalHFiles;
+import org.apache.hadoop.hbase.tool.BulkLoadHFiles;
 import org.apache.hadoop.hbase.util.CommonFSUtils;
 import org.apache.hadoop.hbase.util.EnvironmentEdgeManager;
 import org.apache.hadoop.hbase.util.FSTableDescriptors;
@@ -150,8 +148,8 @@ public final class BackupUtils {
       // For each region, write the region info to disk
       LOG.debug("Starting to write region info for table " + table);
       for (RegionInfo regionInfo : regions) {
-        Path regionDir =
-            HRegion.getRegionDir(new Path(backupInfo.getTableBackupDir(table)), regionInfo);
+        Path regionDir = FSUtils
+          .getRegionDirFromTableDir(new Path(backupInfo.getTableBackupDir(table)), regionInfo);
         regionDir = new Path(backupInfo.getTableBackupDir(table), regionDir.getName());
         writeRegioninfoOnFilesystem(conf, targetFs, regionDir, regionInfo);
       }
@@ -537,7 +535,7 @@ public final class BackupUtils {
   }
 
   /**
-   * Return the 'path' component of a Path. In Hadoop, Path is an URI. This method returns the
+   * Return the 'path' component of a Path. In Hadoop, Path is a URI. This method returns the
    * 'path' component of a Path's URI: e.g. If a Path is
    * <code>hdfs://example.org:9000/hbase_trunk/TestTable/compaction.dir</code>, this method returns
    * <code>/hbase_trunk/TestTable/compaction.dir</code>. This method is useful if you want to print
@@ -722,7 +720,7 @@ public final class BackupUtils {
     return result == 0;
   }
 
-  public static LoadIncrementalHFiles createLoader(Configuration config) throws IOException {
+  public static BulkLoadHFiles createLoader(Configuration config) {
     // set configuration for restore:
     // LoadIncrementalHFile needs more time
     // <name>hbase.rpc.timeout</name> <value>600000</value>
@@ -732,15 +730,9 @@ public final class BackupUtils {
 
     // By default, it is 32 and loader will fail if # of files in any region exceed this
     // limit. Bad for snapshot restore.
-    conf.setInt(LoadIncrementalHFiles.MAX_FILES_PER_REGION_PER_FAMILY, Integer.MAX_VALUE);
-    conf.set(LoadIncrementalHFiles.IGNORE_UNMATCHED_CF_CONF_KEY, "yes");
-    LoadIncrementalHFiles loader;
-    try {
-      loader = new LoadIncrementalHFiles(conf);
-    } catch (Exception e) {
-      throw new IOException(e);
-    }
-    return loader;
+    conf.setInt(BulkLoadHFiles.MAX_FILES_PER_REGION_PER_FAMILY, Integer.MAX_VALUE);
+    conf.set(BulkLoadHFiles.IGNORE_UNMATCHED_CF_CONF_KEY, "yes");
+    return BulkLoadHFiles.create(conf);
   }
 
   public static String findMostRecentBackupId(String[] backupIds) {
