@@ -54,8 +54,6 @@ public class EnableTableProcedure
   private TableName tableName;
   private boolean skipTableStateCheck;
 
-  private Boolean traceEnabled = null;
-
   public EnableTableProcedure() {
     super();
   }
@@ -88,9 +86,7 @@ public class EnableTableProcedure
   @Override
   protected Flow executeFromState(final MasterProcedureEnv env, final EnableTableState state)
       throws InterruptedException {
-    if (isTraceEnabled()) {
-      LOG.trace(this + " execute state=" + state);
-    }
+    LOG.trace("{} execute state={}", this, state);
 
     try {
       switch (state) {
@@ -335,7 +331,7 @@ public class EnableTableProcedure
       TableStateManager tsm = env.getMasterServices().getTableStateManager();
       TableState ts = tsm.getTableState(tableName);
       if(!ts.isDisabled()){
-        LOG.info("Not DISABLED tableState=" + ts + "; skipping enable");
+        LOG.info("Not DISABLED tableState={}; skipping enable; {}", ts.getState(), this);
         setFailure("master-enable-table", new TableNotDisabledException(ts.toString()));
         canTableBeEnabled = false;
       }
@@ -400,18 +396,6 @@ public class EnableTableProcedure
   private void postEnable(final MasterProcedureEnv env, final EnableTableState state)
       throws IOException, InterruptedException {
     runCoprocessorAction(env, state);
-  }
-
-  /**
-   * The procedure could be restarted from a different machine. If the variable is null, we need to
-   * retrieve it.
-   * @return traceEnabled
-   */
-  private Boolean isTraceEnabled() {
-    if (traceEnabled == null) {
-      traceEnabled = LOG.isTraceEnabled();
-    }
-    return traceEnabled;
   }
 
   /**

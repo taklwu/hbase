@@ -156,8 +156,8 @@ public class TestFSHLogProvider {
       long timestamp = System.currentTimeMillis();
       WALEdit cols = new WALEdit();
       cols.add(new KeyValue(row, row, row, timestamp, row));
-      log.append(hri, getWalKey(hri.getEncodedNameAsBytes(), htd.getTableName(), timestamp, scopes),
-        cols, true);
+      log.appendData(hri,
+        getWalKey(hri.getEncodedNameAsBytes(), htd.getTableName(), timestamp, scopes), cols);
     }
     log.sync();
   }
@@ -232,7 +232,8 @@ public class TestFSHLogProvider {
       log.startCacheFlush(hri.getEncodedNameAsBytes(), htd.getColumnFamilyNames());
       log.completeCacheFlush(hri.getEncodedNameAsBytes());
       log.rollWriter();
-      assertEquals(2, AbstractFSWALProvider.getNumRolledLogFiles(log));
+      int count = AbstractFSWALProvider.getNumRolledLogFiles(log);
+      assertEquals(2, count);
 
       // Flush the second region, which removes all the remaining output files
       // since the oldest was completely flushed and the two others only contain

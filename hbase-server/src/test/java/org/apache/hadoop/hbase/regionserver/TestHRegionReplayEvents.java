@@ -27,7 +27,6 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.times;
@@ -41,7 +40,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Random;
-import java.util.UUID;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FSDataOutputStream;
 import org.apache.hadoop.fs.Path;
@@ -67,7 +65,7 @@ import org.apache.hadoop.hbase.io.hfile.HFileContext;
 import org.apache.hadoop.hbase.regionserver.HRegion.FlushResultImpl;
 import org.apache.hadoop.hbase.regionserver.HRegion.PrepareFlushResult;
 import org.apache.hadoop.hbase.regionserver.throttle.NoLimitThroughputController;
-import org.apache.hadoop.hbase.testclassification.MediumTests;
+import org.apache.hadoop.hbase.testclassification.LargeTests;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.hbase.util.EnvironmentEdgeManager;
 import org.apache.hadoop.hbase.util.EnvironmentEdgeManagerTestHelper;
@@ -81,7 +79,9 @@ import org.apache.hadoop.hbase.wal.WALKeyImpl;
 import org.apache.hadoop.hbase.wal.WALSplitter.MutationReplay;
 import org.apache.hadoop.util.StringUtils;
 import org.junit.After;
+import org.junit.AfterClass;
 import org.junit.Before;
+import org.junit.BeforeClass;
 import org.junit.ClassRule;
 import org.junit.Rule;
 import org.junit.Test;
@@ -109,7 +109,7 @@ import org.apache.hadoop.hbase.shaded.protobuf.generated.WALProtos.StoreDescript
  * Tests of HRegion methods for replaying flush, compaction, region open, etc events for secondary
  * region replicas
  */
-@Category(MediumTests.class)
+@Category(LargeTests.class)
 public class TestHRegionReplayEvents {
 
   @ClassRule
@@ -121,7 +121,7 @@ public class TestHRegionReplayEvents {
 
   private static HBaseTestingUtility TEST_UTIL;
 
-  public static Configuration CONF ;
+  public static Configuration CONF;
   private String dir;
 
   private byte[][] families = new byte[][] {
@@ -137,17 +137,27 @@ public class TestHRegionReplayEvents {
   // per test fields
   private Path rootDir;
   private TableDescriptor htd;
-  private long time;
   private RegionServerServices rss;
   private RegionInfo primaryHri, secondaryHri;
   private HRegion primaryRegion, secondaryRegion;
-  private WALFactory wals;
   private WAL walPrimary, walSecondary;
   private WAL.Reader reader;
 
+  @BeforeClass
+  public static void setUpBeforeClass() throws Exception {
+    TEST_UTIL = new HBaseTestingUtility();
+    TEST_UTIL.startMiniDFSCluster(1);
+  }
+
+  @AfterClass
+  public static void tearDownAfterClass() throws Exception {
+    LOG.info("Cleaning test directory: " + TEST_UTIL.getDataTestDir());
+    TEST_UTIL.cleanupTestDir();
+    TEST_UTIL.shutdownMiniDFSCluster();
+  }
+
   @Before
-  public void setup() throws IOException {
-    TEST_UTIL = HBaseTestingUtility.createLocalHTU();
+  public void setUp() throws Exception {
     CONF = TEST_UTIL.getConfiguration();
     dir = TEST_UTIL.getDataTestDir("TestHRegionReplayEvents").toString();
     method = name.getMethodName();
@@ -161,14 +171,14 @@ public class TestHRegionReplayEvents {
     }
     htd = builder.build();
 
-    time = System.currentTimeMillis();
+    long time = System.currentTimeMillis();
     ChunkCreator.initialize(MemStoreLABImpl.CHUNK_SIZE_DEFAULT, false, 0, 0, 0, null);
     primaryHri =
         RegionInfoBuilder.newBuilder(htd.getTableName()).setRegionId(time).setReplicaId(0).build();
     secondaryHri =
         RegionInfoBuilder.newBuilder(htd.getTableName()).setRegionId(time).setReplicaId(1).build();
 
-    wals = TestHRegion.createWALFactory(CONF, rootDir);
+    WALFactory wals = TestHRegion.createWALFactory(CONF, rootDir);
     walPrimary = wals.getWAL(primaryHri);
     walSecondary = wals.getWAL(secondaryHri);
 
@@ -208,8 +218,6 @@ public class TestHRegionReplayEvents {
     }
 
     EnvironmentEdgeManagerTestHelper.reset();
-    LOG.info("Cleaning test directory: " + TEST_UTIL.getDataTestDir());
-    TEST_UTIL.cleanupTestDir();
   }
 
   String getName() {
@@ -1153,8 +1161,8 @@ public class TestHRegionReplayEvents {
 
     // test for region open and close
     secondaryRegion = HRegion.openHRegion(secondaryHri, htd, walSecondary, CONF, rss, null);
-    verify(walSecondary, times(0)).append(any(RegionInfo.class), any(WALKeyImpl.class),
-      any(WALEdit.class), anyBoolean());
+    verify(walSecondary, times(0)).appendData(any(RegionInfo.class), any(WALKeyImpl.class),
+      any(WALEdit.class));
 
     // test for replay prepare flush
     putDataByReplay(secondaryRegion, 0, 10, cq, families);
@@ -1169,12 +1177,12 @@ public class TestHRegionReplayEvents {
           primaryRegion.getRegionInfo().getRegionName()))
       .build());
 
-    verify(walSecondary, times(0)).append(any(RegionInfo.class), any(WALKeyImpl.class),
-      any(WALEdit.class), anyBoolean());
+    verify(walSecondary, times(0)).appendData(any(RegionInfo.class), any(WALKeyImpl.class),
+      any(WALEdit.class));
 
     secondaryRegion.close();
-    verify(walSecondary, times(0)).append(any(RegionInfo.class), any(WALKeyImpl.class),
-      any(WALEdit.class), anyBoolean());
+    verify(walSecondary, times(0)).appendData(any(RegionInfo.class), any(WALKeyImpl.class),
+      any(WALEdit.class));
   }
 
   /**
@@ -1643,7 +1651,7 @@ public class TestHRegionReplayEvents {
       byte[] valueBytes) throws IOException {
     HFile.WriterFactory hFileFactory = HFile.getWriterFactoryNoCache(TEST_UTIL.getConfiguration());
     // TODO We need a way to do this without creating files
-    Path testFile = new Path(testPath, UUID.randomUUID().toString());
+    Path testFile = new Path(testPath, TEST_UTIL.getRandomUUID().toString());
     FSDataOutputStream out = TEST_UTIL.getTestFileSystem().create(testFile);
     try {
       hFileFactory.withOutputStream(out);

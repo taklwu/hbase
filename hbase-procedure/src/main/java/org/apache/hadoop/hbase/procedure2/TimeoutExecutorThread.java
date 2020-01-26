@@ -24,23 +24,22 @@ import org.apache.yetus.audience.InterfaceAudience;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import org.apache.hadoop.hbase.shaded.protobuf.generated.ProcedureProtos.ProcedureState;
-
 /**
  * Runs task on a period such as check for stuck workers.
  * @see InlineChore
  */
 @InterfaceAudience.Private
-class TimeoutExecutorThread extends StoppableThread {
+class TimeoutExecutorThread<TEnvironment> extends StoppableThread {
 
   private static final Logger LOG = LoggerFactory.getLogger(TimeoutExecutorThread.class);
 
-  private final ProcedureExecutor<?> executor;
+  private final ProcedureExecutor<TEnvironment> executor;
 
   private final DelayQueue<DelayedWithTimeout> queue = new DelayQueue<>();
 
-  public TimeoutExecutorThread(ProcedureExecutor<?> executor, ThreadGroup group) {
-    super(group, "ProcExecTimeout");
+  public TimeoutExecutorThread(ProcedureExecutor<TEnvironment> executor, ThreadGroup group,
+    String name) {
+    super(group, name);
     setDaemon(true);
     this.executor = executor;
   }
@@ -65,7 +64,7 @@ class TimeoutExecutorThread extends StoppableThread {
       if (task instanceof InlineChore) {
         execInlineChore((InlineChore) task);
       } else if (task instanceof DelayedProcedure) {
-        execDelayedProcedure((DelayedProcedure) task);
+        execDelayedProcedure((DelayedProcedure<TEnvironment>) task);
       } else {
         LOG.error("CODE-BUG unknown timeout task type {}", task);
       }
@@ -77,15 +76,14 @@ class TimeoutExecutorThread extends StoppableThread {
     queue.add(chore);
   }
 
-  public void add(Procedure<?> procedure) {
-    assert procedure.getState() == ProcedureState.WAITING_TIMEOUT;
+  public void add(Procedure<TEnvironment> procedure) {
     LOG.info("ADDED {}; timeout={}, timestamp={}", procedure, procedure.getTimeout(),
       procedure.getTimeoutTimestamp());
-    queue.add(new DelayedProcedure(procedure));
+    queue.add(new DelayedProcedure<>(procedure));
   }
 
-  public boolean remove(Procedure<?> procedure) {
-    return queue.remove(new DelayedProcedure(procedure));
+  public boolean remove(Procedure<TEnvironment> procedure) {
+    return queue.remove(new DelayedProcedure<>(procedure));
   }
 
   private void execInlineChore(InlineChore chore) {
@@ -93,13 +91,13 @@ class TimeoutExecutorThread extends StoppableThread {
     add(chore);
   }
 
-  private void execDelayedProcedure(DelayedProcedure delayed) {
+  private void execDelayedProcedure(DelayedProcedure<TEnvironment> delayed) {
     // TODO: treat this as a normal procedure, add it to the scheduler and
     // let one of the workers handle it.
     // Today we consider ProcedureInMemoryChore as InlineChores
-    Procedure<?> procedure = delayed.getObject();
+    Procedure<TEnvironment> procedure = delayed.getObject();
     if (procedure instanceof ProcedureInMemoryChore) {
-      executeInMemoryChore((ProcedureInMemoryChore) procedure);
+      executeInMemoryChore((ProcedureInMemoryChore<TEnvironment>) procedure);
       // if the procedure is in a waiting state again, put it back in the queue
       procedure.updateTimestamp();
       if (procedure.isWaiting()) {
@@ -111,7 +109,7 @@ class TimeoutExecutorThread extends StoppableThread {
     }
   }
 
-  private void executeInMemoryChore(ProcedureInMemoryChore chore) {
+  private void executeInMemoryChore(ProcedureInMemoryChore<TEnvironment> chore) {
     if (!chore.isWaiting()) {
       return;
     }
@@ -126,12 +124,12 @@ class TimeoutExecutorThread extends StoppableThread {
     }
   }
 
-  private void executeTimedoutProcedure(Procedure proc) {
+  protected void executeTimedoutProcedure(Procedure<TEnvironment> proc) {
     // The procedure received a timeout. if the procedure itself does not handle it,
     // call abort() and add the procedure back in the queue for rollback.
     if (proc.setTimeoutFailure(executor.getEnvironment())) {
       long rootProcId = executor.getRootProcedureId(proc);
-      RootProcedureState procStack = executor.getProcStack(rootProcId);
+      RootProcedureState<TEnvironment> procStack = executor.getProcStack(rootProcId);
       procStack.abort();
       executor.getStore().update(proc);
       executor.getScheduler().addFront(proc);

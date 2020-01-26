@@ -60,10 +60,8 @@ abstract class Queue<TKey extends Comparable<TKey>> extends AvlLinkedNode<Queue<
     return lockStatus;
   }
 
-  // This should go away when we have the new AM and its events
-  // and we move xlock to the lock-event-queue.
   public boolean isAvailable() {
-    return !lockStatus.hasExclusiveLock() && !isEmpty();
+    return !isEmpty();
   }
 
   // ======================================================================

@@ -49,6 +49,7 @@ import org.apache.hadoop.hbase.master.LoadBalancer;
 import org.apache.hadoop.hbase.master.MasterServices;
 import org.apache.hadoop.hbase.master.RegionPlan;
 import org.apache.hadoop.hbase.master.assignment.AssignmentManager;
+import org.apache.hadoop.hbase.master.assignment.RegionStates;
 import org.apache.hadoop.hbase.net.Address;
 import org.apache.hadoop.hbase.rsgroup.RSGroupBasedLoadBalancer;
 import org.apache.hadoop.hbase.rsgroup.RSGroupInfo;
@@ -221,20 +222,6 @@ public class TestRSGroupBasedLoadBalancer {
     assertClusterAsBalanced(loadMap);
   }
 
-  @Test
-  public void testGetMisplacedRegions() throws Exception {
-    // Test case where region is not considered misplaced if RSGroupInfo cannot be determined
-    Map<RegionInfo, ServerName> inputForTest = new HashMap<>();
-    RegionInfo ri = RegionInfoBuilder.newBuilder(table0)
-        .setStartKey(new byte[16])
-        .setEndKey(new byte[16])
-        .setSplit(false)
-        .setRegionId(regionId++)
-        .build();
-    inputForTest.put(ri, servers.iterator().next());
-    Set<RegionInfo> misplacedRegions = loadBalancer.getMisplacedRegions(inputForTest);
-    assertFalse(misplacedRegions.contains(ri));
-  }
   /**
    * Test the cluster startup bulk assignment which attempts to retain assignment info.
    */
@@ -569,6 +556,8 @@ public class TestRSGroupBasedLoadBalancer {
     Mockito.when(services.getTableDescriptors()).thenReturn(tds);
     AssignmentManager am = Mockito.mock(AssignmentManager.class);
     Mockito.when(services.getAssignmentManager()).thenReturn(am);
+    RegionStates rss = Mockito.mock(RegionStates.class);
+    Mockito.when(am.getRegionStates()).thenReturn(rss);
     return services;
   }
 

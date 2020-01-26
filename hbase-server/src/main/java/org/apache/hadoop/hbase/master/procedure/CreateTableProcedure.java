@@ -42,6 +42,7 @@ import org.apache.hadoop.hbase.util.ServerRegionReplicaUtil;
 import org.apache.yetus.audience.InterfaceAudience;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.apache.hbase.thirdparty.com.google.common.annotations.VisibleForTesting;
 import org.apache.hbase.thirdparty.com.google.common.collect.Lists;
 import org.apache.hadoop.hbase.shaded.protobuf.ProtobufUtil;
 import org.apache.hadoop.hbase.shaded.protobuf.generated.HBaseProtos;
@@ -96,6 +97,7 @@ public class CreateTableProcedure
           setNextState(CreateTableState.CREATE_TABLE_WRITE_FS_LAYOUT);
           break;
         case CREATE_TABLE_WRITE_FS_LAYOUT:
+          DeleteTableProcedure.deleteFromFs(env, getTableName(), newRegions, true);
           newRegions = createFsLayout(env, tableDescriptor, newRegions);
           setNextState(CreateTableState.CREATE_TABLE_ADD_TO_META);
           break;
@@ -105,7 +107,8 @@ public class CreateTableProcedure
           break;
         case CREATE_TABLE_ASSIGN_REGIONS:
           setEnablingState(env, getTableName());
-          addChildProcedure(env.getAssignmentManager().createRoundRobinAssignProcedures(newRegions));
+          addChildProcedure(env.getAssignmentManager()
+            .createRoundRobinAssignProcedures(newRegions));
           setNextState(CreateTableState.CREATE_TABLE_UPDATE_DESC_CACHE);
           break;
         case CREATE_TABLE_UPDATE_DESC_CACHE:
@@ -217,10 +220,16 @@ public class CreateTableProcedure
   }
 
   @Override
-  protected LockState acquireLock(final MasterProcedureEnv env) {
-    if (!getTableName().isSystemTable() && env.waitInitialized(this)) {
-      return LockState.LOCK_EVENT_WAIT;
+  protected boolean waitInitialized(MasterProcedureEnv env) {
+    if (getTableName().isSystemTable()) {
+      // Creating system table is part of the initialization, so do not wait here.
+      return false;
     }
+    return super.waitInitialized(env);
+  }
+
+  @Override
+  protected LockState acquireLock(final MasterProcedureEnv env) {
     if (env.getProcedureScheduler().waitTableExclusiveLock(this, getTableName())) {
       return LockState.LOCK_EVENT_WAIT;
     }
@@ -387,5 +396,13 @@ public class CreateTableProcedure
     // system tables are created on bootstrap internally by the system
     // the client does not know about this procedures.
     return !getTableName().isSystemTable();
+  }
+
+  @VisibleForTesting
+  RegionInfo getFirstRegionInfo() {
+    if (newRegions == null || newRegions.isEmpty()) {
+      return null;
+    }
+    return newRegions.get(0);
   }
 }

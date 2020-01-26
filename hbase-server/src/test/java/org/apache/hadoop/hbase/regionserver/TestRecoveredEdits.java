@@ -21,14 +21,14 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hbase.Cell;
 import org.apache.hadoop.hbase.CellComparatorImpl;
-import org.apache.hadoop.hbase.CellScanner;
-import org.apache.hadoop.hbase.CellUtil;
 import org.apache.hadoop.hbase.HBaseClassTestRule;
 import org.apache.hadoop.hbase.HBaseTestingUtility;
 import org.apache.hadoop.hbase.HColumnDescriptor;
@@ -38,8 +38,8 @@ import org.apache.hadoop.hbase.HTableDescriptor;
 import org.apache.hadoop.hbase.MemoryCompactionPolicy;
 import org.apache.hadoop.hbase.PrivateCellUtil;
 import org.apache.hadoop.hbase.TableName;
-import org.apache.hadoop.hbase.client.Get;
-import org.apache.hadoop.hbase.client.Result;
+import org.apache.hadoop.hbase.client.Scan;
+import org.apache.hadoop.hbase.io.hfile.CacheConfig;
 import org.apache.hadoop.hbase.testclassification.MediumTests;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.hbase.util.FSUtils;
@@ -80,6 +80,7 @@ public class TestRecoveredEdits {
   @Test
   public void testReplayWorksThoughLotsOfFlushing() throws
       IOException {
+    CacheConfig.instantiateBlockCache(TEST_UTIL.getConfiguration());
     for(MemoryCompactionPolicy policy : MemoryCompactionPolicy.values()) {
       testReplayWorksWithMemoryCompactionPolicy(policy);
     }
@@ -130,7 +131,7 @@ public class TestRecoveredEdits {
     // There should be no store files.
     assertTrue(storeFiles.isEmpty());
     region.close();
-    Path regionDir = region.getRegionDir(hbaseRootDir, hri);
+    Path regionDir = FSUtils.getRegionDirFromRootDir(hbaseRootDir, hri);
     Path recoveredEditsDir = WALSplitter.getRegionDirRecoveredEditsDir(regionDir);
     // This is a little fragile getting this path to a file of 10M of edits.
     Path recoveredEditsFile = new Path(
@@ -166,13 +167,11 @@ public class TestRecoveredEdits {
    * @throws IOException
    */
   private int verifyAllEditsMadeItIn(final FileSystem fs, final Configuration conf,
-      final Path edits, final HRegion region)
-  throws IOException {
+      final Path edits, final HRegion region) throws IOException {
     int count = 0;
-    // Based on HRegion#replayRecoveredEdits
-    WAL.Reader reader = null;
-    try {
-      reader = WALFactory.createReader(fs, edits, conf);
+    // Read all cells from recover edits
+    List<Cell> walCells = new ArrayList<>();
+    try (WAL.Reader reader = WALFactory.createReader(fs, edits, conf)) {
       WAL.Entry entry;
       while ((entry = reader.next()) != null) {
         WALKey key = entry.getKey();
@@ -184,28 +183,48 @@ public class TestRecoveredEdits {
           continue;
         }
         Cell previous = null;
-        for (Cell cell: val.getCells()) {
-          if (CellUtil.matchingFamily(cell, WALEdit.METAFAMILY)) continue;
-          if (previous != null && CellComparatorImpl.COMPARATOR.compareRows(previous, cell) == 0)
+        for (Cell cell : val.getCells()) {
+          if (WALEdit.isMetaEditFamily(cell)) {
             continue;
-          previous = cell;
-          Get g = new Get(CellUtil.cloneRow(cell));
-          Result r = region.get(g);
-          boolean found = false;
-          for (CellScanner scanner = r.cellScanner(); scanner.advance();) {
-            Cell current = scanner.current();
-            if (PrivateCellUtil.compareKeyIgnoresMvcc(CellComparatorImpl.COMPARATOR, cell,
-              current) == 0) {
-              found = true;
-              break;
-            }
           }
-          assertTrue("Failed to find " + cell, found);
+          if (previous != null && CellComparatorImpl.COMPARATOR.compareRows(previous, cell) == 0) {
+            continue;
+          }
+          previous = cell;
+          walCells.add(cell);
         }
       }
-    } finally {
-      if (reader != null) reader.close();
     }
+
+    // Read all cells from region
+    List<Cell> regionCells = new ArrayList<>();
+    try (RegionScanner scanner = region.getScanner(new Scan())) {
+      List<Cell> tmpCells;
+      do {
+        tmpCells = new ArrayList<>();
+        scanner.nextRaw(tmpCells);
+        regionCells.addAll(tmpCells);
+      } while (!tmpCells.isEmpty());
+    }
+
+    Collections.sort(walCells, CellComparatorImpl.COMPARATOR);
+    int found = 0;
+    for (int i = 0, j = 0; i < walCells.size() && j < regionCells.size(); ) {
+      int compareResult = PrivateCellUtil
+          .compareKeyIgnoresMvcc(CellComparatorImpl.COMPARATOR, walCells.get(i),
+              regionCells.get(j));
+      if (compareResult == 0) {
+        i++;
+        j++;
+        found++;
+      } else if (compareResult > 0) {
+        j++;
+      } else {
+        i++;
+      }
+    }
+    assertEquals("Only found " + found + " cells in region, but there are " + walCells.size() +
+        " cells in recover edits", found, walCells.size());
     return count;
   }
 }

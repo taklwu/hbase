@@ -31,16 +31,19 @@ import org.apache.hadoop.hbase.procedure2.FailedRemoteDispatchException;
 import org.apache.hadoop.hbase.procedure2.Procedure;
 import org.apache.hadoop.hbase.procedure2.ProcedureStateSerializer;
 import org.apache.hadoop.hbase.procedure2.ProcedureSuspendedException;
+import org.apache.hadoop.hbase.procedure2.ProcedureUtil;
 import org.apache.hadoop.hbase.procedure2.RemoteProcedureDispatcher.RemoteOperation;
 import org.apache.hadoop.hbase.procedure2.RemoteProcedureDispatcher.RemoteProcedure;
 import org.apache.hadoop.hbase.procedure2.RemoteProcedureException;
-import org.apache.hadoop.hbase.shaded.protobuf.generated.ProcedureProtos;
-import org.apache.hadoop.hbase.shaded.protobuf.generated.MasterProcedureProtos.RegionTransitionState;
-import org.apache.hadoop.hbase.shaded.protobuf.generated.RegionServerStatusProtos.RegionStateTransition.TransitionCode;
-import org.apache.hbase.thirdparty.com.google.common.annotations.VisibleForTesting;
 import org.apache.yetus.audience.InterfaceAudience;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import org.apache.hbase.thirdparty.com.google.common.annotations.VisibleForTesting;
+
+import org.apache.hadoop.hbase.shaded.protobuf.generated.MasterProcedureProtos.RegionTransitionState;
+import org.apache.hadoop.hbase.shaded.protobuf.generated.ProcedureProtos;
+import org.apache.hadoop.hbase.shaded.protobuf.generated.RegionServerStatusProtos.RegionStateTransition.TransitionCode;
 
 /**
  * Base class for the Assign and Unassign Procedure.
@@ -109,18 +112,23 @@ public abstract class RegionTransitionProcedure
   private RegionInfo regionInfo;
 
   /**
+   * this data member must also be persisted.
+   * @see #regionInfo
+   */
+  private boolean override;
+
+  /**
    * Like {@link #regionInfo}, the expectation is that subclasses persist the value of this
    * data member. It is used doing backoff when Procedure gets stuck.
    */
   private int attempt;
 
-  private volatile boolean lock = false;
-
   // Required by the Procedure framework to create the procedure on replay
   public RegionTransitionProcedure() {}
 
-  public RegionTransitionProcedure(final RegionInfo regionInfo) {
+  public RegionTransitionProcedure(final RegionInfo regionInfo, boolean override) {
     this.regionInfo = regionInfo;
+    this.override = override;
   }
 
   @VisibleForTesting
@@ -133,7 +141,7 @@ public abstract class RegionTransitionProcedure
    * {@link #deserializeStateData(ProcedureStateSerializer)} method. Expectation is that
    * subclasses will persist `regioninfo` in their
    * {@link #serializeStateData(ProcedureStateSerializer)} method and then restore `regionInfo` on
-   * deserialization by calling.
+   * deserialization by calling this.
    */
   protected void setRegionInfo(final RegionInfo regionInfo) {
     this.regionInfo = regionInfo;
@@ -141,9 +149,21 @@ public abstract class RegionTransitionProcedure
 
   /**
    * This setter is for subclasses to call in their
-   * {@link #deserializeStateData(ProcedureStateSerializer)} method.
-   * @see #setRegionInfo(RegionInfo)
+   * {@link #deserializeStateData(ProcedureStateSerializer)} method. Expectation is that
+   * subclasses will persist `override` in their
+   * {@link #serializeStateData(ProcedureStateSerializer)} method and then restore `override` on
+   * deserialization by calling this.
    */
+  protected void setOverride(boolean override) {
+    this.override = override;
+  }
+
+
+    /**
+     * This setter is for subclasses to call in their
+     * {@link #deserializeStateData(ProcedureStateSerializer)} method.
+     * @see #setRegionInfo(RegionInfo)
+     */
   protected void setAttempt(int attempt) {
     this.attempt = attempt;
   }
@@ -169,6 +189,11 @@ public abstract class RegionTransitionProcedure
     sb.append(getTableName());
     sb.append(", region=");
     sb.append(getRegionInfo() == null? null: getRegionInfo().getEncodedName());
+    if (isOverride()) {
+      // Only log if set.
+      sb.append(", override=");
+      sb.append(isOverride());
+    }
   }
 
   public RegionStateNode getRegionState(final MasterProcedureEnv env) {
@@ -179,7 +204,7 @@ public abstract class RegionTransitionProcedure
     this.transitionState = state;
   }
 
-  RegionTransitionState getTransitionState() {
+  protected RegionTransitionState getTransitionState() {
     return transitionState;
   }
 
@@ -213,18 +238,19 @@ public abstract class RegionTransitionProcedure
       RegionStateNode regionNode, IOException exception);
 
   @Override
-  public synchronized void remoteCallFailed(final MasterProcedureEnv env,
+  public synchronized boolean remoteCallFailed(final MasterProcedureEnv env,
       final ServerName serverName, final IOException exception) {
     final RegionStateNode regionNode = getRegionState(env);
-    LOG.warn("Remote call failed {}; {}; {}; exception={}", serverName,
-        this, regionNode.toShortString(), exception.getClass().getSimpleName());
+    LOG.warn("Remote call failed {} {}", this, regionNode.toShortString(), exception);
     if (remoteCallFailed(env, regionNode, exception)) {
       // NOTE: This call to wakeEvent puts this Procedure back on the scheduler.
       // Thereafter, another Worker can be in here so DO NOT MESS WITH STATE beyond
       // this method. Just get out of this current processing quickly.
       regionNode.getProcedureEvent().wake(env.getProcedureScheduler());
+      return true;
     }
     // else leave the procedure in suspended state; it is waiting on another call to this callback
+    return false;
   }
 
   /**
@@ -238,7 +264,7 @@ public abstract class RegionTransitionProcedure
    */
   protected boolean addToRemoteDispatcher(final MasterProcedureEnv env,
       final ServerName targetServer) {
-    LOG.info("Dispatch {}; {}", this, getRegionState(env).toShortString());
+    LOG.info("Dispatch {}", this);
 
     // Put this procedure into suspended mode to wait on report of state change
     // from remote regionserver. Means Procedure associated ProcedureEvent is marked not 'ready'.
@@ -255,6 +281,11 @@ public abstract class RegionTransitionProcedure
       return false;
     }
     return true;
+  }
+
+  @Override
+  public boolean storeInDispatchedQueue() {
+    return false;
   }
 
   protected void reportTransition(final MasterProcedureEnv env, final ServerName serverName,
@@ -307,12 +338,19 @@ public abstract class RegionTransitionProcedure
     final AssignmentManager am = env.getAssignmentManager();
     final RegionStateNode regionNode = getRegionState(env);
     if (!am.addRegionInTransition(regionNode, this)) {
-      String msg = String.format(
-        "There is already another procedure running on this region this=%s owner=%s",
-        this, regionNode.getProcedure());
-      LOG.warn(msg + " " + this + "; " + regionNode.toShortString());
-      setAbortFailure(getClass().getSimpleName(), msg);
-      return null;
+      if (this.isOverride()) {
+        LOG.info("{} owned by pid={}, OVERRIDDEN by 'this' (pid={}, override=true).",
+            regionNode.getRegionInfo().getEncodedName(),
+            regionNode.getProcedure().getProcId(), getProcId());
+        regionNode.unsetProcedure(regionNode.getProcedure());
+      } else {
+        String msg = String.format("%s owned by pid=%d, CANNOT run 'this' (pid=%d).",
+            regionNode.getRegionInfo().getEncodedName(),
+            regionNode.getProcedure().getProcId(), getProcId());
+        LOG.warn(msg);
+        setAbortFailure(getClass().getSimpleName(), msg);
+        return null;
+      }
     }
     try {
       boolean retry;
@@ -360,25 +398,16 @@ public abstract class RegionTransitionProcedure
       // If here, success so clear out the attempt counter so we start fresh each time we get stuck.
       this.attempt = 0;
     } catch (IOException e) {
-      long backoff = getBackoffTime(this.attempt++);
+      long backoff = ProcedureUtil.getBackoffTimeMs(this.attempt++);
       LOG.warn("Failed transition, suspend {}secs {}; {}; waiting on rectified condition fixed " +
               "by other Procedure or operator intervention", backoff / 1000, this,
           regionNode.toShortString(), e);
-      getRegionState(env).getProcedureEvent().suspend();
-      if (getRegionState(env).getProcedureEvent().suspendIfNotReady(this)) {
-        setTimeout(Math.toIntExact(backoff));
-        setState(ProcedureProtos.ProcedureState.WAITING_TIMEOUT);
-        throw new ProcedureSuspendedException();
-      }
+      setTimeout(Math.toIntExact(backoff));
+      setState(ProcedureProtos.ProcedureState.WAITING_TIMEOUT);
+      throw new ProcedureSuspendedException();
     }
 
     return new Procedure[] {this};
-  }
-
-  private long getBackoffTime(int attempts) {
-    long backoffTime = (long)(1000 * Math.pow(2, attempts));
-    long maxBackoffTime = 60 * 60 * 1000; // An hour. Hard-coded for for now.
-    return backoffTime < maxBackoffTime? backoffTime: maxBackoffTime;
   }
 
   /**
@@ -387,7 +416,7 @@ public abstract class RegionTransitionProcedure
   @Override
   protected synchronized boolean setTimeoutFailure(MasterProcedureEnv env) {
     setState(ProcedureProtos.ProcedureState.RUNNABLE);
-    getRegionState(env).getProcedureEvent().wake(env.getProcedureScheduler());
+    env.getProcedureScheduler().addFront(this);
     return false; // 'false' means that this procedure handled the timeout
   }
 
@@ -402,9 +431,9 @@ public abstract class RegionTransitionProcedure
 
     // There is no rollback for assignment unless we cancel the operation by
     // dropping/disabling the table.
-    throw new UnsupportedOperationException("Unhandled state " + transitionState +
-        "; there is no rollback for assignment unless we cancel the operation by " +
-        "dropping/disabling the table");
+    LOG.warn("Unhandled state {}; no rollback for assignment! Doing NOTHING!" +
+        " May need manual intervention; {}",
+        transitionState, this);
   }
 
   protected abstract boolean isRollbackSupported(final RegionTransitionState state);
@@ -419,43 +448,42 @@ public abstract class RegionTransitionProcedure
   }
 
   @Override
-  protected LockState acquireLock(final MasterProcedureEnv env) {
+  protected boolean waitInitialized(MasterProcedureEnv env) {
     // Unless we are assigning meta, wait for meta to be available and loaded.
-    if (!isMeta()) {
-      AssignmentManager am = env.getAssignmentManager();
-      if (am.waitMetaLoaded(this) || am.waitMetaAssigned(this, regionInfo)) {
-        return LockState.LOCK_EVENT_WAIT;
-      }
+    if (isMeta()) {
+      return false;
     }
+    AssignmentManager am = env.getAssignmentManager();
+    return am.waitMetaLoaded(this) || am.waitMetaAssigned(this, regionInfo);
+  }
 
+  @Override
+  protected LockState acquireLock(final MasterProcedureEnv env) {
     // TODO: Revisit this and move it to the executor
     if (env.getProcedureScheduler().waitRegion(this, getRegionInfo())) {
       try {
-        LOG.debug(LockState.LOCK_EVENT_WAIT + " pid=" + getProcId() + " " +
-          env.getProcedureScheduler().dumpLocks());
+        // Enable TRACE on this class to see lock dump. Can be really large when cluster is big
+        // or big tables being enabled/disabled.
+        if (LOG.isTraceEnabled()) {
+          LOG.trace("{} pid={} {}", LockState.LOCK_EVENT_WAIT, getProcId(),
+              env.getProcedureScheduler().dumpLocks());
+        }
       } catch (IOException e) {
         // ignore, just for logging
       }
       return LockState.LOCK_EVENT_WAIT;
     }
-    this.lock = true;
     return LockState.LOCK_ACQUIRED;
   }
 
   @Override
   protected void releaseLock(final MasterProcedureEnv env) {
     env.getProcedureScheduler().wakeRegion(this, getRegionInfo());
-    lock = false;
   }
 
   @Override
   protected boolean holdLock(final MasterProcedureEnv env) {
     return true;
-  }
-
-  @Override
-  protected boolean hasLock(final MasterProcedureEnv env) {
-    return lock;
   }
 
   @Override
@@ -481,5 +509,24 @@ public abstract class RegionTransitionProcedure
   public void remoteOperationFailed(MasterProcedureEnv env, RemoteProcedureException error) {
     // should not be called for region operation until we modified the open/close region procedure
     throw new UnsupportedOperationException();
+  }
+
+  @Override
+  protected void bypass(MasterProcedureEnv env) {
+    // This override is just so I can write a note on how bypass is done in
+    // RTP. For RTP procedures -- i.e. assign/unassign -- if bypass is called,
+    // we intentionally do NOT cleanup our state. We leave a reference to the
+    // bypassed Procedure in the RegionStateNode. Doing this makes it so the
+    // RSN is in an odd state. The bypassed Procedure is finished but no one
+    // else can make progress on this RSN entity (see the #execute above where
+    // we check the RSN to see if an already registered procedure and if so,
+    // we exit without proceeding). This is done to intentionally block
+    // subsequent Procedures from running. Only a Procedure with the 'override' flag
+    // set can overwrite the RSN and make progress.
+    super.bypass(env);
+  }
+
+  boolean isOverride() {
+    return this.override;
   }
 }

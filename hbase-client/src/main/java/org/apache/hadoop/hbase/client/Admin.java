@@ -1723,11 +1723,16 @@ public interface Admin extends Abortable, Closeable {
 
   /**
    * Abort a procedure.
+   * Do not use. Usually it is ignored but if not, it can do more damage than good. See hbck2.
    * @param procId ID of the procedure to abort
    * @param mayInterruptIfRunning if the proc completed at least one step, should it be aborted?
-   * @return <code>true</code> if aborted, <code>false</code> if procedure already completed or does not exist
-   * @throws IOException
+   * @return <code>true</code> if aborted, <code>false</code> if procedure already completed or does
+   *         not exist
+   * @throws IOException if a remote or network exception occurs
+   * @deprecated since 2.1.1 and will be removed in 4.0.0.
+   * @see <a href="https://issues.apache.org/jira/browse/HBASE-21223">HBASE-21223</a>
    */
+  @Deprecated
   boolean abortProcedure(
       long procId,
       boolean mayInterruptIfRunning) throws IOException;
@@ -1738,12 +1743,16 @@ public interface Admin extends Abortable, Closeable {
    * It may throw ExecutionException if there was an error while executing the operation
    * or TimeoutException in case the wait timeout was not long enough to allow the
    * operation to complete.
+   * Do not use. Usually it is ignored but if not, it can do more damage than good. See hbck2.
    *
    * @param procId ID of the procedure to abort
    * @param mayInterruptIfRunning if the proc completed at least one step, should it be aborted?
    * @return <code>true</code> if aborted, <code>false</code> if procedure already completed or does not exist
-   * @throws IOException
+   * @throws IOException if a remote or network exception occurs
+   * @deprecated since 2.1.1 and will be removed in 4.0.0.
+   * @see <a href="https://issues.apache.org/jira/browse/HBASE-21223">HBASE-21223</a>
    */
+  @Deprecated
   Future<Boolean> abortProcedureAsync(
     long procId,
     boolean mayInterruptIfRunning) throws IOException;

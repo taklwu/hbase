@@ -36,6 +36,7 @@ import org.apache.hadoop.hbase.master.TableStateManager;
 import org.apache.hadoop.hbase.master.assignment.RegionStates;
 import org.apache.hadoop.hbase.procedure2.StateMachineProcedure;
 import org.apache.hadoop.hbase.security.User;
+import org.apache.hadoop.hbase.util.FSUtils;
 import org.apache.yetus.audience.InterfaceAudience;
 
 /**
@@ -89,10 +90,12 @@ public abstract class AbstractStateMachineTableProcedure<TState>
   }
 
   @Override
+  protected boolean waitInitialized(MasterProcedureEnv env) {
+    return env.waitInitialized(this);
+  }
+
+  @Override
   protected LockState acquireLock(final MasterProcedureEnv env) {
-    if (env.waitInitialized(this)) {
-      return LockState.LOCK_EVENT_WAIT;
-    }
     if (env.getProcedureScheduler().waitTableExclusiveLock(this, getTableName())) {
       return LockState.LOCK_EVENT_WAIT;
     }
@@ -128,8 +131,10 @@ public abstract class AbstractStateMachineTableProcedure<TState>
     }
   }
 
-  protected final Path getRegionDir(MasterProcedureEnv env, RegionInfo region) throws IOException {
-    return env.getMasterServices().getMasterFileSystem().getRegionDir(region);
+  protected final Path getWALRegionDir(MasterProcedureEnv env, RegionInfo region)
+      throws IOException {
+    return FSUtils.getWALRegionDir(env.getMasterConfiguration(),
+        region.getTable(), region.getEncodedName());
   }
 
   /**
@@ -186,7 +191,7 @@ public abstract class AbstractStateMachineTableProcedure<TState>
       throw new UnknownRegionException("No RegionState found for " + ri.getEncodedName());
     }
     if (!rs.isOpened()) {
-      throw new DoNotRetryRegionException(ri.getEncodedName() + " is not OPEN");
+      throw new DoNotRetryRegionException(ri.getEncodedName() + " is not OPEN; regionState=" + rs);
     }
     if (ri.isSplitParent()) {
       throw new DoNotRetryRegionException(ri.getEncodedName() +

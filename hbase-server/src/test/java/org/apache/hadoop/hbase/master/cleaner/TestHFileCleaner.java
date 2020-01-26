@@ -34,14 +34,19 @@ import org.apache.hadoop.hbase.CoordinatedStateManager;
 import org.apache.hadoop.hbase.HBaseClassTestRule;
 import org.apache.hadoop.hbase.HBaseTestingUtility;
 import org.apache.hadoop.hbase.HConstants;
+import org.apache.hadoop.hbase.HRegionInfo;
 import org.apache.hadoop.hbase.Server;
 import org.apache.hadoop.hbase.ServerName;
+import org.apache.hadoop.hbase.TableName;
 import org.apache.hadoop.hbase.client.ClusterConnection;
 import org.apache.hadoop.hbase.client.Connection;
+import org.apache.hadoop.hbase.mob.ManualMobMaintHFileCleaner;
+import org.apache.hadoop.hbase.mob.MobUtils;
 import org.apache.hadoop.hbase.testclassification.MasterTests;
 import org.apache.hadoop.hbase.testclassification.MediumTests;
 import org.apache.hadoop.hbase.util.EnvironmentEdge;
 import org.apache.hadoop.hbase.util.EnvironmentEdgeManager;
+import org.apache.hadoop.hbase.util.HFileArchiveUtil;
 import org.apache.hadoop.hbase.zookeeper.MetaTableLocator;
 import org.apache.hadoop.hbase.zookeeper.ZKWatcher;
 import org.junit.AfterClass;
@@ -64,16 +69,19 @@ public class TestHFileCleaner {
 
   private final static HBaseTestingUtility UTIL = new HBaseTestingUtility();
 
+  private static DirScanPool POOL;
+
   @BeforeClass
   public static void setupCluster() throws Exception {
     // have to use a minidfs cluster because the localfs doesn't modify file times correctly
     UTIL.startMiniDFSCluster(1);
-    CleanerChore.initChorePool(UTIL.getConfiguration());
+    POOL = new DirScanPool(UTIL.getConfiguration());
   }
 
   @AfterClass
   public static void shutdownCluster() throws IOException {
     UTIL.shutdownMiniDFSCluster();
+    POOL.shutdownNow();
   }
 
   @Test
@@ -94,6 +102,44 @@ public class TestHFileCleaner {
         + " with create time:" + createTime, cleaner.isFileDeletable(fs.getFileStatus(file)));
   }
 
+  @Test
+  public void testManualMobCleanerStopsMobRemoval() throws IOException {
+    FileSystem fs = UTIL.getDFSCluster().getFileSystem();
+    Path root = UTIL.getDataTestDirOnTestFS();
+    TableName table = TableName.valueOf("testManualMobCleanerStopsMobRemoval");
+    Path mob = HFileArchiveUtil.getRegionArchiveDir(root, table,
+        MobUtils.getMobRegionInfo(table).getEncodedName());
+    Path family= new Path(mob, "family");
+
+    Path file = new Path(family, "someHFileThatWouldBeAUUID");
+    fs.createNewFile(file);
+    assertTrue("Test file not created!", fs.exists(file));
+
+    ManualMobMaintHFileCleaner cleaner = new ManualMobMaintHFileCleaner();
+
+    assertFalse("Mob File shouldn't have been deletable. check path. '"+file+"'",
+        cleaner.isFileDeletable(fs.getFileStatus(file)));
+  }
+
+  @Test
+  public void testManualMobCleanerLetsNonMobGo() throws IOException {
+    FileSystem fs = UTIL.getDFSCluster().getFileSystem();
+    Path root = UTIL.getDataTestDirOnTestFS();
+    TableName table = TableName.valueOf("testManualMobCleanerLetsNonMobGo");
+    Path nonmob = HFileArchiveUtil.getRegionArchiveDir(root, table,
+        new HRegionInfo(table).getEncodedName());
+    Path family= new Path(nonmob, "family");
+
+    Path file = new Path(family, "someHFileThatWouldBeAUUID");
+    fs.createNewFile(file);
+    assertTrue("Test file not created!", fs.exists(file));
+
+    ManualMobMaintHFileCleaner cleaner = new ManualMobMaintHFileCleaner();
+
+    assertTrue("Non-Mob File should have been deletable. check path. '"+file+"'",
+        cleaner.isFileDeletable(fs.getFileStatus(file)));
+  }
+
   /**
    * @param file to check
    * @return loggable information about the file
@@ -112,12 +158,14 @@ public class TestHFileCleaner {
     // set TTL
     long ttl = 2000;
     conf.set(HFileCleaner.MASTER_HFILE_CLEANER_PLUGINS,
-      "org.apache.hadoop.hbase.master.cleaner.TimeToLiveHFileCleaner");
+        "org.apache.hadoop.hbase.master.cleaner.TimeToLiveHFileCleaner," +
+        "org.apache.hadoop.hbase.mob.ManualMobMaintHFileCleaner");
     conf.setLong(TimeToLiveHFileCleaner.TTL_CONF_KEY, ttl);
     Server server = new DummyServer();
-    Path archivedHfileDir = new Path(UTIL.getDataTestDirOnTestFS(), HConstants.HFILE_ARCHIVE_DIRECTORY);
+    Path archivedHfileDir =
+      new Path(UTIL.getDataTestDirOnTestFS(), HConstants.HFILE_ARCHIVE_DIRECTORY);
     FileSystem fs = FileSystem.get(conf);
-    HFileCleaner cleaner = new HFileCleaner(1000, server, conf, fs, archivedHfileDir);
+    HFileCleaner cleaner = new HFileCleaner(1000, server, conf, fs, archivedHfileDir, POOL);
 
     // Create 2 invalid files, 1 "recent" file, 1 very new file and 30 old files
     final long createTime = System.currentTimeMillis();
@@ -180,11 +228,12 @@ public class TestHFileCleaner {
     // no cleaner policies = delete all files
     conf.setStrings(HFileCleaner.MASTER_HFILE_CLEANER_PLUGINS, "");
     Server server = new DummyServer();
-    Path archivedHfileDir = new Path(UTIL.getDataTestDirOnTestFS(), HConstants.HFILE_ARCHIVE_DIRECTORY);
+    Path archivedHfileDir =
+      new Path(UTIL.getDataTestDirOnTestFS(), HConstants.HFILE_ARCHIVE_DIRECTORY);
 
     // setup the cleaner
     FileSystem fs = UTIL.getDFSCluster().getFileSystem();
-    HFileCleaner cleaner = new HFileCleaner(1000, server, conf, fs, archivedHfileDir);
+    HFileCleaner cleaner = new HFileCleaner(1000, server, conf, fs, archivedHfileDir, POOL);
 
     // make all the directories for archiving files
     Path table = new Path(archivedHfileDir, "table");
@@ -297,7 +346,7 @@ public class TestHFileCleaner {
 
     // setup the cleaner
     FileSystem fs = UTIL.getDFSCluster().getFileSystem();
-    HFileCleaner cleaner = new HFileCleaner(1000, server, conf, fs, archivedHfileDir);
+    HFileCleaner cleaner = new HFileCleaner(1000, server, conf, fs, archivedHfileDir, POOL);
     // clean up archive directory
     fs.delete(archivedHfileDir, true);
     fs.mkdirs(archivedHfileDir);
@@ -326,7 +375,7 @@ public class TestHFileCleaner {
 
     // setup the cleaner
     FileSystem fs = UTIL.getDFSCluster().getFileSystem();
-    HFileCleaner cleaner = new HFileCleaner(1000, server, conf, fs, archivedHfileDir);
+    HFileCleaner cleaner = new HFileCleaner(1000, server, conf, fs, archivedHfileDir, POOL);
     // clean up archive directory
     fs.delete(archivedHfileDir, true);
     fs.mkdirs(archivedHfileDir);
@@ -352,6 +401,8 @@ public class TestHFileCleaner {
     final int SMALL_FILE_NUM = 20;
     final int LARGE_THREAD_NUM = 2;
     final int SMALL_THREAD_NUM = 4;
+    final long THREAD_TIMEOUT_MSEC = 30 * 1000L;
+    final long THREAD_CHECK_INTERVAL_MSEC = 500L;
 
     Configuration conf = UTIL.getConfiguration();
     // no cleaner policies = delete all files
@@ -365,10 +416,14 @@ public class TestHFileCleaner {
 
     // setup the cleaner
     FileSystem fs = UTIL.getDFSCluster().getFileSystem();
-    final HFileCleaner cleaner = new HFileCleaner(1000, server, conf, fs, archivedHfileDir);
+    final HFileCleaner cleaner = new HFileCleaner(1000, server, conf, fs, archivedHfileDir, POOL);
     Assert.assertEquals(ORIGINAL_THROTTLE_POINT, cleaner.getThrottlePoint());
     Assert.assertEquals(ORIGINAL_QUEUE_INIT_SIZE, cleaner.getLargeQueueInitSize());
     Assert.assertEquals(ORIGINAL_QUEUE_INIT_SIZE, cleaner.getSmallQueueInitSize());
+    Assert.assertEquals(HFileCleaner.DEFAULT_HFILE_DELETE_THREAD_TIMEOUT_MSEC,
+        cleaner.getCleanerThreadTimeoutMsec());
+    Assert.assertEquals(HFileCleaner.DEFAULT_HFILE_DELETE_THREAD_CHECK_INTERVAL_MSEC,
+        cleaner.getCleanerThreadCheckIntervalMsec());
 
     // clean up archive directory and create files for testing
     fs.delete(archivedHfileDir, true);
@@ -396,6 +451,10 @@ public class TestHFileCleaner {
     newConf.setInt(HFileCleaner.SMALL_HFILE_QUEUE_INIT_SIZE, UPDATE_QUEUE_INIT_SIZE);
     newConf.setInt(HFileCleaner.LARGE_HFILE_DELETE_THREAD_NUMBER, LARGE_THREAD_NUM);
     newConf.setInt(HFileCleaner.SMALL_HFILE_DELETE_THREAD_NUMBER, SMALL_THREAD_NUM);
+    newConf.setLong(HFileCleaner.HFILE_DELETE_THREAD_TIMEOUT_MSEC, THREAD_TIMEOUT_MSEC);
+    newConf.setLong(HFileCleaner.HFILE_DELETE_THREAD_CHECK_INTERVAL_MSEC,
+        THREAD_CHECK_INTERVAL_MSEC);
+
     LOG.debug("File deleted from large queue: " + cleaner.getNumOfDeletedLargeFiles()
         + "; from small queue: " + cleaner.getNumOfDeletedSmallFiles());
     cleaner.onConfigurationChange(newConf);
@@ -405,6 +464,8 @@ public class TestHFileCleaner {
     Assert.assertEquals(UPDATE_QUEUE_INIT_SIZE, cleaner.getLargeQueueInitSize());
     Assert.assertEquals(UPDATE_QUEUE_INIT_SIZE, cleaner.getSmallQueueInitSize());
     Assert.assertEquals(LARGE_THREAD_NUM + SMALL_THREAD_NUM, cleaner.getCleanerThreads().size());
+    Assert.assertEquals(THREAD_TIMEOUT_MSEC, cleaner.getCleanerThreadTimeoutMsec());
+    Assert.assertEquals(THREAD_CHECK_INTERVAL_MSEC, cleaner.getCleanerThreadCheckIntervalMsec());
 
     // make sure no cost when onConfigurationChange called with no change
     List<Thread> oldThreads = cleaner.getCleanerThreads();

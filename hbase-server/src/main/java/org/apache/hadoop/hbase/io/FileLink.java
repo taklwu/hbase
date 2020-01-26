@@ -31,6 +31,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.apache.hadoop.fs.CanSetDropBehind;
 import org.apache.hadoop.fs.CanSetReadahead;
+import org.apache.hadoop.fs.CanUnbuffer;
 import org.apache.hadoop.fs.FSDataInputStream;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.FileStatus;
@@ -102,7 +103,7 @@ public class FileLink {
    * and the alternative locations, when the file is moved.
    */
   private static class FileLinkInputStream extends InputStream
-      implements Seekable, PositionedReadable, CanSetDropBehind, CanSetReadahead {
+      implements Seekable, PositionedReadable, CanSetDropBehind, CanSetReadahead, CanUnbuffer {
     private FSDataInputStream in = null;
     private Path currentPath = null;
     private long pos = 0;
@@ -281,6 +282,14 @@ public class FileLink {
       return false;
     }
 
+    @Override
+    public void unbuffer() {
+      if (in == null) {
+        return;
+      }
+      in.unbuffer();
+    }
+
     /**
      * Try to open the file from one of the available locations.
      *
@@ -310,7 +319,7 @@ public class FileLink {
           if (!(ioe instanceof FileNotFoundException)) throw re;
         }
       }
-      throw new FileNotFoundException("Unable to open link: " + fileLink);
+      throw new FileNotFoundException(this.fileLink.toString());
     }
 
     @Override
@@ -354,7 +363,7 @@ public class FileLink {
 
   @Override
   public String toString() {
-    StringBuilder str = new StringBuilder(getClass().getName());
+    StringBuilder str = new StringBuilder(getClass().getSimpleName());
     str.append(" locations=[");
     for (int i = 0; i < locations.length; ++i) {
       if (i > 0) str.append(", ");
@@ -385,7 +394,7 @@ public class FileLink {
         return locations[i];
       }
     }
-    throw new FileNotFoundException("Unable to open link: " + this);
+    throw new FileNotFoundException(toString());
   }
 
   /**
@@ -403,7 +412,7 @@ public class FileLink {
         // Try another file location
       }
     }
-    throw new FileNotFoundException("Unable to open link: " + this);
+    throw new FileNotFoundException(toString());
   }
 
   /**

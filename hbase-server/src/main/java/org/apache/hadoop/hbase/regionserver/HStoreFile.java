@@ -19,10 +19,14 @@
 package org.apache.hadoop.hbase.regionserver;
 
 import java.io.IOException;
+import java.io.UnsupportedEncodingException;
+import java.net.URLEncoder;
 import java.util.Collections;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -31,6 +35,7 @@ import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hbase.Cell;
 import org.apache.hadoop.hbase.CellComparator;
+import org.apache.hadoop.hbase.HConstants;
 import org.apache.hadoop.hbase.HDFSBlocksDistribution;
 import org.apache.hadoop.hbase.io.TimeRange;
 import org.apache.hadoop.hbase.io.hfile.BlockType;
@@ -38,10 +43,14 @@ import org.apache.hadoop.hbase.io.hfile.CacheConfig;
 import org.apache.hadoop.hbase.io.hfile.HFile;
 import org.apache.hadoop.hbase.util.BloomFilterFactory;
 import org.apache.hadoop.hbase.util.Bytes;
+
 import org.apache.yetus.audience.InterfaceAudience;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.apache.hbase.thirdparty.com.google.common.annotations.VisibleForTesting;
+import org.apache.hbase.thirdparty.com.google.common.base.Preconditions;
+
 
 /**
  * A Store data file.  Stores usually have one or more of these files.  They
@@ -57,7 +66,7 @@ import org.apache.hbase.thirdparty.com.google.common.annotations.VisibleForTesti
  * writer and a reader is that we write once but read a lot more.
  */
 @InterfaceAudience.Private
-public class HStoreFile implements StoreFile {
+public class HStoreFile implements StoreFile, StoreFileReader.Listener {
 
   private static final Logger LOG = LoggerFactory.getLogger(HStoreFile.class.getName());
 
@@ -115,6 +124,10 @@ public class HStoreFile implements StoreFile {
   // store file. It is decremented when the scan on the store file is
   // done.
   private final AtomicInteger refCount = new AtomicInteger(0);
+
+  // Set implementation must be of concurrent type
+  @VisibleForTesting
+  final Set<StoreFileReader> streamReaders;
 
   private final boolean noReadahead;
 
@@ -219,6 +232,7 @@ public class HStoreFile implements StoreFile {
    */
   public HStoreFile(FileSystem fs, StoreFileInfo fileInfo, Configuration conf, CacheConfig cacheConf,
       BloomType cfBloomType, boolean primaryReplica) {
+    this.streamReaders = ConcurrentHashMap.newKeySet();
     this.fs = fs;
     this.fileInfo = fileInfo;
     this.cacheConf = cacheConf;
@@ -245,6 +259,15 @@ public class HStoreFile implements StoreFile {
   @Override
   public Path getPath() {
     return this.fileInfo.getPath();
+  }
+
+  @Override
+  public Path getEncodedPath() {
+    try {
+      return new Path(URLEncoder.encode(fileInfo.getPath().toString(), HConstants.UTF8_ENCODING));
+    } catch (UnsupportedEncodingException ex) {
+      throw new RuntimeException("URLEncoder doesn't support UTF-8", ex);
+    }
   }
 
   @Override
@@ -502,8 +525,13 @@ public class HStoreFile implements StoreFile {
   public StoreFileScanner getStreamScanner(boolean canUseDropBehind, boolean cacheBlocks,
       boolean isCompaction, long readPt, long scannerOrder, boolean canOptimizeForNonNullColumn)
       throws IOException {
-    return createStreamReader(canUseDropBehind).getStoreFileScanner(cacheBlocks, false,
+    StoreFileReader reader = createStreamReader(canUseDropBehind);
+    reader.setListener(this);
+    StoreFileScanner sfScanner = reader.getStoreFileScanner(cacheBlocks, false,
       isCompaction, readPt, scannerOrder, canOptimizeForNonNullColumn);
+    //Add reader once the scanner is created
+    streamReaders.add(reader);
+    return sfScanner;
   }
 
   /**
@@ -522,6 +550,19 @@ public class HStoreFile implements StoreFile {
     if (this.reader != null) {
       this.reader.close(evictOnClose);
       this.reader = null;
+    }
+    closeStreamReaders(evictOnClose);
+  }
+
+  public void closeStreamReaders(boolean evictOnClose) throws IOException {
+    synchronized (this) {
+      for (StoreFileReader entry : streamReaders) {
+        //closing the reader will remove itself from streamReaders thanks to the Listener
+        entry.close(evictOnClose);
+      }
+      int size = streamReaders.size();
+      Preconditions.checkState(size == 0,
+          "There are still streamReaders post close: " + size);
     }
   }
 
@@ -588,5 +629,10 @@ public class HStoreFile implements StoreFile {
   public OptionalLong getMaximumTimestamp() {
     TimeRange tr = getReader().timeRange;
     return tr != null ? OptionalLong.of(tr.getMax()) : OptionalLong.empty();
+  }
+
+  @Override
+  public void storeFileReaderClosed(StoreFileReader reader) {
+    streamReaders.remove(reader);
   }
 }

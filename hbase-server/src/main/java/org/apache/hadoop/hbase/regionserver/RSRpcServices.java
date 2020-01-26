@@ -94,6 +94,7 @@ import org.apache.hadoop.hbase.ipc.PriorityFunction;
 import org.apache.hadoop.hbase.ipc.QosPriority;
 import org.apache.hadoop.hbase.ipc.RpcCallContext;
 import org.apache.hadoop.hbase.ipc.RpcCallback;
+import org.apache.hadoop.hbase.ipc.RpcScheduler;
 import org.apache.hadoop.hbase.ipc.RpcServer;
 import org.apache.hadoop.hbase.ipc.RpcServer.BlockingServiceAndInterface;
 import org.apache.hadoop.hbase.ipc.RpcServerFactory;
@@ -251,6 +252,10 @@ public class RSRpcServices implements HBaseRPCErrorHandler,
   /** RPC scheduler to use for the region server. */
   public static final String REGION_SERVER_RPC_SCHEDULER_FACTORY_CLASS =
     "hbase.region.server.rpc.scheduler.factory.class";
+
+  /** RPC scheduler to use for the master. */
+  public static final String MASTER_RPC_SCHEDULER_FACTORY_CLASS =
+    "hbase.master.rpc.scheduler.factory.class";
 
   /**
    * Minimum allowable time limit delta (in milliseconds) that can be enforced during scans. This
@@ -525,7 +530,7 @@ public class RSRpcServices implements HBaseRPCErrorHandler,
    * Starts the nonce operation for a mutation, if needed.
    * @param mutation Mutation.
    * @param nonceGroup Nonce group from the request.
-   * @returns whether to proceed this mutation.
+   * @return whether to proceed this mutation.
    */
   private boolean startNonceOperation(final MutationProto mutation, long nonceGroup)
       throws IOException {
@@ -1198,10 +1203,7 @@ public class RSRpcServices implements HBaseRPCErrorHandler,
     rowSizeWarnThreshold = rs.conf.getInt(BATCH_ROWS_THRESHOLD_NAME, BATCH_ROWS_THRESHOLD_DEFAULT);
     RpcSchedulerFactory rpcSchedulerFactory;
     try {
-      Class<?> cls = rs.conf.getClass(
-          REGION_SERVER_RPC_SCHEDULER_FACTORY_CLASS,
-          SimpleRpcSchedulerFactory.class);
-      rpcSchedulerFactory = cls.asSubclass(RpcSchedulerFactory.class)
+      rpcSchedulerFactory = getRpcSchedulerFactoryClass().asSubclass(RpcSchedulerFactory.class)
           .getDeclaredConstructor().newInstance();
     } catch (NoSuchMethodException | InvocationTargetException |
         InstantiationException | IllegalAccessException e) {
@@ -1276,6 +1278,11 @@ public class RSRpcServices implements HBaseRPCErrorHandler,
           + HConstants.REGIONSERVER_PORT + "' configuration property.",
           be.getCause() != null ? be.getCause() : be);
     }
+  }
+
+  protected Class<?> getRpcSchedulerFactoryClass() {
+    return this.regionServer.conf.getClass(REGION_SERVER_RPC_SCHEDULER_FACTORY_CLASS,
+      SimpleRpcSchedulerFactory.class);
   }
 
   @Override
@@ -2298,14 +2305,22 @@ public class RSRpcServices implements HBaseRPCErrorHandler,
   public BulkLoadHFileResponse bulkLoadHFile(final RpcController controller,
       final BulkLoadHFileRequest request) throws ServiceException {
     long start = EnvironmentEdgeManager.currentTime();
+    List<String> clusterIds = new ArrayList<>(request.getClusterIdsList());
+    if(clusterIds.contains(this.regionServer.clusterId)){
+      return BulkLoadHFileResponse.newBuilder().setLoaded(true).build();
+    } else {
+      clusterIds.add(this.regionServer.clusterId);
+    }
     try {
       checkOpen();
       requestCount.increment();
       HRegion region = getRegion(request.getRegion());
       Map<byte[], List<Path>> map = null;
+      final boolean spaceQuotaEnabled = QuotaUtil.isQuotaEnabled(getConfiguration());
+      long sizeToBeLoaded = -1;
 
       // Check to see if this bulk load would exceed the space quota for this table
-      if (QuotaUtil.isQuotaEnabled(getConfiguration())) {
+      if (spaceQuotaEnabled) {
         ActivePolicyEnforcement activeSpaceQuotas = getSpaceQuotaManager().getActiveEnforcements();
         SpaceViolationPolicyEnforcement enforcement = activeSpaceQuotas.getPolicyEnforcement(
             region);
@@ -2316,7 +2331,7 @@ public class RSRpcServices implements HBaseRPCErrorHandler,
             filePaths.add(familyPath.getPath());
           }
           // Check if the batch of files exceeds the current quota
-          enforcement.checkBulkLoad(regionServer.getFileSystem(), filePaths);
+          sizeToBeLoaded = enforcement.computeBulkLoadSize(regionServer.getFileSystem(), filePaths);
         }
       }
 
@@ -2330,7 +2345,7 @@ public class RSRpcServices implements HBaseRPCErrorHandler,
         }
         try {
           map = region.bulkLoadHFiles(familyPaths, request.getAssignSeqNum(), null,
-              request.getCopyFile());
+              request.getCopyFile(), clusterIds, request.getReplicate());
         } finally {
           if (region.getCoprocessorHost() != null) {
             region.getCoprocessorHost().postBulkLoadHFile(familyPaths, map);
@@ -2338,10 +2353,23 @@ public class RSRpcServices implements HBaseRPCErrorHandler,
         }
       } else {
         // secure bulk load
-        map = regionServer.secureBulkLoadManager.secureBulkLoadHFiles(region, request);
+        map = regionServer.secureBulkLoadManager.secureBulkLoadHFiles(region, request, clusterIds);
       }
       BulkLoadHFileResponse.Builder builder = BulkLoadHFileResponse.newBuilder();
       builder.setLoaded(map != null);
+      if (map != null) {
+        // Treat any negative size as a flag to "ignore" updating the region size as that is
+        // not possible to occur in real life (cannot bulk load a file with negative size)
+        if (spaceQuotaEnabled && sizeToBeLoaded > 0) {
+          if (LOG.isTraceEnabled()) {
+            LOG.trace("Incrementing space use of " + region.getRegionInfo() + " by "
+                + sizeToBeLoaded + " bytes");
+          }
+          // Inform space quotas of the new files for this region
+          getSpaceQuotaManager().getRegionSizeStore().incrementRegionSize(
+              region.getRegionInfo(), sizeToBeLoaded);
+        }
+      }
       return builder.build();
     } catch (IOException ie) {
       throw new ServiceException(ie);
@@ -2487,7 +2515,8 @@ public class RSRpcServices implements HBaseRPCErrorHandler,
         }
         builder.setResult(pbr);
       }
-      if (r != null) {
+      //r.cells is null when an table.exists(get) call
+      if (r != null && r.rawCells() != null) {
         quota.addGetResult(r);
       }
       return builder.build();
@@ -3161,6 +3190,18 @@ public class RSRpcServices implements HBaseRPCErrorHandler,
                 break;
               }
             }
+          } else if (!moreRows && !results.isEmpty()) {
+            // No more cells for the scan here, we need to ensure that the mayHaveMoreCellsInRow of
+            // last result is false. Otherwise it's possible that: the first nextRaw returned
+            // because BATCH_LIMIT_REACHED (BTW it happen to exhaust all cells of the scan),so the
+            // last result's mayHaveMoreCellsInRow will be true. while the following nextRaw will
+            // return with moreRows=false, which means moreResultsInRegion would be false, it will
+            // be a contradictory state (HBASE-21206).
+            int lastIdx = results.size() - 1;
+            Result r = results.get(lastIdx);
+            if (r.mayHaveMoreCellsInRow()) {
+              results.set(lastIdx, Result.create(r.rawCells(), r.getExists(), r.isStale(), false));
+            }
           }
           boolean sizeLimitReached = scannerContext.checkSizeLimit(LimitScope.BETWEEN_ROWS);
           boolean timeLimitReached = scannerContext.checkTimeLimit(LimitScope.BETWEEN_ROWS);
@@ -3176,12 +3217,12 @@ public class RSRpcServices implements HBaseRPCErrorHandler,
             // there are more values to be read server side. If there aren't more values,
             // marking it as a heartbeat is wasteful because the client will need to issue
             // another ScanRequest only to realize that they already have all the values
-            if (moreRows) {
+            if (moreRows && timeLimitReached) {
               // Heartbeat messages occur when the time limit has been reached.
-              builder.setHeartbeatMessage(timeLimitReached);
-              if (timeLimitReached && rsh.needCursor) {
+              builder.setHeartbeatMessage(true);
+              if (rsh.needCursor) {
                 Cell cursorCell = scannerContext.getLastPeekedCell();
-                if (cursorCell != null ) {
+                if (cursorCell != null) {
                   builder.setCursor(ProtobufUtil.toCursor(cursorCell));
                 }
               }
@@ -3585,5 +3626,10 @@ public class RSRpcServices implements HBaseRPCErrorHandler,
     } catch (IOException e) {
       throw new ServiceException(e);
     }
+  }
+
+  @VisibleForTesting
+  public RpcScheduler getRpcScheduler() {
+    return rpcServer.getScheduler();
   }
 }

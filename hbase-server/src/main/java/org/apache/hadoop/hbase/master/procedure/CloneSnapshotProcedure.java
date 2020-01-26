@@ -40,6 +40,7 @@ import org.apache.hadoop.hbase.master.MasterCoprocessorHost;
 import org.apache.hadoop.hbase.master.MasterFileSystem;
 import org.apache.hadoop.hbase.master.MetricsSnapshot;
 import org.apache.hadoop.hbase.master.procedure.CreateTableProcedure.CreateHdfsRegions;
+import org.apache.hadoop.hbase.mob.MobUtils;
 import org.apache.hadoop.hbase.monitoring.MonitoredTask;
 import org.apache.hadoop.hbase.monitoring.TaskMonitor;
 import org.apache.hadoop.hbase.procedure2.ProcedureStateSerializer;
@@ -74,8 +75,6 @@ public class CloneSnapshotProcedure
 
   // Monitor
   private MonitoredTask monitorStatus = null;
-
-  private Boolean traceEnabled = null;
 
   /**
    * Constructor (for failover)
@@ -127,9 +126,7 @@ public class CloneSnapshotProcedure
   @Override
   protected Flow executeFromState(final MasterProcedureEnv env, final CloneSnapshotState state)
       throws InterruptedException {
-    if (isTraceEnabled()) {
-      LOG.trace(this + " execute state=" + state);
-    }
+    LOG.trace("{} execute state={}", this, state);
     try {
       switch (state) {
         case CLONE_SNAPSHOT_PRE_OPERATION:
@@ -449,8 +446,36 @@ public class CloneSnapshotProcedure
 
     // 3. Move Table temp directory to the hbase root location
     CreateTableProcedure.moveTempDirectoryToHBaseRoot(env, tableDescriptor, tempTableDir);
-
+    // Move Table temp mob directory to the hbase root location
+    Path tempMobTableDir = MobUtils.getMobTableDir(tempdir, tableDescriptor.getTableName());
+    if (mfs.getFileSystem().exists(tempMobTableDir)) {
+      moveTempMobDirectoryToHBaseRoot(mfs, tableDescriptor, tempMobTableDir);
+    }
     return newRegions;
+  }
+
+  /**
+   * Move table temp mob directory to the hbase root location
+   * @param mfs The master file system
+   * @param tableDescriptor The table to operate on
+   * @param tempMobTableDir The temp mob directory of table
+   * @throws IOException If failed to move temp mob dir to hbase root dir
+   */
+  private void moveTempMobDirectoryToHBaseRoot(final MasterFileSystem mfs,
+      final TableDescriptor tableDescriptor, final Path tempMobTableDir) throws IOException {
+    FileSystem fs = mfs.getFileSystem();
+    final Path tableMobDir =
+        MobUtils.getMobTableDir(mfs.getRootDir(), tableDescriptor.getTableName());
+    if (!fs.delete(tableMobDir, true) && fs.exists(tableMobDir)) {
+      throw new IOException("Couldn't delete mob table " + tableMobDir);
+    }
+    if (!fs.exists(tableMobDir.getParent())) {
+      fs.mkdirs(tableMobDir.getParent());
+    }
+    if (!fs.rename(tempMobTableDir, tableMobDir)) {
+      throw new IOException("Unable to move mob table from temp=" + tempMobTableDir
+          + " to hbase root=" + tableMobDir);
+    }
   }
 
   /**
@@ -469,15 +494,4 @@ public class CloneSnapshotProcedure
     metaChanges.updateMetaParentRegions(env.getMasterServices().getConnection(), newRegions);
   }
 
-  /**
-   * The procedure could be restarted from a different machine. If the variable is null, we need to
-   * retrieve it.
-   * @return traceEnabled
-   */
-  private Boolean isTraceEnabled() {
-    if (traceEnabled == null) {
-      traceEnabled = LOG.isTraceEnabled();
-    }
-    return traceEnabled;
-  }
 }

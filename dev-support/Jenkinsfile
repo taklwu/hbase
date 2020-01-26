@@ -17,20 +17,21 @@
 pipeline {
   agent {
     node {
-      label 'ubuntu'
+      label 'Hadoop'
     }
   }
   triggers {
-    cron('H */6 * * *')  // Run every 6 hours.
+    cron('@daily')
   }
   options {
-    buildDiscarder(logRotator(numToKeepStr: '30'))
+    buildDiscarder(logRotator(numToKeepStr: '15'))
     timeout (time: 9, unit: 'HOURS')
     timestamps()
     skipDefaultCheckout()
+    disableConcurrentBuilds()
   }
   environment {
-    YETUS_RELEASE = '0.7.0'
+    YETUS_RELEASE = '0.11.1'
     // where we'll write everything from different steps. Need a copy here so the final step can check for success/failure.
     OUTPUT_DIR_RELATIVE_GENERAL = 'output-general'
     OUTPUT_DIR_RELATIVE_JDK7 = 'output-jdk7'
@@ -47,11 +48,7 @@ pipeline {
     ARCHIVE_PATTERN_LIST = 'TEST-*.xml,org.apache.h*.txt,*.dumpstream,*.dump'
     // These tests currently have known failures. Once they burn down to 0, remove from here so that new problems will cause a failure.
     TESTS_FILTER = 'cc,checkstyle,javac,javadoc,pylint,shellcheck,whitespace,perlcritic,ruby-lint,rubocop,mvnsite'
-    // Flaky urls for different branches. Replace '-' and '.' in branch name by '_' because those
-    // characters are not allowed in bash variable name.
-    // Not excluding flakies from the nightly build for now.
-    // EXCLUDE_TESTS_URL_master = 'https://builds.apache.org/job/HBase-Find-Flaky-Tests/lastSuccessfulBuild/artifact/excludes/'
-    // EXCLUDE_TESTS_URL_branch_2 = 'https://builds.apache.org/job/HBase-Find-Flaky-Tests-branch2.0/lastSuccessfulBuild/artifact/excludes/'
+    EXCLUDE_TESTS_URL = "${JENKINS_URL}/job/HBase-Find-Flaky-Tests/job/${BRANCH_NAME}/lastSuccessfulBuild/artifact/excludes"
   }
   parameters {
     booleanParam(name: 'USE_YETUS_PRERELEASE', defaultValue: false, description: '''Check to use the current HEAD of apache/yetus rather than our configured release.
@@ -84,12 +81,13 @@ pipeline {
               if [[ true !=  "${USE_YETUS_PRERELEASE}" ]]; then
                 YETUS_DIR="${WORKSPACE}/yetus-${YETUS_RELEASE}"
                 echo "Checking for Yetus ${YETUS_RELEASE} in '${YETUS_DIR}'"
-                if [ ! -d "${YETUS_DIR}" ]; then
+                if ! "${YETUS_DIR}/bin/test-patch" --version >/dev/null 2>&1 ; then
+                  rm -rf "${YETUS_DIR}"
                   "${WORKSPACE}/component/dev-support/jenkins-scripts/cache-apache-project-artifact.sh" \
                       --working-dir "${WORKSPACE}/downloads-yetus" \
                       --keys 'https://www.apache.org/dist/yetus/KEYS' \
                       "${WORKSPACE}/yetus-${YETUS_RELEASE}-bin.tar.gz" \
-                      "yetus/${YETUS_RELEASE}/yetus-${YETUS_RELEASE}-bin.tar.gz"
+                      "yetus/${YETUS_RELEASE}/apache-yetus-${YETUS_RELEASE}-bin.tar.gz"
                   mv "yetus-${YETUS_RELEASE}-bin.tar.gz" yetus.tar.gz
                 else
                   echo "Reusing cached install of Apache Yetus version ${YETUS_RELEASE}."
@@ -136,13 +134,17 @@ pipeline {
                   --keys 'http://www.apache.org/dist/hadoop/common/KEYS' \
                   "${WORKSPACE}/hadoop-${HADOOP2_VERSION}-bin.tar.gz" \
                   "hadoop/common/hadoop-${HADOOP2_VERSION}/hadoop-${HADOOP2_VERSION}.tar.gz"
+              for stale in $(ls -1 "${WORKSPACE}"/hadoop-2*.tar.gz | grep -v ${HADOOP2_VERSION}); do
+                echo "Delete stale hadoop 2 cache ${stale}"
+                rm -rf $stale
+              done
             '''
             stash name: 'hadoop-2', includes: "hadoop-${HADOOP2_VERSION}-bin.tar.gz"
           }
         }
         stage ('hadoop 3 cache') {
           environment {
-            HADOOP3_VERSION="3.0.0"
+            HADOOP3_VERSION="3.0.3"
           }
           steps {
             // directory must be unique for each parallel stage, because jenkins runs them in the same workspace :(
@@ -159,6 +161,10 @@ pipeline {
                   --keys 'http://www.apache.org/dist/hadoop/common/KEYS' \
                   "${WORKSPACE}/hadoop-${HADOOP3_VERSION}-bin.tar.gz" \
                   "hadoop/common/hadoop-${HADOOP3_VERSION}/hadoop-${HADOOP3_VERSION}.tar.gz"
+              for stale in $(ls -1 "${WORKSPACE}"/hadoop-3*.tar.gz | grep -v ${HADOOP3_VERSION}); do
+                echo "Delete stale hadoop 3 cache ${stale}"
+                rm -rf $stale
+              done
             '''
             stash name: 'hadoop-3', includes: "hadoop-${HADOOP3_VERSION}-bin.tar.gz"
           }
@@ -233,8 +239,8 @@ pipeline {
             always {
               stash name: 'general-result', includes: "${OUTPUT_DIR_RELATIVE}/commentfile"
               // Has to be relative to WORKSPACE.
-              archive "${env.OUTPUT_DIR_RELATIVE}/*"
-              archive "${env.OUTPUT_DIR_RELATIVE}/**/*"
+              archiveArtifacts artifacts: "${env.OUTPUT_DIR_RELATIVE}/*"
+              archiveArtifacts artifacts: "${env.OUTPUT_DIR_RELATIVE}/**/*"
               publishHTML target: [
                 allowMissing: true,
                 keepAll: true,
@@ -314,8 +320,8 @@ pipeline {
                 fi
 '''
               // Has to be relative to WORKSPACE.
-              archive "${env.OUTPUT_DIR_RELATIVE}/*"
-              archive "${env.OUTPUT_DIR_RELATIVE}/**/*"
+              archiveArtifacts artifacts: "${env.OUTPUT_DIR_RELATIVE}/*"
+              archiveArtifacts artifacts: "${env.OUTPUT_DIR_RELATIVE}/**/*"
               publishHTML target: [
                 allowMissing         : true,
                 keepAll              : true,
@@ -394,8 +400,8 @@ pipeline {
                 fi
 '''
               // Has to be relative to WORKSPACE.
-              archive "${env.OUTPUT_DIR_RELATIVE}/*"
-              archive "${env.OUTPUT_DIR_RELATIVE}/**/*"
+              archiveArtifacts artifacts: "${env.OUTPUT_DIR_RELATIVE}/*"
+              archiveArtifacts artifacts: "${env.OUTPUT_DIR_RELATIVE}/**/*"
               publishHTML target: [
                 allowMissing         : true,
                 keepAll              : true,
@@ -481,8 +487,8 @@ pipeline {
                 fi
 '''
               // Has to be relative to WORKSPACE.
-              archive "${env.OUTPUT_DIR_RELATIVE}/*"
-              archive "${env.OUTPUT_DIR_RELATIVE}/**/*"
+              archiveArtifacts artifacts: "${env.OUTPUT_DIR_RELATIVE}/*"
+              archiveArtifacts artifacts: "${env.OUTPUT_DIR_RELATIVE}/**/*"
               publishHTML target: [
                 allowMissing         : true,
                 keepAll              : true,
@@ -567,6 +573,7 @@ pipeline {
                   "hadoop-2/bin/hadoop" \
                   hadoop-2/share/hadoop/yarn/test/hadoop-yarn-server-tests-*-tests.jar \
                   hadoop-2/share/hadoop/mapreduce/hadoop-mapreduce-client-jobclient-*-tests.jar \
+                  hadoop-2/share/hadoop/yarn/timelineservice/hadoop-yarn-server-timelineservice-*.jar \
                   >output-integration/hadoop-2.log 2>&1 ; then
                 echo "(x) {color:red}-1 client integration test{color}\n--Failed when running client tests on top of Hadoop 2. [see log for details|${BUILD_URL}/artifact/output-integration/hadoop-2.log]. (note that this means we didn't run on Hadoop 3)" >output-integration/commentfile
                 exit 2
@@ -585,6 +592,7 @@ pipeline {
                   hadoop-3/bin/hadoop \
                   hadoop-3/share/hadoop/yarn/test/hadoop-yarn-server-tests-*-tests.jar \
                   hadoop-3/share/hadoop/mapreduce/hadoop-mapreduce-client-jobclient-*-tests.jar \
+                  hadoop-3/share/hadoop/yarn/timelineservice/hadoop-yarn-server-timelineservice-*.jar \
                   >output-integration/hadoop-3.log 2>&1 ; then
                 echo "(x) {color:red}-1 client integration test{color}\n--Failed when running client tests on top of Hadoop 3. [see log for details|${BUILD_URL}/artifact/output-integration/hadoop-3.log]. (note that this means we didn't check the Hadoop 3 shaded client)" >output-integration/commentfile
                 exit 2
@@ -599,6 +607,7 @@ pipeline {
                   hadoop-3/bin/hadoop \
                   hadoop-3/share/hadoop/yarn/test/hadoop-yarn-server-tests-*-tests.jar \
                   hadoop-3/share/hadoop/mapreduce/hadoop-mapreduce-client-jobclient-*-tests.jar \
+                  hadoop-3/share/hadoop/yarn/timelineservice/hadoop-yarn-server-timelineservice-*.jar \
                   >output-integration/hadoop-3-shaded.log 2>&1 ; then
                 echo "(x) {color:red}-1 client integration test{color}\n--Failed when running client tests on top of Hadoop 3 using Hadoop's shaded client. [see log for details|${BUILD_URL}/artifact/output-integration/hadoop-3-shaded.log]." >output-integration/commentfile
                 exit 2
@@ -611,10 +620,10 @@ pipeline {
           post {
             always {
               stash name: 'srctarball-result', includes: "output-srctarball/commentfile,output-integration/commentfile"
-              archive 'output-srctarball/*'
-              archive 'output-srctarball/**/*'
-              archive 'output-integration/*'
-              archive 'output-integration/**/*'
+              archiveArtifacts artifacts: 'output-srctarball/*'
+              archiveArtifacts artifacts: 'output-srctarball/**/*'
+              archiveArtifacts artifacts: 'output-integration/*'
+              archiveArtifacts artifacts: 'output-integration/**/*'
             }
           }
         }

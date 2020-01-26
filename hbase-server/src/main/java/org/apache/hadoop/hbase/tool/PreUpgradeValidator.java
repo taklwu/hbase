@@ -38,6 +38,7 @@ import org.slf4j.LoggerFactory;
  * <ul>
  * <li>validate-cp: Validates Co-processors compatibility</li>
  * <li>validate-dbe: Check Data Block Encoding for column families</li>
+ * <li>validate-hfile: Check for corrupted HFiles</li>
  * </ul>
  * </p>
  */
@@ -49,6 +50,7 @@ public class PreUpgradeValidator implements Tool {
   public static final String TOOL_NAME = "pre-upgrade";
   public static final String VALIDATE_CP_NAME = "validate-cp";
   public static final String VALIDATE_DBE_NAME = "validate-dbe";
+  public static final String VALIDATE_HFILE = "validate-hfile";
 
   private Configuration configuration;
 
@@ -65,10 +67,12 @@ public class PreUpgradeValidator implements Tool {
   private void printUsage() {
     System.out.println("usage: hbase " + TOOL_NAME + " command ...");
     System.out.println("Available commands:");
-    System.out.printf(" %-12s Validate co-processors are compatible with HBase%n",
+    System.out.printf(" %-15s Validate co-processors are compatible with HBase%n",
         VALIDATE_CP_NAME);
-    System.out.printf(" %-12s Validate DataBlockEncoding are compatible on the cluster%n",
+    System.out.printf(" %-15s Validate DataBlockEncodings are compatible with HBase%n",
         VALIDATE_DBE_NAME);
+    System.out.printf(" %-15s Validate HFile contents are readable%n",
+        VALIDATE_HFILE);
     System.out.println("For further information, please use command -h");
   }
 
@@ -88,6 +92,9 @@ public class PreUpgradeValidator implements Tool {
       case VALIDATE_DBE_NAME:
         tool = new DataBlockEncodingValidator();
         break;
+      case VALIDATE_HFILE:
+        tool = new HFileContentValidator();
+        break;
       case "-h":
         printUsage();
         return AbstractHBaseTool.EXIT_FAILURE;
@@ -104,8 +111,10 @@ public class PreUpgradeValidator implements Tool {
   public static void main(String[] args) {
     int ret;
 
+    Configuration conf = HBaseConfiguration.create();
+
     try {
-      ret = ToolRunner.run(HBaseConfiguration.create(), new PreUpgradeValidator(), args);
+      ret = ToolRunner.run(conf, new PreUpgradeValidator(), args);
     } catch (Exception e) {
       LOG.error("Error running command-line tool", e);
       ret = AbstractHBaseTool.EXIT_FAILURE;

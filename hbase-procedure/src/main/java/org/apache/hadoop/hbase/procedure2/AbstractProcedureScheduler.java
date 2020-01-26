@@ -86,6 +86,11 @@ public abstract class AbstractProcedureScheduler implements ProcedureScheduler {
   }
 
   @Override
+  public void addFront(final Procedure procedure, boolean notify) {
+    push(procedure, true, notify);
+  }
+
+  @Override
   public void addFront(Iterator<Procedure> procedureIterator) {
     schedLock();
     try {
@@ -109,12 +114,17 @@ public abstract class AbstractProcedureScheduler implements ProcedureScheduler {
     push(procedure, false, true);
   }
 
+  @Override
+  public void addBack(final Procedure procedure, boolean notify) {
+    push(procedure, false, notify);
+  }
+
   protected void push(final Procedure procedure, final boolean addFront, final boolean notify) {
     schedLock();
     try {
       enqueue(procedure, addFront);
       if (notify) {
-        schedWaitCond.signal();
+        schedWaitCond.signalAll();
       }
     } finally {
       schedUnlock();
@@ -129,20 +139,39 @@ public abstract class AbstractProcedureScheduler implements ProcedureScheduler {
    * NOTE: this method is called with the sched lock held.
    * @return the Procedure to execute, or null if nothing is available.
    */
-  protected abstract Procedure dequeue();
+  protected Procedure dequeue() {
+    return dequeue(false);
+  }
+
+  protected abstract Procedure dequeue(boolean onlyUrgent);
+
+
+  @Override
+  public Procedure poll(boolean onlyUrgent) {
+    return poll(onlyUrgent, -1);
+  }
 
   @Override
   public Procedure poll() {
-    return poll(-1);
+    return poll(false, -1);
+  }
+
+  @Override
+  public Procedure poll(boolean onlyUrgent, long timeout, TimeUnit unit) {
+    return poll(onlyUrgent, unit.toNanos(timeout));
   }
 
   @Override
   public Procedure poll(long timeout, TimeUnit unit) {
-    return poll(unit.toNanos(timeout));
+    return poll(false, unit.toNanos(timeout));
+  }
+
+  public Procedure poll(final long nanos) {
+    return poll(false, nanos);
   }
 
   @edu.umd.cs.findbugs.annotations.SuppressWarnings("WA_AWAIT_NOT_IN_LOOP")
-  public Procedure poll(final long nanos) {
+  public Procedure poll(final boolean onlyUrgent, final long nanos) {
     schedLock();
     try {
       if (!running) {
@@ -163,8 +192,8 @@ public abstract class AbstractProcedureScheduler implements ProcedureScheduler {
           return null;
         }
       }
+      final Procedure pollResult = dequeue(onlyUrgent);
 
-      final Procedure pollResult = dequeue();
       pollCalls++;
       nullPollCalls += (pollResult == null) ? 1 : 0;
       return pollResult;
@@ -253,22 +282,16 @@ public abstract class AbstractProcedureScheduler implements ProcedureScheduler {
    * Wakes up given waiting procedures by pushing them back into scheduler queues.
    * @return size of given {@code waitQueue}.
    */
-  protected int wakeWaitingProcedures(final ProcedureDeque waitQueue) {
-    int count = waitQueue.size();
-    // wakeProcedure adds to the front of queue, so we start from last in the
-    // waitQueue' queue, so that the procedure which was added first goes in the front for
-    // the scheduler queue.
-    addFront(waitQueue.descendingIterator());
-    waitQueue.clear();
-    return count;
+  protected int wakeWaitingProcedures(LockAndQueue lockAndQueue) {
+    return lockAndQueue.wakeWaitingProcedures(this);
   }
 
-  protected void waitProcedure(final ProcedureDeque waitQueue, final Procedure proc) {
-    waitQueue.addLast(proc);
+  protected void waitProcedure(LockAndQueue lockAndQueue, final Procedure proc) {
+    lockAndQueue.addLast(proc);
   }
 
   protected void wakeProcedure(final Procedure procedure) {
-    if (LOG.isTraceEnabled()) LOG.trace("Wake " + procedure);
+    LOG.trace("Wake {}", procedure);
     push(procedure, /* addFront= */ true, /* notify= */false);
   }
 
@@ -285,11 +308,9 @@ public abstract class AbstractProcedureScheduler implements ProcedureScheduler {
   }
 
   protected void wakePollIfNeeded(final int waitingCount) {
-    if (waitingCount <= 0) return;
-    if (waitingCount == 1) {
-      schedWaitCond.signal();
-    } else {
-      schedWaitCond.signalAll();
+    if (waitingCount <= 0) {
+      return;
     }
+    schedWaitCond.signalAll();
   }
 }

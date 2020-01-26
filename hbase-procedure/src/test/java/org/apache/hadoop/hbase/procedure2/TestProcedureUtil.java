@@ -18,7 +18,9 @@
 package org.apache.hadoop.hbase.procedure2;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
 
+import java.util.concurrent.TimeUnit;
 import org.apache.hadoop.hbase.HBaseClassTestRule;
 import org.apache.hadoop.hbase.procedure2.ProcedureTestingUtility.TestProcedure;
 import org.apache.hadoop.hbase.testclassification.MasterTests;
@@ -29,12 +31,12 @@ import org.junit.experimental.categories.Category;
 
 import org.apache.hadoop.hbase.shaded.protobuf.generated.ProcedureProtos;
 
-@Category({MasterTests.class, SmallTests.class})
+@Category({ MasterTests.class, SmallTests.class })
 public class TestProcedureUtil {
 
   @ClassRule
   public static final HBaseClassTestRule CLASS_RULE =
-      HBaseClassTestRule.forClass(TestProcedureUtil.class);
+    HBaseClassTestRule.forClass(TestProcedureUtil.class);
 
   @Test
   public void testValidation() throws Exception {
@@ -55,6 +57,24 @@ public class TestProcedureUtil {
     final ProcedureProtos.Procedure proto2 = ProcedureUtil.convertToProtoProcedure(proc2);
     assertEquals(false, proto2.hasResult());
     assertEquals("Procedure protobuf does not match", proto1, proto2);
+  }
+
+  @Test
+  public void testGetBackoffTimeMs() {
+    for (int i = 30; i < 1000; i++) {
+      assertEquals(TimeUnit.MINUTES.toMillis(10), ProcedureUtil.getBackoffTimeMs(30));
+    }
+    long backoffTimeMs = ProcedureUtil.getBackoffTimeMs(0);
+    assertTrue(backoffTimeMs >= 1000);
+    assertTrue(backoffTimeMs <= 1000 * 1.01f);
+
+    backoffTimeMs = ProcedureUtil.getBackoffTimeMs(1);
+    assertTrue(backoffTimeMs >= 2000);
+    assertTrue(backoffTimeMs <= 2000 * 1.01f);
+
+    backoffTimeMs = ProcedureUtil.getBackoffTimeMs(5);
+    assertTrue(backoffTimeMs >= 32000);
+    assertTrue(backoffTimeMs <= 32000 * 1.01f);
   }
 
   public static class TestProcedureNoDefaultConstructor extends TestProcedure {

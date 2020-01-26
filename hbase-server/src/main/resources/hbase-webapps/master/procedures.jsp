@@ -46,7 +46,7 @@
   long millisFromLastRoll = walStore.getMillisFromLastRoll();
   ArrayList<ProcedureWALFile> procedureWALFiles = walStore.getActiveLogs();
   Set<ProcedureWALFile> corruptedWALFiles = walStore.getCorruptedLogs();
-  List<Procedure<?>> procedures = procExecutor.getProcedures();
+  List<Procedure<MasterProcedureEnv>> procedures = procExecutor.getProcedures();
   Collections.sort(procedures, new Comparator<Procedure>() {
     @Override
     public int compare(Procedure lhs, Procedure rhs) {
@@ -69,6 +69,7 @@
           <h1>Procedures</h1>
       </div>
   </div>
+  <p>We do not list Procedures that have completed SUCCESSfully; their number makes it hard to spot the problematics.</p>
   <table class="table table-striped" width="90%" >
     <tr>
         <th>Id</th>
@@ -81,11 +82,16 @@
         <th>Errors</th>
         <th>Parameters</th>
     </tr>
-    <% for (Procedure<?> proc : procedures) { %>
+    <% for (Procedure<?> proc : procedures) { 
+      // Don't show SUCCESS procedures.
+      if (proc.isSuccess()) {
+        continue;
+      }
+    %>
       <tr>
         <td><%= proc.getProcId() %></td>
         <td><%= proc.hasParent() ? proc.getParentProcId() : "" %></td>
-        <td><%= escapeXml(proc.getState().toString()) %></td>
+        <td><%= escapeXml(proc.getState().toString() + (proc.isBypass() ? "(Bypass)" : "")) %></td>
         <td><%= proc.hasOwner() ? escapeXml(proc.getOwner()) : "" %></td>
         <td><%= escapeXml(proc.getProcName()) %></td>
         <td><%= new Date(proc.getSubmittedTime()) %></td>

@@ -191,6 +191,10 @@ public interface TableDescriptor {
    */
   TableName getTableName();
 
+  /**
+   * @deprecated since 2.0.0 and will be removed in 3.0.0.
+   * @see <a href="https://issues.apache.org/jira/browse/HBASE-15583">HBASE-15583</a>
+   */
   @Deprecated
   String getOwnerString();
 
@@ -274,6 +278,22 @@ public interface TableDescriptor {
    * @return true if region normalization is enabled for this table
    */
   boolean isNormalizationEnabled();
+
+  /**
+   * Check if there is the target region count. If so, the normalize plan will
+   * be calculated based on the target region count.
+   *
+   * @return target region count after normalize done
+   */
+  int getNormalizerTargetRegionCount();
+
+  /**
+   * Check if there is the target region size. If so, the normalize plan will
+   * be calculated based on the target region size.
+   *
+   * @return target region size after normalize done
+   */
+  long getNormalizerTargetRegionSize();
 
   /**
    * Check if the readOnly flag of the table is set. If the readOnly flag is set

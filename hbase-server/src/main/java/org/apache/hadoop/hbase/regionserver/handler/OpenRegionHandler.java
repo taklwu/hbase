@@ -28,8 +28,6 @@ import org.apache.hadoop.hbase.client.TableDescriptor;
 import org.apache.hadoop.hbase.executor.EventHandler;
 import org.apache.hadoop.hbase.executor.EventType;
 import org.apache.hadoop.hbase.regionserver.HRegion;
-import org.apache.hadoop.hbase.regionserver.Region;
-import org.apache.hadoop.hbase.regionserver.RegionServerAccounting;
 import org.apache.hadoop.hbase.regionserver.RegionServerServices;
 import org.apache.hadoop.hbase.regionserver.RegionServerServices.PostOpenDeployContext;
 import org.apache.hadoop.hbase.regionserver.RegionServerServices.RegionStateTransitionContext;
@@ -222,7 +220,8 @@ public class OpenRegionHandler extends EventHandler {
 
   /**
    * Thread to run region post open tasks. Call {@link #getException()} after the thread finishes
-   * to check for exceptions running {@link RegionServerServices#postOpenDeployTasks(Region)}.
+   * to check for exceptions running
+   * {@link RegionServerServices#postOpenDeployTasks(PostOpenDeployContext)}
    */
   static class PostOpenDeployTasksThread extends Thread {
     private Throwable exception = null;
@@ -300,16 +299,7 @@ public class OpenRegionHandler extends EventHandler {
       // and transition the node back to FAILED_OPEN. If that fails,
       // we rely on the Timeout Monitor in the master to reassign.
       LOG.error(
-          "Failed open of region=" + this.regionInfo.getRegionNameAsString()
-              + ", starting to roll back the global memstore size.", t);
-      // Decrease the global memstore size.
-      if (this.rsServices != null) {
-        RegionServerAccounting rsAccounting =
-          this.rsServices.getRegionServerAccounting();
-        if (rsAccounting != null) {
-          rsAccounting.rollbackRegionReplayEditsSize(this.regionInfo.getRegionName());
-        }
-      }
+          "Failed open of region=" + this.regionInfo.getRegionNameAsString(), t);
     }
     return region;
   }

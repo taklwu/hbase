@@ -220,8 +220,7 @@ class RegionLocationFinder {
         tableDescriptor = this.services.getTableDescriptors().get(tableName);
       }
     } catch (FileNotFoundException fnfe) {
-      LOG.debug("FileNotFoundException during getTableDescriptors." + " Current table name = "
-          + tableName, fnfe);
+      LOG.debug("tableName={}", tableName, fnfe);
     }
 
     return tableDescriptor;
@@ -277,8 +276,7 @@ class RegionLocationFinder {
         blockDistbn = cache.get(hri);
         return blockDistbn;
       } else {
-        LOG.debug("HDFSBlocksDistribution not found in cache for region "
-            + hri.getRegionNameAsString());
+        LOG.trace("HDFSBlocksDistribution not found in cache for {}", hri.getRegionNameAsString());
         blockDistbn = internalGetTopBlockLocation(hri);
         cache.put(hri, blockDistbn);
         return blockDistbn;
@@ -301,11 +299,14 @@ class RegionLocationFinder {
   }
 
   public void refreshAndWait(Collection<RegionInfo> hris) {
-    ArrayList<ListenableFuture<HDFSBlocksDistribution>> regionLocationFutures = new ArrayList<>(hris.size());
+    ArrayList<ListenableFuture<HDFSBlocksDistribution>> regionLocationFutures =
+        new ArrayList<>(hris.size());
     for (RegionInfo hregionInfo : hris) {
       regionLocationFutures.add(asyncGetBlockDistribution(hregionInfo));
     }
     int index = 0;
+    LOG.info("Refreshing block distribution cache for {} regions (Can take a while on big cluster)",
+        hris.size());
     for (RegionInfo hregionInfo : hris) {
       ListenableFuture<HDFSBlocksDistribution> future = regionLocationFutures
           .get(index);
@@ -320,6 +321,7 @@ class RegionLocationFinder {
       }
       index++;
     }
+    LOG.info("Finished refreshing block distribution cache for {} regions", hris.size());
   }
 
   // For test

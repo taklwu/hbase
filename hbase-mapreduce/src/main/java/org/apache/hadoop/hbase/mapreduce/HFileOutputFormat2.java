@@ -118,7 +118,10 @@ public class HFileOutputFormat2
     /**
      * The modification for the returned HTD doesn't affect the inner TD.
      * @return A clone of inner table descriptor
-     * @deprecated use {@link #getTableDescriptor}
+     * @deprecated since 2.0.0 and will be removed in 3.0.0. Use {@link #getTableDescriptor()}
+     *   instead.
+     * @see #getTableDescriptor()
+     * @see <a href="https://issues.apache.org/jira/browse/HBASE-18241">HBASE-18241</a>
      */
     @Deprecated
     public HTableDescriptor getHTableDescriptor() {
@@ -388,8 +391,6 @@ public class HFileOutputFormat2
         DataBlockEncoding encoding = overriddenEncoding;
         encoding = encoding == null ? datablockEncodingMap.get(tableAndFamily) : encoding;
         encoding = encoding == null ? DataBlockEncoding.NONE : encoding;
-        Configuration tempConf = new Configuration(conf);
-        tempConf.setFloat(HConstants.HFILE_BLOCK_CACHE_SIZE_KEY, 0.0f);
         HFileContextBuilder contextBuilder = new HFileContextBuilder()
                                     .withCompression(compression)
                                     .withChecksumType(HStore.getChecksumType(conf))
@@ -404,12 +405,12 @@ public class HFileOutputFormat2
         HFileContext hFileContext = contextBuilder.build();
         if (null == favoredNodes) {
           wl.writer =
-              new StoreFileWriter.Builder(conf, new CacheConfig(tempConf), fs)
+              new StoreFileWriter.Builder(conf, CacheConfig.DISABLED, fs)
                   .withOutputDir(familydir).withBloomType(bloomType)
                   .withComparator(CellComparator.getInstance()).withFileContext(hFileContext).build();
         } else {
           wl.writer =
-              new StoreFileWriter.Builder(conf, new CacheConfig(tempConf), new HFileSystem(fs))
+              new StoreFileWriter.Builder(conf, CacheConfig.DISABLED, new HFileSystem(fs))
                   .withOutputDir(familydir).withBloomType(bloomType)
                   .withComparator(CellComparator.getInstance()).withFileContext(hFileContext)
                   .withFavoredNodes(favoredNodes).build();
@@ -842,11 +843,6 @@ public class HFileOutputFormat2
   /**
    * Serialize column family to compression algorithm map to configuration.
    * Invoked while configuring the MR job for incremental load.
-   *
-   * @param tableDescriptor to read the properties from
-   * @param conf to persist serialized values into
-   * @throws IOException
-   *           on failure to read column family descriptors
    */
   @VisibleForTesting
   static Function<ColumnFamilyDescriptor, String> compressionDetails = familyDescriptor ->
@@ -855,14 +851,6 @@ public class HFileOutputFormat2
   /**
    * Serialize column family to block size map to configuration. Invoked while
    * configuring the MR job for incremental load.
-   *
-   * @param tableDescriptor
-   *          to read the properties from
-   * @param conf
-   *          to persist serialized values into
-   *
-   * @throws IOException
-   *           on failure to read column family descriptors
    */
   @VisibleForTesting
   static Function<ColumnFamilyDescriptor, String> blockSizeDetails = familyDescriptor -> String
@@ -871,14 +859,6 @@ public class HFileOutputFormat2
   /**
    * Serialize column family to bloom type map to configuration. Invoked while
    * configuring the MR job for incremental load.
-   *
-   * @param tableDescriptor
-   *          to read the properties from
-   * @param conf
-   *          to persist serialized values into
-   *
-   * @throws IOException
-   *           on failure to read column family descriptors
    */
   @VisibleForTesting
   static Function<ColumnFamilyDescriptor, String> bloomTypeDetails = familyDescriptor -> {
@@ -892,13 +872,6 @@ public class HFileOutputFormat2
   /**
    * Serialize column family to data block encoding map to configuration.
    * Invoked while configuring the MR job for incremental load.
-   *
-   * @param tableDescriptor
-   *          to read the properties from
-   * @param conf
-   *          to persist serialized values into
-   * @throws IOException
-   *           on failure to read column family descriptors
    */
   @VisibleForTesting
   static Function<ColumnFamilyDescriptor, String> dataBlockEncodingDetails = familyDescriptor -> {
@@ -908,5 +881,4 @@ public class HFileOutputFormat2
     }
     return encoding.toString();
   };
-
 }

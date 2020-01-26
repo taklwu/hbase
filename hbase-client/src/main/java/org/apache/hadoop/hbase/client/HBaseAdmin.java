@@ -20,11 +20,13 @@ package org.apache.hadoop.hbase.client;
 import com.google.protobuf.Descriptors;
 import com.google.protobuf.Message;
 import com.google.protobuf.RpcController;
+
 import java.io.Closeable;
 import java.io.IOException;
 import java.io.InterruptedIOException;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.Iterator;
@@ -43,6 +45,7 @@ import java.util.function.Supplier;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hbase.Abortable;
 import org.apache.hadoop.hbase.CacheEvictionStats;
@@ -226,7 +229,6 @@ import org.apache.hadoop.hbase.shaded.protobuf.generated.SnapshotProtos;
  * @see Admin
  */
 @InterfaceAudience.Private
-@InterfaceStability.Evolving
 public class HBaseAdmin implements Admin {
   private static final Logger LOG = LoggerFactory.getLogger(HBaseAdmin.class);
 
@@ -239,6 +241,7 @@ public class HBaseAdmin implements Admin {
   private boolean aborted;
   private int operationTimeout;
   private int rpcTimeout;
+  private int getProcedureTimeout;
 
   private RpcRetryingCallerFactory rpcCallerFactory;
   private RpcControllerFactory rpcControllerFactory;
@@ -265,6 +268,8 @@ public class HBaseAdmin implements Admin {
         HConstants.DEFAULT_HBASE_RPC_TIMEOUT);
     this.syncWaitTimeout = this.conf.getInt(
       "hbase.client.sync.wait.timeout.msec", 10 * 60000); // 10min
+    this.getProcedureTimeout =
+        this.conf.getInt("hbase.client.procedure.future.get.timeout.msec", 10 * 60000); // 10min
 
     this.rpcCallerFactory = connection.getRpcRetryingCallerFactory();
     this.rpcControllerFactory = connection.getRpcControllerFactory();
@@ -3361,7 +3366,7 @@ public class HBaseAdmin implements Admin {
     private V result = null;
 
     private final HBaseAdmin admin;
-    private final Long procId;
+    protected final Long procId;
 
     public ProcedureFuture(final HBaseAdmin admin, final Long procId) {
       this.admin = admin;
@@ -3408,7 +3413,15 @@ public class HBaseAdmin implements Admin {
     @Override
     public V get() throws InterruptedException, ExecutionException {
       // TODO: should we ever spin forever?
-      throw new UnsupportedOperationException();
+      // fix HBASE-21715. TODO: If the function call get() without timeout limit is not allowed,
+      // is it possible to compose instead of inheriting from the class Future for this class?
+      try {
+        return get(admin.getProcedureTimeout, TimeUnit.MILLISECONDS);
+      } catch (TimeoutException e) {
+        LOG.warn("Failed to get the procedure with procId=" + procId + " throws exception " + e
+            .getMessage(), e);
+        return null;
+      }
     }
 
     @Override
@@ -3643,22 +3656,20 @@ public class HBaseAdmin implements Admin {
      * @return a description of the operation
      */
     protected String getDescription() {
-      return "Operation: " + getOperationType() + ", "
-          + "Table Name: " + tableName.getNameWithNamespaceInclAsString();
-
+      return "Operation: " + getOperationType() + ", " + "Table Name: " +
+        tableName.getNameWithNamespaceInclAsString() + ", procId: " + procId;
     }
 
     protected abstract class TableWaitForStateCallable implements WaitForStateCallable {
       @Override
       public void throwInterruptedException() throws InterruptedIOException {
-        throw new InterruptedIOException("Interrupted while waiting for operation: "
-            + getOperationType() + " on table: " + tableName.getNameWithNamespaceInclAsString());
+        throw new InterruptedIOException("Interrupted while waiting for " + getDescription());
       }
 
       @Override
       public void throwTimeoutException(long elapsedTime) throws TimeoutException {
-        throw new TimeoutException("The operation: " + getOperationType() + " on table: " +
-            tableName.getNameAsString() + " has not completed after " + elapsedTime + "ms");
+        throw new TimeoutException(
+          getDescription() + " has not completed after " + elapsedTime + "ms");
       }
     }
 
@@ -4236,15 +4247,13 @@ public class HBaseAdmin implements Admin {
   }
 
   @Override
-  public List<ServerName> clearDeadServers(final List<ServerName> servers) throws IOException {
-    if (servers == null || servers.size() == 0) {
-      throw new IllegalArgumentException("servers cannot be null or empty");
-    }
+  public List<ServerName> clearDeadServers(List<ServerName> servers) throws IOException {
     return executeCallable(new MasterCallable<List<ServerName>>(getConnection(),
             getRpcControllerFactory()) {
       @Override
       protected List<ServerName> rpcCall() throws Exception {
-        ClearDeadServersRequest req = RequestConverter.buildClearDeadServersRequest(servers);
+        ClearDeadServersRequest req = RequestConverter.
+          buildClearDeadServersRequest(servers == null? Collections.EMPTY_LIST: servers);
         return ProtobufUtil.toServerNameList(
                 master.clearDeadServers(getRpcController(), req).getServerNameList());
       }

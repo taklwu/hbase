@@ -58,6 +58,7 @@ import org.apache.hadoop.hbase.procedure2.ProcedureExecutor;
 import org.apache.hadoop.hbase.procedure2.ProcedureTestingUtility;
 import org.apache.hadoop.hbase.procedure2.store.NoopProcedureStore;
 import org.apache.hadoop.hbase.procedure2.store.ProcedureStore;
+import org.apache.hadoop.hbase.procedure2.store.ProcedureStore.ProcedureStoreListener;
 import org.apache.hadoop.hbase.security.Superusers;
 import org.apache.hadoop.hbase.util.FSUtils;
 import org.apache.zookeeper.KeeperException;
@@ -172,7 +173,6 @@ public class MockMasterServices extends MockNoopMasterServices {
     // Set hbase.rootdir into test dir.
     Path rootdir = FSUtils.getRootDir(getConfiguration());
     FSUtils.setRootDir(getConfiguration(), rootdir);
-    Mockito.mock(AdminProtos.AdminService.BlockingInterface.class);
   }
 
   public void start(final int numServes, final RSProcedureDispatcher remoteDispatcher)
@@ -220,7 +220,13 @@ public class MockMasterServices extends MockNoopMasterServices {
       throws IOException {
     final Configuration conf = getConfiguration();
     this.procedureStore = new NoopProcedureStore();
-    this.procedureStore.registerListener(new MasterProcedureEnv.MasterProcedureStoreListener(this));
+    this.procedureStore.registerListener(new ProcedureStoreListener() {
+
+      @Override
+      public void abortProcess() {
+        abort("The Procedure Store lost the lease", null);
+      }
+    });
 
     this.procedureEnv = new MasterProcedureEnv(this,
        remoteDispatcher != null ? remoteDispatcher : new RSProcedureDispatcher(this));

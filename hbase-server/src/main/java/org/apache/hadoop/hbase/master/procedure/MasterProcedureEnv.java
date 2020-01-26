@@ -25,12 +25,12 @@ import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hbase.conf.ConfigurationObserver;
 import org.apache.hadoop.hbase.ipc.RpcServer;
 import org.apache.hadoop.hbase.master.MasterCoprocessorHost;
+import org.apache.hadoop.hbase.master.MasterFileSystem;
 import org.apache.hadoop.hbase.master.MasterServices;
 import org.apache.hadoop.hbase.master.assignment.AssignmentManager;
 import org.apache.hadoop.hbase.master.replication.ReplicationPeerManager;
 import org.apache.hadoop.hbase.procedure2.Procedure;
 import org.apache.hadoop.hbase.procedure2.ProcedureEvent;
-import org.apache.hadoop.hbase.procedure2.store.ProcedureStore;
 import org.apache.hadoop.hbase.procedure2.store.wal.WALProcedureStore;
 import org.apache.hadoop.hbase.security.Superusers;
 import org.apache.hadoop.hbase.security.User;
@@ -72,26 +72,6 @@ public class MasterProcedureEnv implements ConfigurationObserver {
     }
   }
 
-  @InterfaceAudience.Private
-  public static class MasterProcedureStoreListener
-      implements ProcedureStore.ProcedureStoreListener {
-    private final MasterServices master;
-
-    public MasterProcedureStoreListener(final MasterServices master) {
-      this.master = master;
-    }
-
-    @Override
-    public void postSync() {
-      // no-op
-    }
-
-    @Override
-    public void abortProcess() {
-      master.abort("The Procedure Store lost the lease", null);
-    }
-  }
-
   private final RSProcedureDispatcher remoteDispatcher;
   private final MasterProcedureScheduler procSched;
   private final MasterServices master;
@@ -103,7 +83,8 @@ public class MasterProcedureEnv implements ConfigurationObserver {
   public MasterProcedureEnv(final MasterServices master,
       final RSProcedureDispatcher remoteDispatcher) {
     this.master = master;
-    this.procSched = new MasterProcedureScheduler();
+    this.procSched = new MasterProcedureScheduler(
+      procId -> master.getMasterProcedureExecutor().getProcedure(procId));
     this.remoteDispatcher = remoteDispatcher;
   }
 
@@ -137,6 +118,10 @@ public class MasterProcedureEnv implements ConfigurationObserver {
 
   public ReplicationPeerManager getReplicationPeerManager() {
     return master.getReplicationPeerManager();
+  }
+
+  public MasterFileSystem getMasterFileSystem() {
+    return master.getMasterFileSystem();
   }
 
   public boolean isRunning() {

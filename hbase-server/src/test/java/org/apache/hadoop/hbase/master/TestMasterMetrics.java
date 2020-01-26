@@ -20,7 +20,6 @@ package org.apache.hadoop.hbase.master;
 import java.io.IOException;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hbase.CompatibilityFactory;
-import org.apache.hadoop.hbase.CoordinatedStateManager;
 import org.apache.hadoop.hbase.HBaseClassTestRule;
 import org.apache.hadoop.hbase.HBaseTestingUtility;
 import org.apache.hadoop.hbase.MiniHBaseCluster;
@@ -65,6 +64,7 @@ public class TestMasterMetrics {
         long reportStartTime, long reportEndTime) {
       // do nothing
     }
+
   }
 
   @BeforeClass

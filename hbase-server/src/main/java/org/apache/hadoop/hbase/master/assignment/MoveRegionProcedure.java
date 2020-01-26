@@ -24,17 +24,19 @@ import java.io.IOException;
 import org.apache.hadoop.hbase.HBaseIOException;
 import org.apache.hadoop.hbase.ServerName;
 import org.apache.hadoop.hbase.TableName;
+import org.apache.hadoop.hbase.client.DoNotRetryRegionException;
 import org.apache.hadoop.hbase.client.RegionInfo;
 import org.apache.hadoop.hbase.master.RegionPlan;
 import org.apache.hadoop.hbase.master.procedure.AbstractStateMachineRegionProcedure;
 import org.apache.hadoop.hbase.master.procedure.MasterProcedureEnv;
 import org.apache.hadoop.hbase.procedure2.ProcedureStateSerializer;
-import org.apache.yetus.audience.InterfaceAudience;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.apache.hadoop.hbase.shaded.protobuf.ProtobufUtil;
 import org.apache.hadoop.hbase.shaded.protobuf.generated.MasterProcedureProtos.MoveRegionState;
 import org.apache.hadoop.hbase.shaded.protobuf.generated.MasterProcedureProtos.MoveRegionStateData;
+import org.apache.hbase.thirdparty.com.google.common.annotations.VisibleForTesting;
+import org.apache.yetus.audience.InterfaceAudience;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Procedure that implements a RegionPlan.
@@ -55,6 +57,11 @@ public class MoveRegionProcedure extends AbstractStateMachineRegionProcedure<Mov
     super();
   }
 
+  @VisibleForTesting
+  protected RegionPlan getPlan() {
+    return this.plan;
+  }
+
   /**
    * @param check whether we should do some checks in the constructor. We will skip the checks if we
    *          are reopening a region as this may fail the whole procedure and cause stuck. We will
@@ -66,8 +73,10 @@ public class MoveRegionProcedure extends AbstractStateMachineRegionProcedure<Mov
       throws HBaseIOException {
     super(env, plan.getRegionInfo());
     this.plan = plan;
-    preflightChecks(env, true);
-    checkOnline(env, plan.getRegionInfo());
+    if (check) {
+      preflightChecks(env, true);
+      checkOnline(env, plan.getRegionInfo());
+    }
   }
 
   @Override
@@ -89,6 +98,13 @@ public class MoveRegionProcedure extends AbstractStateMachineRegionProcedure<Mov
         }
         break;
       case MOVE_REGION_UNASSIGN:
+        try {
+          checkOnline(env, this.plan.getRegionInfo());
+        } catch (DoNotRetryRegionException dnrre) {
+          LOG.info("Skipping move, {} is not online; {}", getRegion().getEncodedName(), this,
+              dnrre);
+          return Flow.NO_MORE_STATE;
+        }
         addChildProcedure(new UnassignProcedure(plan.getRegionInfo(), plan.getSource(),
             plan.getDestination(), true));
         setNextState(MoveRegionState.MOVE_REGION_ASSIGN);
@@ -135,7 +151,7 @@ public class MoveRegionProcedure extends AbstractStateMachineRegionProcedure<Mov
 
   @Override
   protected MoveRegionState getState(final int stateId) {
-    return MoveRegionState.valueOf(stateId);
+    return MoveRegionState.forNumber(stateId);
   }
 
   @Override
@@ -174,5 +190,23 @@ public class MoveRegionProcedure extends AbstractStateMachineRegionProcedure<Mov
     final ServerName destinationServer = state.hasDestinationServer() ?
         ProtobufUtil.toServerName(state.getDestinationServer()) : null;
     this.plan = new RegionPlan(regionInfo, sourceServer, destinationServer);
+  }
+
+  @Override
+  protected boolean waitInitialized(MasterProcedureEnv env) {
+
+    if (TableName.isMetaTableName(getTableName())) {
+      // only offline state master will try init meta procedure
+      return false;
+    }
+
+    if (getTableName().equals(TableName.NAMESPACE_TABLE_NAME)) {
+      //  after unassign procedure finished, namespace region will be offline
+      //  if master crashed at the same time and reboot
+      //  it will be stuck as master init is block by  waiting namespace table online
+      //  but move region procedure can not go on, break the deadlock by not wait master initialized
+      return false;
+    }
+    return super.waitInitialized(env);
   }
 }

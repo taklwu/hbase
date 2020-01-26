@@ -151,6 +151,17 @@ public class TableDescriptorBuilder {
   private static final Bytes NORMALIZATION_ENABLED_KEY
           = new Bytes(Bytes.toBytes(NORMALIZATION_ENABLED));
 
+  @InterfaceAudience.Private
+  public static final String NORMALIZER_TARGET_REGION_COUNT =
+      "NORMALIZER_TARGET_REGION_COUNT";
+  private static final Bytes NORMALIZER_TARGET_REGION_COUNT_KEY =
+      new Bytes(Bytes.toBytes(NORMALIZER_TARGET_REGION_COUNT));
+
+  @InterfaceAudience.Private
+  public static final String NORMALIZER_TARGET_REGION_SIZE = "NORMALIZER_TARGET_REGION_SIZE";
+  private static final Bytes NORMALIZER_TARGET_REGION_SIZE_KEY =
+      new Bytes(Bytes.toBytes(NORMALIZER_TARGET_REGION_SIZE));
+
   /**
    * Default durability for HTD is USE_DEFAULT, which defaults to HBase-global
    * default value
@@ -426,17 +437,35 @@ public class TableDescriptorBuilder {
     return this;
   }
 
+  public TableDescriptorBuilder setNormalizerTargetRegionCount(final int regionCount) {
+    desc.setNormalizerTargetRegionCount(regionCount);
+    return this;
+  }
+
+  public TableDescriptorBuilder setNormalizerTargetRegionSize(final long regionSize) {
+    desc.setNormalizerTargetRegionSize(regionSize);
+    return this;
+  }
+
   public TableDescriptorBuilder setNormalizationEnabled(final boolean isEnable) {
     desc.setNormalizationEnabled(isEnable);
     return this;
   }
 
+  /**
+   * @deprecated since 2.0.0 and will be removed in 3.0.0.
+   * @see <a href="https://issues.apache.org/jira/browse/HBASE-15583">HBASE-15583</a>
+   */
   @Deprecated
   public TableDescriptorBuilder setOwner(User owner) {
     desc.setOwner(owner);
     return this;
   }
 
+  /**
+   * @deprecated since 2.0.0 and will be removed in 3.0.0.
+   * @see <a href="https://issues.apache.org/jira/browse/HBASE-15583">HBASE-15583</a>
+   */
   @Deprecated
   public TableDescriptorBuilder setOwnerString(String ownerString) {
     desc.setOwnerString(ownerString);
@@ -756,6 +785,27 @@ public class TableDescriptorBuilder {
     }
 
     /**
+     * Check if there is the target region count. If so, the normalize plan will be calculated based
+     * on the target region count.
+     * @return target region count after normalize done
+     */
+    @Override
+    public int getNormalizerTargetRegionCount() {
+      return getOrDefault(NORMALIZER_TARGET_REGION_COUNT_KEY, Integer::valueOf,
+        Integer.valueOf(-1));
+    }
+
+    /**
+     * Check if there is the target region size. If so, the normalize plan will be calculated based
+     * on the target region size.
+     * @return target region size after normalize done
+     */
+    @Override
+    public long getNormalizerTargetRegionSize() {
+      return getOrDefault(NORMALIZER_TARGET_REGION_SIZE_KEY, Long::valueOf, Long.valueOf(-1));
+    }
+
+    /**
      * Setting the table normalization enable flag.
      *
      * @param isEnable True if enable normalization.
@@ -763,6 +813,24 @@ public class TableDescriptorBuilder {
      */
     public ModifyableTableDescriptor setNormalizationEnabled(final boolean isEnable) {
       return setValue(NORMALIZATION_ENABLED_KEY, Boolean.toString(isEnable));
+    }
+
+    /**
+     * Setting the target region count of table normalization .
+     * @param regionCount the target region count.
+     * @return the modifyable TD
+     */
+    public ModifyableTableDescriptor setNormalizerTargetRegionCount(final int regionCount) {
+      return setValue(NORMALIZER_TARGET_REGION_COUNT_KEY, Integer.toString(regionCount));
+    }
+
+    /**
+     * Setting the target region size of table normalization.
+     * @param regionSize the target region size.
+     * @return the modifyable TD
+     */
+    public ModifyableTableDescriptor setNormalizerTargetRegionSize(final long regionSize) {
+      return setValue(NORMALIZER_TARGET_REGION_SIZE_KEY, Long.toString(regionSize));
     }
 
     /**
@@ -1393,17 +1461,29 @@ public class TableDescriptorBuilder {
       }
     }
 
+    /**
+     * @deprecated since 2.0.0 and will be removed in 3.0.0.
+     * @see <a href="https://issues.apache.org/jira/browse/HBASE-15583">HBASE-15583</a>
+     */
     @Deprecated
     public ModifyableTableDescriptor setOwner(User owner) {
       return setOwnerString(owner != null ? owner.getShortName() : null);
     }
 
+    /**
+     * @deprecated since 2.0.0 and will be removed in 3.0.0.
+     * @see <a href="https://issues.apache.org/jira/browse/HBASE-15583">HBASE-15583</a>
+     */
     // used by admin.rb:alter(table_name,*args) to update owner.
     @Deprecated
     public ModifyableTableDescriptor setOwnerString(String ownerString) {
       return setValue(OWNER_KEY, ownerString);
     }
 
+    /**
+     * @deprecated since 2.0.0 and will be removed in 3.0.0.
+     * @see <a href="https://issues.apache.org/jira/browse/HBASE-15583">HBASE-15583</a>
+     */
     @Override
     @Deprecated
     public String getOwnerString() {

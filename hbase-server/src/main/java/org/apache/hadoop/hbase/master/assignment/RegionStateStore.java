@@ -20,6 +20,9 @@ package org.apache.hadoop.hbase.master.assignment;
 import java.io.IOException;
 import java.util.Collections;
 import java.util.List;
+import java.util.SortedMap;
+import java.util.TreeMap;
+
 import org.apache.hadoop.hbase.Cell;
 import org.apache.hadoop.hbase.CellBuilderFactory;
 import org.apache.hadoop.hbase.CellBuilderType;
@@ -136,7 +139,7 @@ public class RegionStateStore {
       long openSeqNum = regionStateNode.getState() == State.OPEN ? regionStateNode.getOpenSeqNum()
         : HConstants.NO_SEQNUM;
       updateUserRegionLocation(regionStateNode.getRegionInfo(), regionStateNode.getState(),
-        regionStateNode.getRegionLocation(), regionStateNode.getLastHost(), openSeqNum,
+        regionStateNode.getRegionLocation(), openSeqNum,
         // The regionStateNode may have no procedure in a test scenario; allow for this.
         regionStateNode.getProcedure() != null ? regionStateNode.getProcedure().getProcId()
           : Procedure.NO_PROC_ID);
@@ -153,10 +156,9 @@ public class RegionStateStore {
     }
   }
 
-  private void updateUserRegionLocation(final RegionInfo regionInfo, final State state,
-      final ServerName regionLocation, final ServerName lastHost, final long openSeqNum,
-      final long pid)
-      throws IOException {
+  private void updateUserRegionLocation(RegionInfo regionInfo, State state,
+      ServerName regionLocation, long openSeqNum,
+       long pid) throws IOException {
     long time = EnvironmentEdgeManager.currentTime();
     final int replicaId = regionInfo.getReplicaId();
     final Put put = new Put(MetaTableAccessor.getMetaKeyForRegion(regionInfo), time);
@@ -176,7 +178,7 @@ public class RegionStateStore {
       }
       info.append(", openSeqNum=").append(openSeqNum);
       info.append(", regionLocation=").append(regionLocation);
-    } else if (regionLocation != null && !regionLocation.equals(lastHost)) {
+    } else if (regionLocation != null) {
       // Ideally, if no regionLocation, write null to the hbase:meta but this will confuse clients
       // currently; they want a server to hit. TODO: Make clients wait if no location.
       put.add(CellBuilderFactory.create(CellBuilderType.SHALLOW_COPY)
@@ -217,9 +219,9 @@ public class RegionStateStore {
   }
 
   private long getOpenSeqNumForParentRegion(RegionInfo region) throws IOException {
-    MasterFileSystem mfs = master.getMasterFileSystem();
-    long maxSeqId =
-        WALSplitter.getMaxRegionSequenceId(mfs.getFileSystem(), mfs.getRegionDir(region));
+    MasterFileSystem fs = master.getMasterFileSystem();
+    long maxSeqId = WALSplitter.getMaxRegionSequenceId(master.getConfiguration(), region,
+      fs::getFileSystem, fs::getWALFileSystem);
     return maxSeqId > 0 ? maxSeqId + 1 : HConstants.NO_SEQNUM;
   }
 
@@ -240,17 +242,16 @@ public class RegionStateStore {
   // ============================================================================================
   //  Update Region Merging State helpers
   // ============================================================================================
-  public void mergeRegions(RegionInfo child, RegionInfo hriA, RegionInfo hriB,
-      ServerName serverName) throws IOException {
+  public void mergeRegions(RegionInfo child, RegionInfo [] parents, ServerName serverName)
+      throws IOException {
     TableDescriptor htd = getTableDescriptor(child.getTable());
-    long regionAOpenSeqNum = -1L;
-    long regionBOpenSeqNum = -1L;
-    if (htd.hasGlobalReplicationScope()) {
-      regionAOpenSeqNum = getOpenSeqNumForParentRegion(hriA);
-      regionBOpenSeqNum = getOpenSeqNumForParentRegion(hriB);
+    boolean globalScope = htd.hasGlobalReplicationScope();
+    SortedMap<RegionInfo, Long> parentSeqNums = new TreeMap<>();
+    for (RegionInfo ri: parents) {
+      parentSeqNums.put(ri, globalScope? getOpenSeqNumForParentRegion(ri): -1);
     }
-    MetaTableAccessor.mergeRegions(master.getConnection(), child, hriA, regionAOpenSeqNum, hriB,
-      regionBOpenSeqNum, serverName, getRegionReplication(htd));
+    MetaTableAccessor.mergeRegions(master.getConnection(), child, parentSeqNums,
+        serverName, getRegionReplication(htd));
   }
 
   // ============================================================================================
@@ -261,7 +262,7 @@ public class RegionStateStore {
   }
 
   public void deleteRegions(final List<RegionInfo> regions) throws IOException {
-    MetaTableAccessor.deleteRegions(master.getConnection(), regions);
+    MetaTableAccessor.deleteRegionInfos(master.getConnection(), regions);
   }
 
   // ==========================================================================

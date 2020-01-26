@@ -34,6 +34,7 @@ import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Predicate;
+
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hbase.ClockOutOfSyncException;
 import org.apache.hadoop.hbase.HConstants;
@@ -48,6 +49,7 @@ import org.apache.hadoop.hbase.client.RegionInfo;
 import org.apache.hadoop.hbase.client.RetriesExhaustedException;
 import org.apache.hadoop.hbase.ipc.HBaseRpcController;
 import org.apache.hadoop.hbase.ipc.RpcControllerFactory;
+import org.apache.hadoop.hbase.master.procedure.ServerCrashProcedure;
 import org.apache.hadoop.hbase.monitoring.MonitoredTask;
 import org.apache.hadoop.hbase.regionserver.HRegionServer;
 import org.apache.hadoop.hbase.util.Bytes;
@@ -177,30 +179,30 @@ public class ServerManager {
   /**
    * Let the server manager know a new regionserver has come online
    * @param request the startup request
-   * @param versionNumber the version of the new regionserver
+   * @param versionNumber the version number of the new regionserver
+   * @param version the version of the new regionserver, could contain strings like "SNAPSHOT"
    * @param ia the InetAddress from which request is received
    * @return The ServerName we know this server as.
    * @throws IOException
    */
   ServerName regionServerStartup(RegionServerStartupRequest request, int versionNumber,
-      InetAddress ia) throws IOException {
+      String version, InetAddress ia) throws IOException {
     // Test for case where we get a region startup message from a regionserver
     // that has been quickly restarted but whose znode expiration handler has
     // not yet run, or from a server whose fail we are currently processing.
-    // Test its host+port combo is present in serverAddressToServerInfo.  If it
+    // Test its host+port combo is present in serverAddressToServerInfo. If it
     // is, reject the server and trigger its expiration. The next time it comes
     // in, it should have been removed from serverAddressToServerInfo and queued
     // for processing by ProcessServerShutdown.
 
-    final String hostname = request.hasUseThisHostnameInstead() ?
-        request.getUseThisHostnameInstead() :ia.getHostName();
-    ServerName sn = ServerName.valueOf(hostname, request.getPort(),
-      request.getServerStartCode());
+    final String hostname =
+      request.hasUseThisHostnameInstead() ? request.getUseThisHostnameInstead() : ia.getHostName();
+    ServerName sn = ServerName.valueOf(hostname, request.getPort(), request.getServerStartCode());
     checkClockSkew(sn, request.getServerCurrentTime());
     checkIsDead(sn, "STARTUP");
-    if (!checkAndRecordNewServer(sn, ServerMetricsBuilder.of(sn, versionNumber))) {
-      LOG.warn("THIS SHOULD NOT HAPPEN, RegionServerStartup"
-        + " could not record the server: " + sn);
+    if (!checkAndRecordNewServer(sn, ServerMetricsBuilder.of(sn, versionNumber, version))) {
+      LOG.warn(
+        "THIS SHOULD NOT HAPPEN, RegionServerStartup" + " could not record the server: " + sn);
     }
     return sn;
   }
@@ -247,8 +249,7 @@ public class ServerManager {
   }
 
   @VisibleForTesting
-  public void regionServerReport(ServerName sn,
-    ServerMetrics sl) throws YouAreDeadException {
+  public void regionServerReport(ServerName sn, ServerMetrics sl) throws YouAreDeadException {
     checkIsDead(sn, "REPORT");
     if (null == this.onlineServers.replace(sn, sl)) {
       // Already have this host+port combo and its just different start code?
@@ -313,12 +314,12 @@ public class ServerManager {
    * <p/>
    * Must be called inside the initialization method of {@code RegionServerTracker} to avoid
    * concurrency issue.
-   * @param deadServersFromPE the region servers which already have SCP associated.
+   * @param deadServersFromPE the region servers which already have a SCP associated.
    * @param liveServersFromWALDir the live region servers from wal directory.
    */
-  void findOutDeadServersAndProcess(Set<ServerName> deadServersFromPE,
+  void findDeadServersAndProcess(Set<ServerCrashProcedure> deadServersFromPE,
       Set<ServerName> liveServersFromWALDir) {
-    deadServersFromPE.forEach(deadservers::add);
+    deadServersFromPE.forEach(scp -> deadservers.add(scp.getServerName(), !scp.isFinished()));
     liveServersFromWALDir.stream().filter(sn -> !onlineServers.containsKey(sn))
       .forEach(this::expireServer);
   }
@@ -529,6 +530,16 @@ public class ServerManager {
   }
 
   /**
+   * @return True if we should expire <code>serverName</code>
+   */
+  boolean expire(ServerName serverName) {
+    return this.onlineServers.containsKey(serverName) ||
+        this.deadservers.isDeadServer(serverName) ||
+        this.master.getAssignmentManager().getRegionStates().getServerNode(serverName) != null ||
+        this.master.getMasterWalManager().isWALDirectoryNameWithWALs(serverName);
+  }
+
+  /**
    * Expire the passed server. Add it to list of dead servers and queue a shutdown processing.
    * @return True if we queued a ServerCrashProcedure else false if we did not (could happen for
    *         many reasons including the fact that its this server that is going down or we already
@@ -543,11 +554,24 @@ public class ServerManager {
       }
       return false;
     }
-    if (this.deadservers.isDeadServer(serverName)) {
-      LOG.warn("Expiration called on {} but crash processing already in progress", serverName);
+    // Check if we should bother running an expire!
+    if (!expire(serverName)) {
+      LOG.info("Skipping expire; {} is not online, not in deadservers, not in fs -- presuming " +
+          "long gone server instance!", serverName);
       return false;
     }
-    moveFromOnlineToDeadServers(serverName);
+
+    if (this.deadservers.isDeadServer(serverName)) {
+      LOG.warn("Expiration called on {} but crash processing in progress, serverStateNode={}",
+          serverName,
+          this.master.getAssignmentManager().getRegionStates().getServerNode(serverName));
+      return false;
+    }
+
+    if (!moveFromOnlineToDeadServers(serverName)) {
+      LOG.info("Expiration called on {} but NOT online", serverName);
+      // Continue.
+    }
 
     // If cluster is going down, yes, servers are going to be expiring; don't
     // process as a dead server
@@ -571,20 +595,24 @@ public class ServerManager {
     return true;
   }
 
+  /**
+   * @return Returns true if was online.
+   */
   @VisibleForTesting
-  public void moveFromOnlineToDeadServers(final ServerName sn) {
+  public boolean moveFromOnlineToDeadServers(final ServerName sn) {
+    boolean online = false;
     synchronized (onlineServers) {
-      if (!this.onlineServers.containsKey(sn)) {
-        LOG.warn("Expiration of " + sn + " but server not online");
-      }
       // Remove the server from the known servers lists and update load info BUT
       // add to deadservers first; do this so it'll show in dead servers list if
       // not in online servers list.
       this.deadservers.add(sn);
-      this.onlineServers.remove(sn);
-      onlineServers.notifyAll();
+      if (this.onlineServers.remove(sn) != null) {
+        online = true;
+        onlineServers.notifyAll();
+      }
     }
     this.rsAdmins.remove(sn);
+    return online;
   }
 
   /*
@@ -715,19 +743,22 @@ public class ServerManager {
    * RegionServers to check-in.
    */
   private int getMinToStart() {
-    // One server should be enough to get us off the ground.
-    int requiredMinToStart = 1;
-    if (LoadBalancer.isTablesOnMaster(master.getConfiguration())) {
-      if (LoadBalancer.isSystemTablesOnlyOnMaster(master.getConfiguration())) {
-        // If Master is carrying regions but NOT user-space regions, it
-        // still shows as a 'server'. We need at least one more server to check
-        // in before we can start up so set defaultMinToStart to 2.
-        requiredMinToStart = requiredMinToStart + 1;
-      }
+    if (master.isInMaintenanceMode()) {
+      // If in maintenance mode, then master hosting meta will be the only server available
+      return 1;
     }
+
+    int minimumRequired = 1;
+    if (LoadBalancer.isTablesOnMaster(master.getConfiguration()) &&
+        LoadBalancer.isSystemTablesOnlyOnMaster(master.getConfiguration())) {
+      // If Master is carrying regions it will show up as a 'server', but is not handling user-
+      // space regions, so we need a second server.
+      minimumRequired = 2;
+    }
+
     int minToStart = this.master.getConfiguration().getInt(WAIT_ON_REGIONSERVERS_MINTOSTART, -1);
-    // Ensure we are never less than requiredMinToStart else stuff won't work.
-    return minToStart == -1 || minToStart < requiredMinToStart? requiredMinToStart: minToStart;
+    // Ensure we are never less than minimumRequired else stuff won't work.
+    return Math.max(minToStart, minimumRequired);
   }
 
   /**
@@ -875,7 +906,7 @@ public class ServerManager {
     }
   }
 
-  boolean isClusterShutdown() {
+  public boolean isClusterShutdown() {
     return this.clusterShutdown.get();
   }
 
@@ -949,9 +980,17 @@ public class ServerManager {
   /**
    * May return 0 when server is not online.
    */
-  public int getServerVersion(final ServerName serverName) {
+  public int getVersionNumber(ServerName serverName) {
     ServerMetrics serverMetrics = onlineServers.get(serverName);
     return serverMetrics != null ? serverMetrics.getVersionNumber() : 0;
+  }
+
+  /**
+   * May return "0.0.0" when server is not online
+   */
+  public String getVersion(ServerName serverName) {
+    ServerMetrics serverMetrics = onlineServers.get(serverName);
+    return serverMetrics != null ? serverMetrics.getVersion() : "0.0.0";
   }
 
   public int getInfoPort(ServerName serverName) {

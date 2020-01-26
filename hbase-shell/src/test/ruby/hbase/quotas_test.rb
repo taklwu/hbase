@@ -26,6 +26,7 @@ require 'hbase/table'
 include HBaseConstants
 
 module Hbase
+  # rubocop:disable Metrics/ClassLength
   class SpaceQuotasTest < Test::Unit::TestCase
     include TestHelpers
 
@@ -60,11 +61,91 @@ module Hbase
       end
     end
 
-    define_test 'set quota with a non-numeric limit fails' do
+    # rubocop:disable Metrics/BlockLength
+    define_test 'set quota with an invalid limit fails' do
+      # Space Quota
       assert_raise(ArgumentError) do
-        command(:set_quota, TYPE => SPACE, LIMIT => 'asdf', POLICY => NO_INSERTS, TABLE => @test_name)
+        command(:set_quota,
+                TYPE => SPACE,
+                LIMIT => 'asdf',
+                POLICY => NO_INSERTS,
+                TABLE => @test_name)
+      end
+      assert_raise(ArgumentError) do
+        command(:set_quota,
+                TYPE => SPACE,
+                LIMIT => '1.3G',
+                POLICY => NO_INSERTS,
+                TABLE => @test_name)
+      end
+      assert_raise(ArgumentError) do
+        command(:set_quota,
+                TYPE => SPACE,
+                LIMIT => 'G1G',
+                POLICY => NO_INSERTS,
+                TABLE => @test_name)
+      end
+      assert_raise(ArgumentError) do
+        command(:set_quota,
+                TYPE => SPACE,
+                LIMIT => '1GG',
+                POLICY => NO_INSERTS,
+                TABLE => @test_name)
+      end
+      assert_raise(ArgumentError) do
+        command(:set_quota,
+                TYPE => SPACE,
+                LIMIT => '1H',
+                POLICY => NO_INSERTS,
+                TABLE => @test_name)
+      end
+      assert_raise(ArgumentError) do
+        command(:set_quota,
+                TYPE => SPACE,
+                LIMIT => '0G',
+                POLICY => NO_INSERTS,
+                TABLE => @test_name)
+      end
+
+      # Throttle Quota
+      assert_raise(ArgumentError) do
+        command(:set_quota,
+                TYPE => THROTTLE,
+                LIMIT => 'asdf',
+                TABLE => @test_name)
+      end
+      assert_raise(ArgumentError) do
+        command(:set_quota,
+                TYPE => THROTTLE,
+                LIMIT => '1.3G/hour',
+                TABLE => @test_name)
+      end
+      assert_raise(ArgumentError) do
+        command(:set_quota,
+                TYPE => THROTTLE,
+                LIMIT => 'G1G/hour',
+                TABLE => @test_name)
+      end
+      assert_raise(ArgumentError) do
+        command(:set_quota,
+                TYPE => THROTTLE,
+                LIMIT => '1GG/hour',
+                TABLE => @test_name)
+      end
+      assert_raise(ArgumentError) do
+        command(:set_quota,
+                TYPE => THROTTLE,
+                LIMIT => '1H/hour',
+                TABLE => @test_name)
+      end
+      assert_raise(ArgumentError) do
+        command(:set_quota,
+                TYPE => THROTTLE,
+                LIMIT => '0G/hour',
+                TABLE => @test_name)
       end
     end
+    # rubocop:enable Metrics/BlockLength
 
     define_test 'set quota without a limit fails' do
       assert_raise(ArgumentError) do
@@ -99,8 +180,7 @@ module Hbase
     define_test 'can set and remove quota' do
       command(:set_quota, TYPE => SPACE, LIMIT => '1G', POLICY => NO_INSERTS, TABLE => @test_name)
       output = capture_stdout{ command(:list_quotas) }
-      size = 1024 * 1024 * 1024
-      assert(output.include?("LIMIT => #{size}"))
+      assert(output.include?("LIMIT => 1G"))
       assert(output.include?("VIOLATION_POLICY => NO_INSERTS"))
       assert(output.include?("TYPE => SPACE"))
       assert(output.include?("TABLE => #{@test_name}"))
@@ -137,4 +217,5 @@ module Hbase
       assert(output.include? snapshot2)
     end
   end
+  # rubocop:enable Metrics/ClassLength
 end

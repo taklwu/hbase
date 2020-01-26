@@ -49,6 +49,8 @@ import org.apache.yetus.audience.InterfaceAudience;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import org.apache.hbase.thirdparty.com.google.common.annotations.VisibleForTesting;
+
 /**
  * This class abstracts a bunch of operations the HMaster needs to interact with
  * the underlying file system like creating the initial layout, checking file
@@ -192,21 +194,25 @@ public class MasterFileSystem {
     return this.fs;
   }
 
-  protected FileSystem getWALFileSystem() { return this.walFs; }
+  public FileSystem getWALFileSystem() {
+    return this.walFs;
+  }
 
   public Configuration getConfiguration() {
     return this.conf;
   }
 
   /**
-   * @return HBase root dir.
+   * @return HBase root directory.
    */
   public Path getRootDir() {
     return this.rootdir;
   }
 
   /**
-   * @return HBase root log dir.
+   * @return HBase WAL root directory, usually the same as {@link #getRootDir()} but can be
+   *   different if hfiles on one fs and WALs on another. The 'WALs' dir gets made underneath
+   *   the root dir returned here; i.e. this is '/hbase', not '/hbase/WALs'.
    */
   public Path getWALRootDir() {
     return this.walRootDir;
@@ -216,7 +222,7 @@ public class MasterFileSystem {
    * @return the directory for a give {@code region}.
    */
   public Path getRegionDir(RegionInfo region) {
-    return FSUtils.getRegionDir(FSUtils.getTableDir(getRootDir(), region.getTable()), region);
+    return FSUtils.getRegionDirFromRootDir(getRootDir(), region);
   }
 
   /**
@@ -307,16 +313,16 @@ public class MasterFileSystem {
    * Make sure the hbase temp directory exists and is empty.
    * NOTE that this method is only executed once just after the master becomes the active one.
    */
-  private void checkTempDir(final Path tmpdir, final Configuration c, final FileSystem fs)
+  @VisibleForTesting
+  void checkTempDir(final Path tmpdir, final Configuration c, final FileSystem fs)
       throws IOException {
     // If the temp directory exists, clear the content (left over, from the previous run)
     if (fs.exists(tmpdir)) {
       // Archive table in temp, maybe left over from failed deletion,
       // if not the cleaner will take care of them.
-      for (Path tabledir: FSUtils.getTableDirs(fs, tmpdir)) {
-        for (Path regiondir: FSUtils.getRegionDirs(fs, tabledir)) {
-          HFileArchiver.archiveRegion(fs, this.rootdir, tabledir, regiondir);
-        }
+      for (Path tableDir: FSUtils.getTableDirs(fs, tmpdir)) {
+        HFileArchiver.archiveRegions(c, fs, this.rootdir, tableDir,
+          FSUtils.getRegionDirs(fs, tableDir));
       }
       if (!fs.delete(tmpdir, true)) {
         throw new IOException("Unable to clean the temp directory: " + tmpdir);

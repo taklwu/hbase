@@ -25,19 +25,20 @@ org.apache.hadoop.util.StringUtils;
 TaskMonitor taskMonitor = TaskMonitor.get();
 String filter = "general";
 String format = "html";
+String parent = "";
 </%args>
 
 <%if format.equals("json")%>
     <& renderTasks; filter=filter &>
 <%else>
-  <h2>Tasks</h2>
+  <h2><a name="tasks">Tasks</a></h2>
 
   <div class="tabbable">
       <ul class="nav nav-pills">
-        <li class="active">
+        <li class="">
             <a href="#tab_alltasks" data-toggle="tab">Show All Monitored Tasks</a>
         </li>
-        <li class="">
+        <li class="active">
             <a href="#tab_generaltasks" data-toggle="tab">Show non-RPC Tasks</a>
         </li>
         <li class="">
@@ -51,11 +52,11 @@ String format = "html";
         </li>
       </ul>
       <div class="tab-content" style="padding-bottom: 9px; border-bottom: 1px solid #ddd;">
-        <div class="tab-pane active" id="tab_alltasks">
+        <div class="tab-pane" id="tab_alltasks">
             <& jsonView; filter="all" &>
             <& renderTasks; filter="all" &>
         </div>
-        <div class="tab-pane" id="tab_generaltasks">
+        <div class="tab-pane active" id="tab_generaltasks">
             <& jsonView; filter="general" &>
             <& renderTasks; filter="general" &>
         </div>
@@ -79,7 +80,7 @@ String format = "html";
     <%args>
         String filter;
     </%args>
-    <a href="?format=json&filter=<% filter %>">View as JSON</a>
+    <a href="<% parent %>?format=json&filter=<% filter %>">View as JSON</a>
 </%def>
 
 <%def renderTasks>

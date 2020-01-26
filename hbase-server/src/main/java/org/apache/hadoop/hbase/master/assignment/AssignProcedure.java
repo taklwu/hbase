@@ -26,12 +26,15 @@ import org.apache.hadoop.hbase.ServerName;
 import org.apache.hadoop.hbase.TableName;
 import org.apache.hadoop.hbase.client.RegionInfo;
 import org.apache.hadoop.hbase.client.RetriesExhaustedException;
+import org.apache.hadoop.hbase.client.TableState;
 import org.apache.hadoop.hbase.exceptions.UnexpectedStateException;
+import org.apache.hadoop.hbase.master.MasterServices;
 import org.apache.hadoop.hbase.master.RegionState.State;
 import org.apache.hadoop.hbase.master.TableStateManager;
 import org.apache.hadoop.hbase.master.assignment.RegionStates.RegionStateNode;
 import org.apache.hadoop.hbase.master.procedure.MasterProcedureEnv;
 import org.apache.hadoop.hbase.master.procedure.RSProcedureDispatcher.RegionOpenOperation;
+import org.apache.hadoop.hbase.master.procedure.ServerCrashException;
 import org.apache.hadoop.hbase.procedure2.ProcedureMetrics;
 import org.apache.hadoop.hbase.procedure2.ProcedureStateSerializer;
 import org.apache.hadoop.hbase.procedure2.ProcedureSuspendedException;
@@ -68,6 +71,7 @@ import org.apache.hadoop.hbase.shaded.protobuf.generated.RegionServerStatusProto
  * failure. Should we ignore rollback calls to Assign/Unassign then? Or just
  * remove rollback here?
  */
+// TODO: Add being able to assign a region to open read-only.
 @InterfaceAudience.Private
 public class AssignProcedure extends RegionTransitionProcedure {
   private static final Logger LOG = LoggerFactory.getLogger(AssignProcedure.class);
@@ -98,12 +102,16 @@ public class AssignProcedure extends RegionTransitionProcedure {
   }
 
   public AssignProcedure(final RegionInfo regionInfo) {
-    super(regionInfo);
-    this.targetServer = null;
+    this(regionInfo, null);
   }
 
   public AssignProcedure(final RegionInfo regionInfo, final ServerName destinationServer) {
-    super(regionInfo);
+    this(regionInfo, destinationServer, false);
+  }
+
+  public AssignProcedure(final RegionInfo regionInfo, final ServerName destinationServer,
+      boolean override) {
+    super(regionInfo, override);
     this.targetServer = destinationServer;
   }
 
@@ -137,6 +145,9 @@ public class AssignProcedure extends RegionTransitionProcedure {
     if (getAttempt() > 0) {
       state.setAttempt(getAttempt());
     }
+    if (isOverride()) {
+      state.setOverride(isOverride());
+    }
     serializer.serialize(state.build());
   }
 
@@ -147,6 +158,7 @@ public class AssignProcedure extends RegionTransitionProcedure {
     setTransitionState(state.getTransitionState());
     setRegionInfo(ProtobufUtil.toRegionInfo(state.getRegionInfo()));
     forceNewPlan = state.getForceNewPlan();
+    setOverride(state.getOverride());
     if (state.hasTargetServer()) {
       this.targetServer = ProtobufUtil.toServerName(state.getTargetServer());
     }
@@ -155,19 +167,43 @@ public class AssignProcedure extends RegionTransitionProcedure {
     }
   }
 
-  @Override
-  protected boolean startTransition(final MasterProcedureEnv env, final RegionStateNode regionNode)
+  /**
+   * Used by ServerCrashProcedure too skip creating Assigns if not needed.
+   * @return Skip out on the assign; returns 'true'/assign if exception.
+   */
+  public static boolean assign(MasterServices masterServices, RegionInfo ri) {
+    try {
+      return assign(masterServices,
+          masterServices.getAssignmentManager().getRegionStates().getOrCreateRegionStateNode(ri));
+    } catch (IOException e) {
+      LOG.warn("Letting assign proceed", e);
+    }
+    return true;
+  }
+
+  protected static boolean assign(MasterServices masterServices, final RegionStateNode regionNode)
       throws IOException {
     // If the region is already open we can't do much...
-    if (regionNode.isInState(State.OPEN) && isServerOnline(env, regionNode)) {
-      LOG.info("Assigned, not reassigning; " + this + "; " + regionNode.toShortString());
+    if (regionNode.isInState(State.OPEN) &&
+        masterServices.getServerManager().isServerOnline(regionNode.getRegionLocation())) {
+      LOG.info("Assigned, not reassigning {}", regionNode.toShortString());
       return false;
     }
     // Don't assign if table is in disabling or disabled state.
-    TableStateManager tsm = env.getMasterServices().getTableStateManager();
+    TableStateManager tsm = masterServices.getTableStateManager();
     TableName tn = regionNode.getRegionInfo().getTable();
-    if (tsm.getTableState(tn).isDisabledOrDisabling()) {
-      LOG.info("Table " + tn + " state=" + tsm.getTableState(tn) + ", skipping " + this);
+    TableState ts = tsm.getTableState(tn);
+    if (ts.isDisabledOrDisabling()) {
+      LOG.info("{} so SKIPPING assign of {}", ts, regionNode.getRegionInfo().getEncodedName());
+      return false;
+    }
+    return true;
+  }
+
+  @Override
+  protected boolean startTransition(final MasterProcedureEnv env, final RegionStateNode regionNode)
+      throws IOException {
+    if (!assign(env.getMasterServices(), regionNode)) {
       return false;
     }
     // If the region is SPLIT, we can't assign it. But state might be CLOSED, rather than
@@ -291,8 +327,11 @@ public class AssignProcedure extends RegionTransitionProcedure {
               " transition openSeqNum=" + openSeqNum + ", " + regionNode);
         }
         if (openSeqNum < regionNode.getOpenSeqNum()) {
-          LOG.warn("Skipping update of open seqnum with " + openSeqNum +
-              " because current seqnum=" + regionNode.getOpenSeqNum());
+          // Don't bother logging if openSeqNum == 0
+          if (openSeqNum != 0) {
+            LOG.warn("Skipping update of open seqnum with " + openSeqNum +
+                " because current seqnum=" + regionNode.getOpenSeqNum());
+          }
         } else {
           regionNode.setOpenSeqNum(openSeqNum);
         }
@@ -350,6 +389,17 @@ public class AssignProcedure extends RegionTransitionProcedure {
   @Override
   protected boolean remoteCallFailed(final MasterProcedureEnv env, final RegionStateNode regionNode,
       final IOException exception) {
+    RegionTransitionState tState = getTransitionState();
+    if (tState == RegionTransitionState.REGION_TRANSITION_FINISH
+        && exception instanceof ServerCrashException) {
+      // if we found that AssignProcedure is at this stage, then ServerCerash handling may/may not
+      // have any effect
+      // depending upon the race between handling of the failure and execution at
+      // REGION_TRANSITION_FINISH state
+      LOG.warn("Assign Procedure is at state:" + tState
+          + ", so Handling of Server Crash may not have any affect");
+      return false;
+    }
     handleFailure(env, regionNode);
     return true;
   }

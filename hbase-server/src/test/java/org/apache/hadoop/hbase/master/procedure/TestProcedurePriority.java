@@ -106,6 +106,7 @@ public class TestProcedurePriority {
   public static void setUp() throws Exception {
     UTIL.getConfiguration().setLong(ProcedureExecutor.WORKER_KEEP_ALIVE_TIME_CONF_KEY, 5000);
     UTIL.getConfiguration().setInt(MasterProcedureConstants.MASTER_PROCEDURE_THREADS, 4);
+    UTIL.getConfiguration().setInt(MasterProcedureConstants.MASTER_URGENT_PROCEDURE_THREADS, 0);
     UTIL.getConfiguration().set(CoprocessorHost.REGION_COPROCESSOR_CONF_KEY, MyCP.class.getName());
     UTIL.startMiniCluster(3);
     CORE_POOL_SIZE =
@@ -136,6 +137,8 @@ public class TestProcedurePriority {
       .stream().filter(t -> !t.getRegionServer().getRegions(TableName.META_TABLE_NAME).isEmpty())
       .findAny().get();
     HRegionServer rsNoMeta = UTIL.getOtherRegionServer(rsWithMetaThread.getRegionServer());
+    // wait for NS table initialization to avoid our error inject affecting master initialization
+    UTIL.waitTableAvailable(TableName.NAMESPACE_TABLE_NAME);
     FAIL = true;
     UTIL.getMiniHBaseCluster().killRegionServer(rsNoMeta.getServerName());
     // wait until all the worker thread are stuck, which means that the stuck checker will start to
@@ -158,13 +161,13 @@ public class TestProcedurePriority {
     rsWithMetaThread.join();
     FAIL = false;
     // verify that the cluster is back
-    UTIL.waitUntilNoRegionsInTransition(60000);
+    UTIL.waitUntilNoRegionsInTransition(480000);
     for (int i = 0; i < TABLE_COUNT; i++) {
       try (Table table = UTIL.getConnection().getTable(TableName.valueOf(TABLE_NAME_PREFIX + i))) {
         table.put(new Put(Bytes.toBytes(i)).addColumn(CF, CQ, Bytes.toBytes(i)));
       }
     }
-    UTIL.waitFor(30000, new ExplainingPredicate<Exception>() {
+    UTIL.waitFor(60000, new ExplainingPredicate<Exception>() {
 
       @Override
       public boolean evaluate() throws Exception {

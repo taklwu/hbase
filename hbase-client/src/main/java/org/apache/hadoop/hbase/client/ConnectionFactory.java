@@ -18,17 +18,18 @@
  */
 package org.apache.hadoop.hbase.client;
 
+import static org.apache.hadoop.hbase.util.FutureUtils.addListener;
+
 import java.io.IOException;
 import java.lang.reflect.Constructor;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
-
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hbase.HBaseConfiguration;
-import org.apache.yetus.audience.InterfaceAudience;
 import org.apache.hadoop.hbase.security.User;
 import org.apache.hadoop.hbase.security.UserProvider;
 import org.apache.hadoop.hbase.util.ReflectionUtils;
+import org.apache.yetus.audience.InterfaceAudience;
 
 /**
  * A non-instantiable class that manages creation of {@link Connection}s. Managing the lifecycle of
@@ -266,18 +267,19 @@ public class ConnectionFactory {
    * @param conf configuration
    * @param user the user the asynchronous connection is for
    * @return AsyncConnection object wrapped by CompletableFuture
-   * @throws IOException
    */
   public static CompletableFuture<AsyncConnection> createAsyncConnection(Configuration conf,
       User user) {
     CompletableFuture<AsyncConnection> future = new CompletableFuture<>();
     AsyncRegistry registry = AsyncRegistryFactory.getRegistry(conf);
-    registry.getClusterId().whenComplete((clusterId, error) -> {
+    addListener(registry.getClusterId(), (clusterId, error) -> {
       if (error != null) {
+        registry.close();
         future.completeExceptionally(error);
         return;
       }
       if (clusterId == null) {
+        registry.close();
         future.completeExceptionally(new IOException("clusterid came back null"));
         return;
       }
@@ -286,6 +288,7 @@ public class ConnectionFactory {
       try {
         future.complete(ReflectionUtils.newInstance(clazz, conf, registry, clusterId, user));
       } catch (Exception e) {
+        registry.close();
         future.completeExceptionally(e);
       }
     });

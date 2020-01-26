@@ -46,7 +46,6 @@ import javax.xml.bind.annotation.XmlAccessorType;
 import javax.xml.bind.annotation.XmlElement;
 import javax.xml.bind.annotation.XmlRootElement;
 import javax.xml.parsers.SAXParserFactory;
-import javax.xml.stream.XMLStreamException;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hbase.HBaseClassTestRule;
 import org.apache.hadoop.hbase.HBaseTestingUtility;
@@ -71,28 +70,25 @@ import org.junit.BeforeClass;
 import org.junit.ClassRule;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.xml.sax.InputSource;
 import org.xml.sax.XMLReader;
 
 @Category({RestTests.class, MediumTests.class})
 public class TestTableScan {
-
   @ClassRule
   public static final HBaseClassTestRule CLASS_RULE =
       HBaseClassTestRule.forClass(TestTableScan.class);
-
-  private static final Logger LOG = LoggerFactory.getLogger(TestTableScan.class);
 
   private static final TableName TABLE = TableName.valueOf("TestScanResource");
   private static final String CFA = "a";
   private static final String CFB = "b";
   private static final String COLUMN_1 = CFA + ":1";
   private static final String COLUMN_2 = CFB + ":2";
+  private static final String COLUMN_EMPTY = CFA + ":";
   private static Client client;
   private static int expectedRows1;
   private static int expectedRows2;
+  private static int expectedRows3;
   private static Configuration conf;
 
   private static final HBaseTestingUtility TEST_UTIL = new HBaseTestingUtility();
@@ -109,12 +105,13 @@ public class TestTableScan {
       REST_TEST_UTIL.getServletPort()));
     Admin admin = TEST_UTIL.getAdmin();
     if (!admin.tableExists(TABLE)) {
-    HTableDescriptor htd = new HTableDescriptor(TABLE);
-    htd.addFamily(new HColumnDescriptor(CFA));
-    htd.addFamily(new HColumnDescriptor(CFB));
-    admin.createTable(htd);
-    expectedRows1 = TestScannerResource.insertData(conf, TABLE, COLUMN_1, 1.0);
-    expectedRows2 = TestScannerResource.insertData(conf, TABLE, COLUMN_2, 0.5);
+      HTableDescriptor htd = new HTableDescriptor(TABLE);
+      htd.addFamily(new HColumnDescriptor(CFA));
+      htd.addFamily(new HColumnDescriptor(CFB));
+      admin.createTable(htd);
+      expectedRows1 = TestScannerResource.insertData(conf, TABLE, COLUMN_1, 1.0);
+      expectedRows2 = TestScannerResource.insertData(conf, TABLE, COLUMN_2, 0.5);
+      expectedRows3 = TestScannerResource.insertData(conf, TABLE, COLUMN_EMPTY, 1.0);
     }
   }
 
@@ -127,7 +124,7 @@ public class TestTableScan {
   }
 
   @Test
-  public void testSimpleScannerXML() throws IOException, JAXBException, XMLStreamException {
+  public void testSimpleScannerXML() throws IOException, JAXBException {
     // Test scanning particular columns
     StringBuilder builder = new StringBuilder();
     builder.append("/*");
@@ -203,7 +200,7 @@ public class TestTableScan {
   }
 
   @Test
-  public void testSimpleScannerJson() throws IOException, JAXBException {
+  public void testSimpleScannerJson() throws IOException {
     // Test scanning particular columns with limit.
     StringBuilder builder = new StringBuilder();
     builder.append("/*");
@@ -290,16 +287,16 @@ public class TestTableScan {
     unmarshaller.setListener(new Unmarshaller.Listener() {
         @Override
         public void beforeUnmarshal(Object target, Object parent) {
-            if (target instanceof ClientSideCellSetModel) {
-                ((ClientSideCellSetModel) target).setCellSetModelListener(listener);
-            }
+          if (target instanceof ClientSideCellSetModel) {
+            ((ClientSideCellSetModel) target).setCellSetModelListener(listener);
+          }
         }
 
         @Override
         public void afterUnmarshal(Object target, Object parent) {
-            if (target instanceof ClientSideCellSetModel) {
-                ((ClientSideCellSetModel) target).setCellSetModelListener(null);
-            }
+          if (target instanceof ClientSideCellSetModel) {
+            ((ClientSideCellSetModel) target).setCellSetModelListener(null);
+          }
         }
     });
 
@@ -430,7 +427,7 @@ public class TestTableScan {
   }
 
   @Test
-  public void testScanningUnknownColumnJson() throws IOException, JAXBException {
+  public void testScanningUnknownColumnJson() throws IOException {
     // Test scanning particular columns with limit.
     StringBuilder builder = new StringBuilder();
     builder.append("/*");
@@ -598,6 +595,46 @@ public class TestTableScan {
     }
   }
 
+  @Test
+  public void testColumnWithEmptyQualifier() throws IOException {
+    // Test scanning with empty qualifier
+    StringBuilder builder = new StringBuilder();
+    builder.append("/*");
+    builder.append("?");
+    builder.append(Constants.SCAN_COLUMN + "=" + COLUMN_EMPTY);
+    Response response = client.get("/" + TABLE + builder.toString(),
+        Constants.MIMETYPE_JSON);
+    assertEquals(200, response.getCode());
+    assertEquals(Constants.MIMETYPE_JSON, response.getHeader("content-type"));
+    ObjectMapper mapper = new JacksonJaxbJsonProvider()
+        .locateMapper(CellSetModel.class, MediaType.APPLICATION_JSON_TYPE);
+    CellSetModel model = mapper.readValue(response.getStream(), CellSetModel.class);
+    int count = TestScannerResource.countCellSet(model);
+    assertEquals(expectedRows3, count);
+    checkRowsNotNull(model);
+    RowModel startRow = model.getRows().get(0);
+    assertEquals("aaa", Bytes.toString(startRow.getKey()));
+    assertEquals(1, startRow.getCells().size());
+
+    // Test scanning with empty qualifier and normal qualifier
+    builder = new StringBuilder();
+    builder.append("/*");
+    builder.append("?");
+    builder.append(Constants.SCAN_COLUMN + "=" + COLUMN_1);
+    builder.append("&");
+    builder.append(Constants.SCAN_COLUMN + "=" + COLUMN_EMPTY);
+    response = client.get("/" + TABLE + builder.toString(),
+        Constants.MIMETYPE_JSON);
+    assertEquals(200, response.getCode());
+    assertEquals(Constants.MIMETYPE_JSON, response.getHeader("content-type"));
+    mapper = new JacksonJaxbJsonProvider()
+        .locateMapper(CellSetModel.class, MediaType.APPLICATION_JSON_TYPE);
+    model = mapper.readValue(response.getStream(), CellSetModel.class);
+    count = TestScannerResource.countCellSet(model);
+    assertEquals(expectedRows1 + expectedRows3, count);
+    checkRowsNotNull(model);
+  }
+
   public static class CustomFilter extends PrefixFilter {
     private byte[] key = null;
 
@@ -624,7 +661,6 @@ public class TestTableScan {
   @XmlRootElement(name = "CellSet")
   @XmlAccessorType(XmlAccessType.FIELD)
   public static class ClientSideCellSetModel implements Serializable {
-
     private static final long serialVersionUID = 1L;
 
     /**
@@ -641,26 +677,23 @@ public class TestTableScan {
      * is removed again.
      */
     public void setCellSetModelListener(final Listener l) {
-        row = (l == null) ? null : new ArrayList<RowModel>() {
+      row = (l == null) ? null : new ArrayList<RowModel>() {
         private static final long serialVersionUID = 1L;
 
-            @Override
-            public boolean add(RowModel o) {
-                l.handleRowModel(ClientSideCellSetModel.this, o);
-                listenerInvoked = true;
-                return false;
-            }
-        };
+        @Override
+        public boolean add(RowModel o) {
+          l.handleRowModel(ClientSideCellSetModel.this, o);
+          listenerInvoked = true;
+          return false;
+        }
+      };
     }
 
     /**
      * This listener is invoked every time a new row model is unmarshalled.
      */
-    public static interface Listener {
-        void handleRowModel(ClientSideCellSetModel helper, RowModel rowModel);
+    public interface Listener {
+      void handleRowModel(ClientSideCellSetModel helper, RowModel rowModel);
     }
   }
 }
-
-
-

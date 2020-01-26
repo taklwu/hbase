@@ -31,6 +31,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileSystem;
@@ -50,6 +51,7 @@ import org.apache.hadoop.hbase.TableName;
 import org.apache.hadoop.hbase.UnknownRegionException;
 import org.apache.hadoop.hbase.ZooKeeperConnectionException;
 import org.apache.hadoop.hbase.client.Admin;
+import org.apache.hadoop.hbase.client.CompactionState;
 import org.apache.hadoop.hbase.client.Consistency;
 import org.apache.hadoop.hbase.client.Delete;
 import org.apache.hadoop.hbase.client.DoNotRetryRegionException;
@@ -70,10 +72,10 @@ import org.apache.hadoop.hbase.exceptions.UnexpectedStateException;
 import org.apache.hadoop.hbase.master.HMaster;
 import org.apache.hadoop.hbase.master.LoadBalancer;
 import org.apache.hadoop.hbase.master.MasterRpcServices;
-import org.apache.hadoop.hbase.master.NoSuchProcedureException;
 import org.apache.hadoop.hbase.master.RegionState;
 import org.apache.hadoop.hbase.master.RegionState.State;
 import org.apache.hadoop.hbase.master.assignment.AssignmentManager;
+import org.apache.hadoop.hbase.master.assignment.AssignmentTestingUtil;
 import org.apache.hadoop.hbase.master.assignment.RegionStates;
 import org.apache.hadoop.hbase.procedure2.ProcedureTestingUtility;
 import org.apache.hadoop.hbase.regionserver.compactions.CompactionContext;
@@ -85,6 +87,7 @@ import org.apache.hadoop.hbase.util.EnvironmentEdgeManager;
 import org.apache.hadoop.hbase.util.FSUtils;
 import org.apache.hadoop.hbase.util.HBaseFsck;
 import org.apache.hadoop.hbase.util.JVMClusterUtil.RegionServerThread;
+import org.apache.hadoop.hbase.util.RetryCounter;
 import org.apache.hadoop.hbase.util.Threads;
 import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.KeeperException.NodeExistsException;
@@ -159,11 +162,7 @@ public class TestSplitTransactionOnCluster {
       throws IOException, InterruptedException {
     assertEquals(1, regions.size());
     RegionInfo hri = regions.get(0).getRegionInfo();
-    try {
-      cluster.getMaster().getAssignmentManager().waitForAssignment(hri, 600000);
-    } catch (NoSuchProcedureException e) {
-      LOG.info("Presume the procedure has been cleaned up so just proceed: " + e.toString());
-    }
+    AssignmentTestingUtil.waitForAssignment(cluster.getMaster().getAssignmentManager(), hri);
     return hri;
   }
 
@@ -386,11 +385,18 @@ public class TestSplitTransactionOnCluster {
       // Compact first to ensure we have cleaned up references -- else the split
       // will fail.
       this.admin.compactRegion(daughter.getRegionName());
+      RetryCounter retrier = new RetryCounter(30, 1, TimeUnit.SECONDS);
+      while (CompactionState.NONE != admin.getCompactionStateForRegion(daughter.getRegionName())
+          && retrier.shouldRetry()) {
+        retrier.sleepUntilNextRetry();
+      }
       daughters = cluster.getRegions(tableName);
       HRegion daughterRegion = null;
-      for (HRegion r: daughters) {
+      for (HRegion r : daughters) {
         if (RegionInfo.COMPARATOR.compare(r.getRegionInfo(), daughter) == 0) {
           daughterRegion = r;
+          // Archiving the compacted references file
+          r.getStores().get(0).closeAndArchiveCompactedFiles();
           LOG.info("Found matching HRI: " + daughterRegion);
           break;
         }
@@ -533,11 +539,19 @@ public class TestSplitTransactionOnCluster {
       // Call split.
       this.admin.splitRegion(hri.getRegionName());
       List<HRegion> daughters = checkAndGetDaughters(tableName);
+
       // Before cleanup, get a new master.
       HMaster master = abortAndWaitForMaster();
       // Now call compact on the daughters and clean up any references.
-      for (HRegion daughter: daughters) {
+      for (HRegion daughter : daughters) {
         daughter.compact(true);
+        RetryCounter retrier = new RetryCounter(30, 1, TimeUnit.SECONDS);
+        while (CompactionState.NONE != admin
+            .getCompactionStateForRegion(daughter.getRegionInfo().getRegionName())
+            && retrier.shouldRetry()) {
+          retrier.sleepUntilNextRetry();
+        }
+        daughter.getStores().get(0).closeAndArchiveCompactedFiles();
         assertFalse(daughter.hasReferences());
       }
       // BUT calling compact on the daughters is not enough. The CatalogJanitor looks
@@ -551,6 +565,7 @@ public class TestSplitTransactionOnCluster {
         rst.getRegionServer().compactedFileDischarger.setUseExecutor(oldSetting);
       }
       cluster.getMaster().setCatalogJanitorEnabled(true);
+      ProcedureTestingUtility.waitAllProcedures(cluster.getMaster().getMasterProcedureExecutor());
       LOG.info("Starting run of CatalogJanitor");
       cluster.getMaster().getCatalogJanitor().run();
       ProcedureTestingUtility.waitAllProcedures(cluster.getMaster().getMasterProcedureExecutor());

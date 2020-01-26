@@ -41,12 +41,14 @@ import org.apache.hadoop.hbase.HRegionLocation;
 import org.apache.hadoop.hbase.ServerName;
 import org.apache.hadoop.hbase.TableName;
 import org.apache.hadoop.hbase.client.RegionInfo;
+import org.apache.hadoop.hbase.client.RegionReplicaUtil;
 import org.apache.hadoop.hbase.exceptions.UnexpectedStateException;
 import org.apache.hadoop.hbase.master.RegionState;
 import org.apache.hadoop.hbase.master.RegionState.State;
 import org.apache.hadoop.hbase.procedure2.ProcedureEvent;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.hbase.util.EnvironmentEdgeManager;
+import org.apache.hadoop.hbase.util.ServerRegionReplicaUtil;
 import org.apache.yetus.audience.InterfaceAudience;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -106,6 +108,9 @@ public class RegionStates {
 
     private volatile RegionTransitionProcedure procedure = null;
     private volatile ServerName regionLocation = null;
+    // notice that, the lastHost will only be updated when a region is successfully CLOSED through
+    // UnassignProcedure, so do not use it for critical condition as the data maybe stale and unsync
+    // with the data in meta.
     private volatile ServerName lastHost = null;
     /**
      * A Region-in-Transition (RIT) moves through states.
@@ -431,7 +436,8 @@ public class RegionStates {
 
     @Override
     public String toString() {
-      return String.format("ServerStateNode(%s)", getServerName());
+      return String.format("name=%s, state=%s, regionCount=%d", getServerName(), getState(),
+          getRegionCount());
     }
   }
 
@@ -494,17 +500,27 @@ public class RegionStates {
     return regionsMap.get(regionName);
   }
 
-  protected RegionStateNode getRegionStateNode(final RegionInfo regionInfo) {
+  public RegionStateNode getRegionStateNode(final RegionInfo regionInfo) {
     return getRegionStateNodeFromName(regionInfo.getRegionName());
   }
 
   public void deleteRegion(final RegionInfo regionInfo) {
     regionsMap.remove(regionInfo.getRegionName());
+    // See HBASE-20860
+    // After master restarts, merged regions' RIT state may not be cleaned,
+    // making sure they are cleaned here
+    if (regionInTransition.containsKey(regionInfo)) {
+      regionInTransition.remove(regionInfo);
+    }
     // Remove from the offline regions map too if there.
     if (this.regionOffline.containsKey(regionInfo)) {
       if (LOG.isTraceEnabled()) LOG.trace("Removing from regionOffline Map: " + regionInfo);
       this.regionOffline.remove(regionInfo);
     }
+  }
+
+  public void deleteRegions(final List<RegionInfo> regionInfos) {
+    regionInfos.forEach(this::deleteRegion);
   }
 
   ArrayList<RegionStateNode> getTableRegionStateNodes(final TableName tableName) {
@@ -630,6 +646,12 @@ public class RegionStates {
    */
   public HRegionLocation checkReopened(HRegionLocation oldLoc) {
     RegionStateNode node = getRegionStateNode(oldLoc.getRegion());
+    // HBASE-20921
+    // if the oldLoc's state node does not exist, that means the region is
+    // merged or split, no need to check it
+    if (node == null) {
+      return null;
+    }
     synchronized (node) {
       if (oldLoc.getSeqNum() >= 0) {
         // in OPEN state before
@@ -760,7 +782,6 @@ public class RegionStates {
     setServerState(serverName, ServerState.OFFLINE);
   }
 
-  @VisibleForTesting
   public void updateRegionState(final RegionInfo regionInfo, final State state) {
     final RegionStateNode regionNode = getOrCreateRegionStateNode(regionInfo);
     synchronized (regionNode) {
@@ -805,23 +826,37 @@ public class RegionStates {
   public Map<ServerName, List<RegionInfo>> getSnapShotOfAssignment(
       final Collection<RegionInfo> regions) {
     final Map<ServerName, List<RegionInfo>> result = new HashMap<ServerName, List<RegionInfo>>();
-    for (RegionInfo hri: regions) {
-      final RegionStateNode node = getRegionStateNode(hri);
-      if (node == null) continue;
-
-      // TODO: State.OPEN
-      final ServerName serverName = node.getRegionLocation();
-      if (serverName == null) continue;
-
-      List<RegionInfo> serverRegions = result.get(serverName);
-      if (serverRegions == null) {
-        serverRegions = new ArrayList<RegionInfo>();
-        result.put(serverName, serverRegions);
+    if (regions != null) {
+      for (RegionInfo hri : regions) {
+        final RegionStateNode node = getRegionStateNode(hri);
+        if (node == null) {
+          continue;
+        }
+        createSnapshot(node, result);
       }
-
-      serverRegions.add(node.getRegionInfo());
+    } else {
+      for (RegionStateNode node : regionsMap.values()) {
+        if (node == null) {
+          continue;
+        }
+        createSnapshot(node, result);
+      }
     }
     return result;
+  }
+
+  private void createSnapshot(RegionStateNode node, Map<ServerName, List<RegionInfo>> result) {
+    final ServerName serverName = node.getRegionLocation();
+    if (serverName == null) {
+      return;
+    }
+
+    List<RegionInfo> serverRegions = result.get(serverName);
+    if (serverRegions == null) {
+      serverRegions = new ArrayList<RegionInfo>();
+      result.put(serverName, serverRegions);
+    }
+    serverRegions.add(node.getRegionInfo());
   }
 
   public Map<RegionInfo, ServerName> getRegionAssignments() {
@@ -864,55 +899,40 @@ public class RegionStates {
    * Can't let out original since it can change and at least the load balancer
    * wants to iterate this exported list.  We need to synchronize on regions
    * since all access to this.servers is under a lock on this.regions.
-   * @param forceByCluster a flag to force to aggregate the server-load to the cluster level
-   * @return A clone of current assignments by table.
+   *
+   * @param isByTable If <code>true</code>, return the assignments by table. If <code>false</code>,
+   *                  return the assignments which aggregate the server-load to the cluster level.
+   * @return A clone of current assignments.
    */
-  public Map<TableName, Map<ServerName, List<RegionInfo>>> getAssignmentsByTable(
-      final boolean forceByCluster) {
-    if (!forceByCluster) return getAssignmentsByTable();
-
-    final HashMap<ServerName, List<RegionInfo>> ensemble =
-      new HashMap<ServerName, List<RegionInfo>>(serverMap.size());
-    for (ServerStateNode serverNode: serverMap.values()) {
-      ensemble.put(serverNode.getServerName(), serverNode.getRegionInfoList());
-    }
-
-    // TODO: can we use Collections.singletonMap(HConstants.ENSEMBLE_TABLE_NAME, ensemble)?
-    final Map<TableName, Map<ServerName, List<RegionInfo>>> result =
-      new HashMap<TableName, Map<ServerName, List<RegionInfo>>>(1);
-    result.put(HConstants.ENSEMBLE_TABLE_NAME, ensemble);
-    return result;
-  }
-
-  public Map<TableName, Map<ServerName, List<RegionInfo>>> getAssignmentsByTable() {
+  public Map<TableName, Map<ServerName, List<RegionInfo>>> getAssignmentsForBalancer(
+      boolean isByTable) {
     final Map<TableName, Map<ServerName, List<RegionInfo>>> result = new HashMap<>();
-    for (RegionStateNode node: regionsMap.values()) {
-      Map<ServerName, List<RegionInfo>> tableResult = result.get(node.getTable());
-      if (tableResult == null) {
-        tableResult = new HashMap<ServerName, List<RegionInfo>>();
-        result.put(node.getTable(), tableResult);
-      }
-
-      final ServerName serverName = node.getRegionLocation();
-      if (serverName == null) {
-        LOG.info("Skipping, no server for " + node);
-        continue;
-      }
-      List<RegionInfo> serverResult = tableResult.get(serverName);
-      if (serverResult == null) {
-        serverResult = new ArrayList<RegionInfo>();
-        tableResult.put(serverName, serverResult);
-      }
-
-      serverResult.add(node.getRegionInfo());
-    }
-    // Add online servers with no assignment for the table.
-    for (Map<ServerName, List<RegionInfo>> table: result.values()) {
-        for (ServerName svr : serverMap.keySet()) {
-          if (!table.containsKey(svr)) {
-            table.put(svr, new ArrayList<RegionInfo>());
-          }
+    if (isByTable) {
+      for (RegionStateNode node : regionsMap.values()) {
+        Map<ServerName, List<RegionInfo>> tableResult =
+            result.computeIfAbsent(node.getTable(), t -> new HashMap<>());
+        final ServerName serverName = node.getRegionLocation();
+        if (serverName == null) {
+          LOG.info("Skipping, no server for " + node);
+          continue;
         }
+        List<RegionInfo> serverResult =
+            tableResult.computeIfAbsent(serverName, s -> new ArrayList<>());
+        serverResult.add(node.getRegionInfo());
+      }
+      // Add online servers with no assignment for the table.
+      for (Map<ServerName, List<RegionInfo>> table : result.values()) {
+        for (ServerName serverName : serverMap.keySet()) {
+          table.putIfAbsent(serverName, new ArrayList<>());
+        }
+      }
+    } else {
+      final HashMap<ServerName, List<RegionInfo>> ensemble = new HashMap<>(serverMap.size());
+      for (ServerStateNode serverNode : serverMap.values()) {
+        ensemble.put(serverNode.getServerName(), serverNode.getRegionInfoList());
+      }
+      // Use a fake table name to represent the whole cluster's assignments
+      result.put(HConstants.ENSEMBLE_TABLE_NAME, ensemble);
     }
     return result;
   }
@@ -1078,9 +1098,10 @@ public class RegionStates {
    * you could mess up online server accounting. TOOD: Review usage and convert
    * to {@link #getServerNode(ServerName)} where we can.
    */
-  public ServerStateNode getOrCreateServer(final ServerName serverName) {
+  ServerStateNode getOrCreateServer(final ServerName serverName) {
     ServerStateNode node = serverMap.get(serverName);
     if (node == null) {
+      LOG.trace("CREATING! {}", serverName, new RuntimeException("WHERE AM I?"));
       node = new ServerStateNode(serverName);
       ServerStateNode oldNode = serverMap.putIfAbsent(serverName, node);
       node = oldNode != null ? oldNode : node;
@@ -1092,7 +1113,7 @@ public class RegionStates {
     serverMap.remove(serverName);
   }
 
-  protected ServerStateNode getServerNode(final ServerName serverName) {
+  public ServerStateNode getServerNode(final ServerName serverName) {
     return serverMap.get(serverName);
   }
 
@@ -1106,16 +1127,46 @@ public class RegionStates {
     return numServers == 0 ? 0.0: (double)totalLoad / (double)numServers;
   }
 
-  public ServerStateNode addRegionToServer(final RegionStateNode regionNode) {
-    ServerStateNode serverNode = getOrCreateServer(regionNode.getRegionLocation());
-    serverNode.addRegion(regionNode);
-    return serverNode;
+  /**
+   * Add reference to region to serverstatenode.
+   * DOES NOT AUTO-CREATE ServerStateNode instance.
+   * @return Return serverstatenode or null if none.
+   */
+  ServerStateNode addRegionToServer(final RegionStateNode regionNode) {
+    ServerStateNode ssn = getServerNode(regionNode.getRegionLocation());
+    if (ssn == null) {
+      return ssn;
+    }
+    ssn.addRegion(regionNode);
+    return ssn;
+  }
+
+  public boolean isReplicaAvailableForRegion(final RegionInfo info) {
+    // if the region info itself is a replica return true.
+    if (!RegionReplicaUtil.isDefaultReplica(info)) {
+      return true;
+    }
+    // iterate the regionsMap for the given region name. If there are replicas it should
+    // list them in order.
+    for (RegionStateNode node : regionsMap.tailMap(info.getRegionName()).values()) {
+      if (!node.getTable().equals(info.getTable())
+          || !ServerRegionReplicaUtil.isReplicasForSameRegion(info, node.getRegionInfo())) {
+        break;
+      } else if (!RegionReplicaUtil.isDefaultReplica(node.getRegionInfo())) {
+        // we have replicas
+        return true;
+      }
+    }
+    // we don have replicas
+    return false;
   }
 
   public ServerStateNode removeRegionFromServer(final ServerName serverName,
       final RegionStateNode regionNode) {
-    ServerStateNode serverNode = getOrCreateServer(serverName);
-    serverNode.removeRegion(regionNode);
+    ServerStateNode serverNode = getServerNode(serverName);
+    if (serverNode != null) {
+      serverNode.removeRegion(regionNode);
+    }
     return serverNode;
   }
 

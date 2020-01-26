@@ -137,6 +137,10 @@ public class LoadIncrementalHFiles extends Configured implements Tool {
 
   private String bulkToken;
 
+  private List<String> clusterIds = new ArrayList<>();
+
+  private boolean replicate = true;
+
   /**
    * Represents an HFile waiting to be loaded. An queue is used in this class in order to support
    * the case where a region has split during the process of the load. When this happens, the HFile
@@ -184,13 +188,19 @@ public class LoadIncrementalHFiles extends Configured implements Tool {
   }
 
   private void usage() {
-    System.err.println("usage: " + NAME + " /path/to/hfileoutputformat-output tablename -loadTable"
-        + "\n -D" + CREATE_TABLE_CONF_KEY + "=no - can be used to avoid creation of table by "
-        + "this tool\n  Note: if you set this to 'no', then the target table must already exist "
-        + "in HBase\n -loadTable implies your baseDirectory to store file has a depth of 3 ,you"
-        + " must have an existing table\n-D" + IGNORE_UNMATCHED_CF_CONF_KEY + "=yes - can be used "
-        + "to ignore unmatched column families\n" +
-        "\n");
+    System.err.println("Usage: " + "bin/hbase completebulkload [OPTIONS] "
+        + "</PATH/TO/HFILEOUTPUTFORMAT-OUTPUT> <TABLENAME>\n"
+        + "Loads directory of hfiles -- a region dir or product of HFileOutputFormat -- "
+        + "into an hbase table.\n"
+        + "OPTIONS (for other -D options, see source code):\n"
+        + " -D" + CREATE_TABLE_CONF_KEY + "=no whether to create table; when 'no', target "
+        + "table must exist.\n"
+        + " -D" + IGNORE_UNMATCHED_CF_CONF_KEY + "=yes to ignore unmatched column families.\n"
+        + " -loadTable for when directory of files to load has a depth of 3; target table must "
+        + "exist;\n"
+        + " must be last of the options on command line.\n"
+        + "See http://hbase.apache.org/book.html#arch.bulk.load.complete.strays for "
+        + "documentation.\n");
   }
 
   /**
@@ -332,10 +342,9 @@ public class LoadIncrementalHFiles extends Configured implements Tool {
 
       if (queue.isEmpty()) {
         LOG.warn(
-          "Bulk load operation did not find any files to load in " + "directory " + hfofDir != null
-              ? hfofDir.toUri().toString()
-              : "" + ".  Does it contain files in " +
-                  "subdirectories that correspond to column family names?");
+            "Bulk load operation did not find any files to load in directory {}. " +
+            "Does it contain files in subdirectories that correspond to column family names?",
+            (hfofDir != null ? hfofDir.toUri().toString() : ""));
         return Collections.emptyMap();
       }
       pool = createExecutorService();
@@ -410,7 +419,7 @@ public class LoadIncrementalHFiles extends Configured implements Tool {
       // need to reload split keys each iteration.
       final Pair<byte[][], byte[][]> startEndKeys = regionLocator.getStartEndKeys();
       if (count != 0) {
-        LOG.info("Split occurred while grouping HFiles, retry attempt " + +count + " with " +
+        LOG.info("Split occurred while grouping HFiles, retry attempt " + count + " with " +
             queue.size() + " files remaining to group or split");
       }
 
@@ -534,7 +543,8 @@ public class LoadIncrementalHFiles extends Configured implements Tool {
           try (Table table = conn.getTable(getTableName())) {
             secureClient = new SecureBulkLoadClient(getConf(), table);
             success = secureClient.secureBulkLoadHFiles(getStub(), famPaths, regionName,
-              assignSeqIds, fsDelegationToken.getUserToken(), bulkToken, copyFile);
+              assignSeqIds, fsDelegationToken.getUserToken(),
+                bulkToken, copyFile, clusterIds, replicate);
           }
           return success ? regionName : null;
         } finally {
@@ -710,7 +720,7 @@ public class LoadIncrementalHFiles extends Configured implements Tool {
     Path hfilePath = item.getFilePath();
     Optional<byte[]> first, last;
     try (HFile.Reader hfr = HFile.createReader(hfilePath.getFileSystem(getConf()), hfilePath,
-      new CacheConfig(getConf()), true, getConf())) {
+      CacheConfig.DISABLED, true, getConf())) {
       hfr.loadFileInfo();
       first = hfr.getFirstRowKey();
       last = hfr.getLastRowKey();
@@ -847,7 +857,7 @@ public class LoadIncrementalHFiles extends Configured implements Tool {
           throws IOException {
         Path hfile = hfileStatus.getPath();
         try (HFile.Reader reader =
-            HFile.createReader(fs, hfile, new CacheConfig(getConf()), true, getConf())) {
+            HFile.createReader(fs, hfile, CacheConfig.DISABLED, true, getConf())) {
           if (builder.getCompressionType() != reader.getFileContext().getCompression()) {
             builder.setCompressionType(reader.getFileContext().getCompression());
             LOG.info("Setting compression " + reader.getFileContext().getCompression().name() +
@@ -1083,7 +1093,7 @@ public class LoadIncrementalHFiles extends Configured implements Tool {
   private static void copyHFileHalf(Configuration conf, Path inFile, Path outFile,
       Reference reference, ColumnFamilyDescriptor familyDescriptor) throws IOException {
     FileSystem fs = inFile.getFileSystem(conf);
-    CacheConfig cacheConf = new CacheConfig(conf);
+    CacheConfig cacheConf = CacheConfig.DISABLED;
     HalfStoreFileReader halfReader = null;
     StoreFileWriter halfWriter = null;
     try {
@@ -1246,6 +1256,16 @@ public class LoadIncrementalHFiles extends Configured implements Tool {
     this.bulkToken = stagingDir;
   }
 
+  public void setClusterIds(List<String> clusterIds) {
+    this.clusterIds = clusterIds;
+  }
+
+  /**
+   * Disables replication for these bulkloaded files.
+   */
+  public void disableReplication(){
+    this.replicate = false;
+  }
   /**
    * Infers region boundaries for a new table.
    * <p>

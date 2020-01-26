@@ -69,7 +69,8 @@ public class NettyRpcServer extends RpcServer {
 
   private final CountDownLatch closed = new CountDownLatch(1);
   private final Channel serverChannel;
-  private final ChannelGroup allChannels = new DefaultChannelGroup(GlobalEventExecutor.INSTANCE);
+  private final ChannelGroup allChannels =
+    new DefaultChannelGroup(GlobalEventExecutor.INSTANCE, true);
 
   public NettyRpcServer(Server server, String name, List<BlockingServiceAndInterface> services,
       InetSocketAddress bindAddress, Configuration conf, RpcScheduler scheduler,
@@ -168,8 +169,9 @@ public class NettyRpcServer extends RpcServer {
 
   @Override
   public int getNumOpenConnections() {
+    int channelsCount = allChannels.size();
     // allChannels also contains the server channel, so exclude that from the count.
-    return allChannels.size() - 1;
+    return channelsCount > 0 ? channelsCount - 1 : channelsCount;
   }
 
   @Override

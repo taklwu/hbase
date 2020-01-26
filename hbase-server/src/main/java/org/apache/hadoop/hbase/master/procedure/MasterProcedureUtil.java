@@ -19,9 +19,12 @@ package org.apache.hadoop.hbase.master.procedure;
 
 import java.io.IOException;
 import java.util.regex.Pattern;
+
+import org.apache.hadoop.hbase.DoNotRetryIOException;
 import org.apache.hadoop.hbase.TableName;
 import org.apache.hadoop.hbase.master.MasterServices;
 import org.apache.hadoop.hbase.procedure2.Procedure;
+import org.apache.hadoop.hbase.procedure2.ProcedureException;
 import org.apache.hadoop.hbase.procedure2.ProcedureExecutor;
 import org.apache.hadoop.hbase.security.User;
 import org.apache.hadoop.hbase.util.NonceKey;
@@ -99,7 +102,7 @@ public final class MasterProcedureUtil {
     protected abstract void run() throws IOException;
     protected abstract String getDescription();
 
-    protected long submitProcedure(final Procedure<?> proc) {
+    protected long submitProcedure(final Procedure<MasterProcedureEnv> proc) {
       assert procId == null : "submitProcedure() was already called, running procId=" + procId;
       procId = getProcedureExecutor().submitProcedure(proc, nonceKey);
       return procId;
@@ -175,5 +178,18 @@ public final class MasterProcedureUtil {
    */
   public static int getServerPriority(ServerProcedureInterface proc) {
     return proc.hasMetaTableRegion() ? 100 : 1;
+  }
+
+  /**
+   * This is a version of unwrapRemoteIOException that can do DoNotRetryIOE.
+   * We need to throw DNRIOE to clients if a failed Procedure else they will
+   * keep trying. The default proc.getException().unwrapRemoteException
+   * doesn't have access to DNRIOE from the procedure2 module.
+   */
+  public static IOException unwrapRemoteIOException(Procedure proc) {
+    Exception e = proc.getException().unwrapRemoteException();
+    // Do not retry ProcedureExceptions!
+    return (e instanceof ProcedureException)? new DoNotRetryIOException(e):
+        proc.getException().unwrapRemoteIOException();
   }
 }

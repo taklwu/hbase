@@ -191,6 +191,10 @@ public abstract class RpcServer implements RpcServerInterface,
   protected static final int DEFAULT_WARN_RESPONSE_TIME = 10000; // milliseconds
   protected static final int DEFAULT_WARN_RESPONSE_SIZE = 100 * 1024 * 1024;
 
+  protected static final int DEFAULT_TRACE_LOG_MAX_LENGTH = 1000;
+  protected static final String TRACE_LOG_MAX_LENGTH = "hbase.ipc.trace.log.max.length";
+  protected static final String KEY_WORD_TRUNCATED = " <TRUNCATED>";
+
   protected static final ObjectMapper MAPPER = new ObjectMapper();
 
   protected final int maxRequestSize;
@@ -496,7 +500,13 @@ public abstract class RpcServer implements RpcServerInterface,
     responseInfo.put("class", server == null? "": server.getClass().getSimpleName());
     responseInfo.put("method", methodName);
     responseInfo.put("call", call);
-    responseInfo.put("param", ProtobufUtil.getShortTextFormat(param));
+    // The params could be really big, make sure they don't kill us at WARN
+    String stringifiedParam = ProtobufUtil.getShortTextFormat(param);
+    if (stringifiedParam.length() > 150) {
+      // Truncate to 1000 chars if TRACE is on, else to 150 chars
+      stringifiedParam = truncateTraceLog(stringifiedParam);
+    }
+    responseInfo.put("param", stringifiedParam);
     if (param instanceof ClientProtos.ScanRequest && rsRpcServices != null) {
       ClientProtos.ScanRequest request = ((ClientProtos.ScanRequest) param);
       if (request.hasScannerId()) {
@@ -507,7 +517,47 @@ public abstract class RpcServer implements RpcServerInterface,
         }
       }
     }
+    if (param instanceof ClientProtos.MultiRequest) {
+      int numGets = 0;
+      int numMutations = 0;
+      int numServiceCalls = 0;
+      ClientProtos.MultiRequest multi = (ClientProtos.MultiRequest)param;
+      for (ClientProtos.RegionAction regionAction : multi.getRegionActionList()) {
+        for (ClientProtos.Action action: regionAction.getActionList()) {
+          if (action.hasMutation()) {
+            numMutations++;
+          }
+          if (action.hasGet()) {
+            numGets++;
+          }
+          if (action.hasServiceCall()) {
+            numServiceCalls++;
+          }
+        }
+      }
+      responseInfo.put("multi.gets", numGets);
+      responseInfo.put("multi.mutations", numMutations);
+      responseInfo.put("multi.servicecalls", numServiceCalls);
+    }
     LOG.warn("(response" + tag + "): " + MAPPER.writeValueAsString(responseInfo));
+  }
+
+  /**
+   * Truncate to number of chars decided by conf hbase.ipc.trace.log.max.length
+   * if TRACE is on else to 150 chars Refer to Jira HBASE-20826 and HBASE-20942
+   * @param strParam stringifiedParam to be truncated
+   * @return truncated trace log string
+   */
+  @VisibleForTesting
+  String truncateTraceLog(String strParam) {
+    if (LOG.isTraceEnabled()) {
+      int traceLogMaxLength = getConf().getInt(TRACE_LOG_MAX_LENGTH, DEFAULT_TRACE_LOG_MAX_LENGTH);
+      int truncatedLength =
+          strParam.length() < traceLogMaxLength ? strParam.length() : traceLogMaxLength;
+      String truncatedFlag = truncatedLength == strParam.length() ? "" : KEY_WORD_TRUNCATED;
+      return strParam.subSequence(0, truncatedLength) + truncatedFlag;
+    }
+    return strParam.subSequence(0, 150) + KEY_WORD_TRUNCATED;
   }
 
   /**

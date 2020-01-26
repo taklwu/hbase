@@ -28,7 +28,6 @@ import java.io.File;
 import java.io.IOException;
 import java.util.List;
 import java.util.Random;
-import java.util.UUID;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FSDataInputStream;
 import org.apache.hadoop.fs.FSDataOutputStream;
@@ -40,13 +39,17 @@ import org.apache.hadoop.hbase.HBaseClassTestRule;
 import org.apache.hadoop.hbase.HBaseTestingUtility;
 import org.apache.hadoop.hbase.HConstants;
 import org.apache.hadoop.hbase.HDFSBlocksDistribution;
+import org.apache.hadoop.hbase.client.RegionInfoBuilder;
 import org.apache.hadoop.hbase.exceptions.DeserializationException;
+import org.apache.hadoop.hbase.fs.HFileSystem;
 import org.apache.hadoop.hbase.testclassification.MediumTests;
 import org.apache.hadoop.hbase.testclassification.MiscTests;
 import org.apache.hadoop.hdfs.DFSConfigKeys;
 import org.apache.hadoop.hdfs.DFSHedgedReadMetrics;
 import org.apache.hadoop.hdfs.DFSTestUtil;
+import org.apache.hadoop.hdfs.DistributedFileSystem;
 import org.apache.hadoop.hdfs.MiniDFSCluster;
+import org.junit.Assert;
 import org.junit.Before;
 import org.junit.ClassRule;
 import org.junit.Test;
@@ -199,18 +202,43 @@ public class TestFSUtils {
     }
   }
 
+  private void writeVersionFile(Path versionFile, String version) throws IOException {
+    if (FSUtils.isExists(fs, versionFile)) {
+      assertTrue(FSUtils.delete(fs, versionFile, true));
+    }
+    try (FSDataOutputStream s = fs.create(versionFile)) {
+      s.writeUTF(version);
+    }
+    assertTrue(fs.exists(versionFile));
+  }
+
   @Test
   public void testVersion() throws DeserializationException, IOException {
     final Path rootdir = htu.getDataTestDir();
     final FileSystem fs = rootdir.getFileSystem(conf);
     assertNull(FSUtils.getVersion(fs, rootdir));
-    // Write out old format version file.  See if we can read it in and convert.
+    // No meta dir so no complaint from checkVersion.
+    // Presumes it a new install. Will create version file.
+    FSUtils.checkVersion(fs, rootdir, true);
+    // Now remove the version file and create a metadir so checkVersion fails.
     Path versionFile = new Path(rootdir, HConstants.VERSION_FILE_NAME);
-    FSDataOutputStream s = fs.create(versionFile);
-    final String version = HConstants.FILE_SYSTEM_VERSION;
-    s.writeUTF(version);
-    s.close();
-    assertTrue(fs.exists(versionFile));
+    assertTrue(FSUtils.isExists(fs, versionFile));
+    assertTrue(FSUtils.delete(fs, versionFile, true));
+    Path metaRegionDir =
+        FSUtils.getRegionDirFromRootDir(rootdir, RegionInfoBuilder.FIRST_META_REGIONINFO);
+    FsPermission defaultPerms = FSUtils.getFilePermissions(fs, this.conf,
+        HConstants.DATA_FILE_UMASK_KEY);
+    FSUtils.create(fs, metaRegionDir, defaultPerms, false);
+    boolean thrown = false;
+    try {
+      FSUtils.checkVersion(fs, rootdir, true);
+    } catch (FileSystemVersionException e) {
+      thrown = true;
+    }
+    assertTrue("Expected FileSystemVersionException", thrown);
+    // Write out a good version file.  See if we can read it in and convert.
+    String version = HConstants.FILE_SYSTEM_VERSION;
+    writeVersionFile(versionFile, version);
     FileStatus [] status = fs.listStatus(versionFile);
     assertNotNull(status);
     assertTrue(status.length > 0);
@@ -220,6 +248,18 @@ public class TestFSUtils {
     // File will have been converted. Exercise the pb format
     assertEquals(version, FSUtils.getVersion(fs, rootdir));
     FSUtils.checkVersion(fs, rootdir, true);
+    // Write an old version file.
+    String oldVersion = "1";
+    writeVersionFile(versionFile, oldVersion);
+    newVersion = FSUtils.getVersion(fs, rootdir);
+    assertNotEquals(version, newVersion);
+    thrown = false;
+    try {
+      FSUtils.checkVersion(fs, rootdir, true);
+    } catch (FileSystemVersionException e) {
+      thrown = true;
+    }
+    assertTrue("Expected FileSystemVersionException", thrown);
   }
 
   @Test
@@ -249,7 +289,7 @@ public class TestFSUtils {
     assertEquals(new FsPermission("700"), filePerm);
 
     // then that the correct file is created
-    Path p = new Path("target" + File.separator + UUID.randomUUID().toString());
+    Path p = new Path("target" + File.separator + htu.getRandomUUID().toString());
     try {
       FSDataOutputStream out = FSUtils.create(conf, fs, p, filePerm, null);
       out.close();
@@ -268,7 +308,7 @@ public class TestFSUtils {
     conf.setBoolean(HConstants.ENABLE_DATA_FILE_UMASK, true);
     FsPermission perms = FSUtils.getFilePermissions(fs, conf, HConstants.DATA_FILE_UMASK_KEY);
     // then that the correct file is created
-    String file = UUID.randomUUID().toString();
+    String file = htu.getRandomUUID().toString();
     Path p = new Path(htu.getDataTestDir(), "temptarget" + File.separator + file);
     Path p1 = new Path(htu.getDataTestDir(), "temppath" + File.separator + file);
     try {
@@ -309,7 +349,7 @@ public class TestFSUtils {
     FileSystem fs = FileSystem.get(conf);
     Path testDir = htu.getDataTestDirOnTestFS("testArchiveFile");
 
-    String file = UUID.randomUUID().toString();
+    String file = htu.getRandomUUID().toString();
     Path p = new Path(testDir, file);
 
     FSDataOutputStream out = fs.create(p);
@@ -323,7 +363,7 @@ public class TestFSUtils {
     mockEnv.setValue(expect);
     EnvironmentEdgeManager.injectEdge(mockEnv);
     try {
-      String dstFile = UUID.randomUUID().toString();
+      String dstFile = htu.getRandomUUID().toString();
       Path dst = new Path(testDir , dstFile);
 
       assertTrue(FSUtils.renameAndSetModifyTime(fs, p, dst));
@@ -339,7 +379,40 @@ public class TestFSUtils {
 
   @Test
   public void testSetStoragePolicyDefault() throws Exception {
+    verifyNoHDFSApiInvocationForDefaultPolicy();
     verifyFileInDirWithStoragePolicy(HConstants.DEFAULT_WAL_STORAGE_POLICY);
+  }
+
+  /**
+   * Note: currently the default policy is set to defer to HDFS and this case is to verify the
+   * logic, will need to remove the check if the default policy is changed
+   */
+  private void verifyNoHDFSApiInvocationForDefaultPolicy() {
+    FileSystem testFs = new AlwaysFailSetStoragePolicyFileSystem();
+    // There should be no exception thrown when setting to default storage policy, which indicates
+    // the HDFS API hasn't been called
+    try {
+      FSUtils.setStoragePolicy(testFs, new Path("non-exist"), HConstants.DEFAULT_WAL_STORAGE_POLICY,
+        true);
+    } catch (IOException e) {
+      Assert.fail("Should have bypassed the FS API when setting default storage policy");
+    }
+    // There should be exception thrown when given non-default storage policy, which indicates the
+    // HDFS API has been called
+    try {
+      FSUtils.setStoragePolicy(testFs, new Path("non-exist"), "HOT", true);
+      Assert.fail("Should have invoked the FS API but haven't");
+    } catch (IOException e) {
+      // expected given an invalid path
+    }
+  }
+
+  class AlwaysFailSetStoragePolicyFileSystem extends DistributedFileSystem {
+    @Override
+    public void setStoragePolicy(final Path src, final String policyName)
+            throws IOException {
+      throw new IOException("The setStoragePolicy method is invoked");
+    }
   }
 
   /* might log a warning, but still work. (always warning on Hadoop < 2.6.0) */
@@ -348,10 +421,12 @@ public class TestFSUtils {
     verifyFileInDirWithStoragePolicy("ALL_SSD");
   }
 
+  final String INVALID_STORAGE_POLICY = "1772";
+
   /* should log a warning, but still work. (different warning on Hadoop < 2.6.0) */
   @Test
   public void testSetStoragePolicyInvalid() throws Exception {
-    verifyFileInDirWithStoragePolicy("1772");
+    verifyFileInDirWithStoragePolicy(INVALID_STORAGE_POLICY);
   }
 
   // Here instead of TestCommonFSUtils because we need a minicluster
@@ -366,12 +441,25 @@ public class TestFSUtils {
       Path testDir = htu.getDataTestDirOnTestFS("testArchiveFile");
       fs.mkdirs(testDir);
 
-      FSUtils.setStoragePolicy(fs, conf, testDir, HConstants.WAL_STORAGE_POLICY,
-          HConstants.DEFAULT_WAL_STORAGE_POLICY);
+      String storagePolicy =
+          conf.get(HConstants.WAL_STORAGE_POLICY, HConstants.DEFAULT_WAL_STORAGE_POLICY);
+      FSUtils.setStoragePolicy(fs, testDir, storagePolicy);
 
-      String file = UUID.randomUUID().toString();
+      String file =htu.getRandomUUID().toString();
       Path p = new Path(testDir, file);
       WriteDataToHDFS(fs, p, 4096);
+      HFileSystem hfs = new HFileSystem(fs);
+      String policySet = hfs.getStoragePolicyName(p);
+      LOG.debug("The storage policy of path " + p + " is " + policySet);
+      if (policy.equals(HConstants.DEFER_TO_HDFS_STORAGE_POLICY)
+              || policy.equals(INVALID_STORAGE_POLICY)) {
+        String hdfsDefaultPolicy = hfs.getStoragePolicyName(hfs.getHomeDirectory());
+        LOG.debug("The default hdfs storage policy (indicated by home path: "
+                + hfs.getHomeDirectory() + ") is " + hdfsDefaultPolicy);
+        Assert.assertEquals(hdfsDefaultPolicy, policySet);
+      } else {
+        Assert.assertEquals(policy, policySet);
+      }
       // will assert existance before deleting.
       cleanupFile(fs, testDir);
     } finally {

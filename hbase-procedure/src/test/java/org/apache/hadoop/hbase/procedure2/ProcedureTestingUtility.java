@@ -66,23 +66,55 @@ public class ProcedureTestingUtility {
     });
   }
 
+  public static <TEnv> void restart(final ProcedureExecutor<TEnv> procExecutor,
+      boolean abort, boolean startWorkers) throws Exception {
+    restart(procExecutor, false, true, null, null, abort, startWorkers);
+  }
+
+  public static <TEnv> void restart(final ProcedureExecutor<TEnv> procExecutor,
+      boolean abort) throws Exception {
+    restart(procExecutor, false, true, null, null, abort, true);
+  }
+
   public static <TEnv> void restart(final ProcedureExecutor<TEnv> procExecutor) throws Exception {
-    restart(procExecutor, false, true, null, null);
+    restart(procExecutor, false, true, null, null, false, true);
   }
 
   public static void initAndStartWorkers(ProcedureExecutor<?> procExecutor, int numThreads,
       boolean abortOnCorruption) throws IOException {
-    procExecutor.init(numThreads, abortOnCorruption);
-    procExecutor.startWorkers();
+    initAndStartWorkers(procExecutor, numThreads, abortOnCorruption, true);
+  }
+
+  public static void initAndStartWorkers(ProcedureExecutor<?> procExecutor, int numThreads,
+      boolean abortOnCorruption, boolean startWorkers) throws IOException {
+    initAndStartWorkers(procExecutor, numThreads, 0, abortOnCorruption, startWorkers);
+  }
+
+  public static void initAndStartWorkers(ProcedureExecutor<?> procExecutor, int numThreads,
+      int numUrgentThreads, boolean abortOnCorruption, boolean startWorkers) throws IOException {
+    procExecutor.init(numThreads, numUrgentThreads, abortOnCorruption);
+    if (startWorkers) {
+      procExecutor.startWorkers();
+    }
   }
 
   public static <TEnv> void restart(final ProcedureExecutor<TEnv> procExecutor,
       final boolean avoidTestKillDuringRestart, final boolean failOnCorrupted,
       final Callable<Void> stopAction, final Callable<Void> startAction)
       throws Exception {
+    restart(procExecutor, avoidTestKillDuringRestart, failOnCorrupted,
+        stopAction, startAction, false, true);
+  }
+
+  public static <TEnv> void restart(final ProcedureExecutor<TEnv> procExecutor,
+      final boolean avoidTestKillDuringRestart, final boolean failOnCorrupted,
+      final Callable<Void> stopAction, final Callable<Void> startAction,
+      boolean abort, boolean startWorkers)
+      throws Exception {
     final ProcedureStore procStore = procExecutor.getStore();
     final int storeThreads = procExecutor.getCorePoolSize();
     final int execThreads = procExecutor.getCorePoolSize();
+    final int urgentThreads = procExecutor.getUrgentPoolSize();
 
     final ProcedureExecutor.Testing testing = procExecutor.testing;
     if (avoidTestKillDuringRestart) {
@@ -92,7 +124,7 @@ public class ProcedureTestingUtility {
     // stop
     LOG.info("RESTART - Stop");
     procExecutor.stop();
-    procStore.stop(false);
+    procStore.stop(abort);
     if (stopAction != null) {
       stopAction.call();
     }
@@ -104,7 +136,7 @@ public class ProcedureTestingUtility {
     // re-start
     LOG.info("RESTART - Start");
     procStore.start(storeThreads);
-    initAndStartWorkers(procExecutor, execThreads, failOnCorrupted);
+    initAndStartWorkers(procExecutor, execThreads, urgentThreads, failOnCorrupted, startWorkers);
     if (startAction != null) {
       startAction.call();
     }
@@ -167,6 +199,13 @@ public class ProcedureTestingUtility {
     assertSingleExecutorForKillTests(procExecutor);
   }
 
+  public static <TEnv> void toggleKillAfterStoreUpdate(ProcedureExecutor<TEnv> procExecutor) {
+    createExecutorTesting(procExecutor);
+    procExecutor.testing.killAfterStoreUpdate = !procExecutor.testing.killAfterStoreUpdate;
+    LOG.warn("Set Kill after store update to: " + procExecutor.testing.killAfterStoreUpdate);
+    assertSingleExecutorForKillTests(procExecutor);
+  }
+
   public static <TEnv> void setKillAndToggleBeforeStoreUpdate(ProcedureExecutor<TEnv> procExecutor,
       boolean value) {
     ProcedureTestingUtility.setKillBeforeStoreUpdate(procExecutor, value);
@@ -189,7 +228,7 @@ public class ProcedureTestingUtility {
     NoopProcedureStore procStore = new NoopProcedureStore();
     ProcedureExecutor<TEnv> procExecutor = new ProcedureExecutor<>(conf, env, procStore);
     procStore.start(1);
-    initAndStartWorkers(procExecutor, 1, false);
+    initAndStartWorkers(procExecutor, 1, false, true);
     try {
       return submitAndWait(procExecutor, proc, HConstants.NO_NONCE, HConstants.NO_NONCE);
     } finally {
@@ -359,7 +398,7 @@ public class ProcedureTestingUtility {
     public NoopProcedure() {}
 
     @Override
-    protected Procedure[] execute(TEnv env)
+    protected Procedure<TEnv>[] execute(TEnv env)
         throws ProcedureYieldException, ProcedureSuspendedException, InterruptedException {
       return null;
     }
@@ -379,6 +418,46 @@ public class ProcedureTestingUtility {
     @Override
     protected void deserializeStateData(ProcedureStateSerializer serializer)
         throws IOException {
+    }
+  }
+
+  public static class NoopStateMachineProcedure<TEnv, TState>
+      extends StateMachineProcedure<TEnv, TState> {
+    private TState initialState;
+    private TEnv env;
+
+    public NoopStateMachineProcedure() {
+    }
+
+    public NoopStateMachineProcedure(TEnv env, TState initialState) {
+      this.env = env;
+      this.initialState = initialState;
+    }
+
+    @Override
+    protected Flow executeFromState(TEnv env, TState tState)
+        throws ProcedureSuspendedException, ProcedureYieldException, InterruptedException {
+      return null;
+    }
+
+    @Override
+    protected void rollbackState(TEnv env, TState tState) throws IOException, InterruptedException {
+
+    }
+
+    @Override
+    protected TState getState(int stateId) {
+      return null;
+    }
+
+    @Override
+    protected int getStateId(TState tState) {
+      return 0;
+    }
+
+    @Override
+    protected TState getInitialState() {
+      return initialState;
     }
   }
 

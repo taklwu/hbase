@@ -30,6 +30,7 @@ import org.apache.hadoop.hbase.client.RegionInfoBuilder;
 import org.apache.hadoop.hbase.client.RegionReplicaUtil;
 import org.apache.hadoop.hbase.master.MasterServices;
 import org.apache.hadoop.hbase.master.MasterWalManager;
+import org.apache.hadoop.hbase.master.assignment.AssignProcedure;
 import org.apache.hadoop.hbase.master.assignment.AssignmentManager;
 import org.apache.hadoop.hbase.master.assignment.RegionTransitionProcedure;
 import org.apache.hadoop.hbase.procedure2.ProcedureMetrics;
@@ -176,8 +177,15 @@ public class ServerCrashProcedure
             // it does the check by calling am#isLogSplittingDone.
             List<RegionInfo> toAssign = handleRIT(env, regionsOnCrashedServer);
             AssignmentManager am = env.getAssignmentManager();
-            // CreateAssignProcedure will try to use the old location for the region deploy.
-            addChildProcedure(am.createAssignProcedures(toAssign));
+            // Do not create assigns for Regions on disabling or disabled Tables.
+            // We do this inside in the AssignProcedure.
+            int size = toAssign.size();
+            if (toAssign.removeIf(r -> !AssignProcedure.assign(env.getMasterServices(), r))) {
+              LOG.debug("Dropped {} assigns because against disabling/disabled tables",
+                  size - toAssign.size());
+            }
+            // Assign regions to new candidate server. See HBASE-23035 for more details.
+            addChildProcedure(am.createRoundRobinAssignProcedures(toAssign));
             setNextState(ServerCrashState.SERVER_CRASH_HANDLE_RIT2);
           } else {
             setNextState(ServerCrashState.SERVER_CRASH_FINISH);
@@ -243,6 +251,9 @@ public class ServerCrashProcedure
     // PROBLEM!!! WE BLOCK HERE.
     am.getRegionStates().logSplitting(this.serverName);
     mwm.splitLog(this.serverName);
+    if (!carryingMeta) {
+      mwm.archiveMetaLog(this.serverName);
+    }
     am.getRegionStates().logSplit(this.serverName);
     LOG.debug("Done splitting WALs {}", this);
   }
@@ -411,13 +422,15 @@ public class ServerCrashProcedure
       if (sce == null) {
         sce = new ServerCrashException(getProcId(), getServerName());
       }
-      rtp.remoteCallFailed(env, this.serverName, sce);
-      // If an assign, remove from passed-in list of regions so we subsequently do not create
-      // a new assign; the exisitng assign after the call to remoteCallFailed will recalibrate
-      // and assign to a server other than the crashed one; no need to create new assign.
-      // If an unassign, do not return this region; the above cancel will wake up the unassign and
-      // it will complete. Done.
-      it.remove();
+      if(rtp.remoteCallFailed(env, this.serverName, sce)) {
+        // If an assign, remove from passed-in list of regions so we subsequently do not create
+        // a new assign; the exisitng assign after the call to remoteCallFailed will recalibrate
+        // and assign to a server other than the crashed one; no need to create new assign.
+        // If an unassign, do not return this region; the above cancel will wake up the unassign and
+        // it will complete. Done.
+        it.remove();
+      }
+
     }
     return toAssign;
   }

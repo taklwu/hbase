@@ -408,6 +408,28 @@ class ConnectionImplementation implements ClusterConnection, Closeable {
   }
 
   @Override
+  public Hbck getHbck() throws IOException {
+    return getHbck(get(registry.getMasterAddress()));
+  }
+
+  @Override
+  public Hbck getHbck(ServerName masterServer) throws IOException {
+    checkClosed();
+    if (isDeadServer(masterServer)) {
+      throw new RegionServerStoppedException(masterServer + " is dead.");
+    }
+    String key = getStubKey(MasterProtos.HbckService.BlockingInterface.class.getName(),
+      masterServer, this.hostnamesCanChange);
+
+    return new HBaseHbck(
+      (MasterProtos.HbckService.BlockingInterface) computeIfAbsentEx(stubs, key, () -> {
+        BlockingRpcChannel channel =
+          this.rpcClient.createBlockingRpcChannel(masterServer, user, rpcTimeout);
+        return MasterProtos.HbckService.newBlockingStub(channel);
+      }), rpcControllerFactory);
+  }
+
+  @Override
   public MetricsConnection getConnectionMetrics() {
     return this.metrics;
   }
@@ -589,8 +611,12 @@ class ConnectionImplementation implements ClusterConnection, Closeable {
     checkClosed();
     try {
       if (!isTableEnabled(tableName)) {
-        LOG.debug("Table " + tableName + " not enabled");
+        LOG.debug("Table {} not enabled", tableName);
         return false;
+      }
+      if (TableName.isMetaTableName(tableName)) {
+        // meta table is always available
+        return true;
       }
       List<Pair<RegionInfo, ServerName>> locations =
         MetaTableAccessor.getTableRegionsAndLocations(this, tableName, true);
@@ -600,10 +626,8 @@ class ConnectionImplementation implements ClusterConnection, Closeable {
       for (Pair<RegionInfo, ServerName> pair : locations) {
         RegionInfo info = pair.getFirst();
         if (pair.getSecond() == null) {
-          if (LOG.isDebugEnabled()) {
-            LOG.debug("Table " + tableName + " has not deployed region " + pair.getFirst()
-                .getEncodedName());
-          }
+          LOG.debug("Table {} has not deployed region {}", tableName,
+              pair.getFirst().getEncodedName());
           notDeployed++;
         } else if (splitKeys != null
             && !Bytes.equals(info.getStartKey(), HConstants.EMPTY_BYTE_ARRAY)) {
@@ -621,23 +645,21 @@ class ConnectionImplementation implements ClusterConnection, Closeable {
       }
       if (notDeployed > 0) {
         if (LOG.isDebugEnabled()) {
-          LOG.debug("Table " + tableName + " has " + notDeployed + " regions");
+          LOG.debug("Table {} has {} regions not deployed", tableName, notDeployed);
         }
         return false;
       } else if (splitKeys != null && regionCount != splitKeys.length + 1) {
         if (LOG.isDebugEnabled()) {
-          LOG.debug("Table " + tableName + " expected to have " + (splitKeys.length + 1)
-              + " regions, but only " + regionCount + " available");
+          LOG.debug("Table {} expected to have {} regions, but only {} available", tableName,
+              splitKeys.length + 1, regionCount);
         }
         return false;
       } else {
-        if (LOG.isDebugEnabled()) {
-          LOG.debug("Table " + tableName + " should be available");
-        }
+        LOG.trace("Table {} should be available", tableName);
         return true;
       }
     } catch (TableNotFoundException tnfe) {
-      LOG.warn("Table " + tableName + " not enabled, it is not exists");
+      LOG.warn("Table {} does not exist", tableName);
       return false;
     }
   }
@@ -799,6 +821,7 @@ class ConnectionImplementation implements ClusterConnection, Closeable {
       s.setConsistency(Consistency.TIMELINE);
     }
     int maxAttempts = (retry ? numTries : 1);
+    boolean relocateMeta = false;
     for (int tries = 0; ; tries++) {
       if (tries >= maxAttempts) {
         throw new NoServerForRegionException("Unable to find region for "
@@ -824,6 +847,10 @@ class ConnectionImplementation implements ClusterConnection, Closeable {
           if (locations != null && locations.getRegionLocation(replicaId) != null) {
             return locations;
           }
+        }
+        if (relocateMeta) {
+          relocateRegion(TableName.META_TABLE_NAME, HConstants.EMPTY_START_ROW,
+            RegionInfo.DEFAULT_REPLICA_ID);
         }
         s.resetMvccReadPoint();
         try (ReversedClientScanner rcs =
@@ -904,10 +931,8 @@ class ConnectionImplementation implements ClusterConnection, Closeable {
           throw e;
         }
         // Only relocate the parent region if necessary
-        if(!(e instanceof RegionOfflineException ||
-            e instanceof NoServerForRegionException)) {
-          relocateRegion(TableName.META_TABLE_NAME, metaStartKey, replicaId);
-        }
+        relocateMeta =
+          !(e instanceof RegionOfflineException || e instanceof NoServerForRegionException);
       } finally {
         userRegionLock.unlock();
       }
@@ -1896,11 +1921,6 @@ class ConnectionImplementation implements ClusterConnection, Closeable {
   @Override
   public boolean isAborted(){
     return this.aborted;
-  }
-
-  @Override
-  public int getCurrentNrHRS() throws IOException {
-    return get(this.registry.getCurrentNrHRS());
   }
 
   @Override

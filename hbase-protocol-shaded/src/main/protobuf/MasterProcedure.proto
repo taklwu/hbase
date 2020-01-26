@@ -248,6 +248,7 @@ enum SplitTableRegionState {
   SPLIT_TABLE_REGION_PRE_OPERATION_AFTER_META = 8;
   SPLIT_TABLE_REGION_OPEN_CHILD_REGIONS = 9;
   SPLIT_TABLE_REGION_POST_OPERATION = 10;
+  SPLIT_TABLE_REGIONS_CHECK_CLOSED_REGIONS = 11;
 }
 
 message SplitTableRegionStateData {
@@ -268,6 +269,7 @@ enum MergeTableRegionsState {
   MERGE_TABLE_REGIONS_POST_MERGE_COMMIT_OPERATION = 9;
   MERGE_TABLE_REGIONS_OPEN_MERGED_REGION = 10;
   MERGE_TABLE_REGIONS_POST_OPERATION = 11;
+  MERGE_TABLE_REGIONS_CHECK_CLOSED_REGIONS = 12;
 }
 
 message MergeTableRegionsStateData {
@@ -328,6 +330,7 @@ message AssignRegionStateData {
   optional ServerName target_server = 4;
   // Current attempt index used for expotential backoff when stuck
   optional int32 attempt = 5;
+  optional bool override = 6 [default = false];
 }
 
 message UnassignRegionStateData {
@@ -339,6 +342,7 @@ message UnassignRegionStateData {
   // This is the server currently hosting the Region, the
   // server we will send the unassign rpc too.
   optional ServerName hosting_server = 5;
+  // We hijacked an old param named 'force' and use it as 'override'.
   optional bool force = 4 [default = false];
   optional bool remove_after_unassigning = 6 [default = false];
   // Current attempt index used for expotential backoff when stuck
@@ -368,6 +372,8 @@ message GCRegionStateData {
   required RegionInfo region_info = 1;
 }
 
+// NOTE: This message is used by GCMergedRegionStateProcedure
+// AND GCMultipleMergedRegionStateProcedure.
 enum GCMergedRegionsState {
   GC_MERGED_REGIONS_PREPARE = 1;
   GC_MERGED_REGIONS_PURGE = 2;
@@ -375,9 +381,16 @@ enum GCMergedRegionsState {
 }
 
 message GCMergedRegionsStateData {
+  // Use GCMultipleMergedRegionsStateData instead.
+  option deprecated = true;
   required RegionInfo parent_a = 1;
   required RegionInfo parent_b = 2;
   required RegionInfo merged_child = 3;
+}
+
+message GCMultipleMergedRegionsStateData {
+  repeated RegionInfo parents = 1;
+  required RegionInfo merged_child = 2;
 }
 
 enum PeerModificationState {

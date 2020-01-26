@@ -144,11 +144,6 @@ public class TestClientNoCluster extends Configured implements Tool {
     public CompletableFuture<String> getClusterId() {
       return CompletableFuture.completedFuture(HConstants.CLUSTER_ID_DEFAULT);
     }
-
-    @Override
-    public CompletableFuture<Integer> getCurrentNrHRS() {
-      return CompletableFuture.completedFuture(1);
-    }
   }
 
   /**
@@ -807,7 +802,8 @@ public class TestClientNoCluster extends Configured implements Tool {
 
     // Have them all share the same connection so they all share the same instance of
     // ManyServersManyRegionsConnection so I can keep an eye on how many requests by server.
-    final ExecutorService pool = Executors.newCachedThreadPool(Threads.getNamedThreadFactory("p"));
+    final ExecutorService pool = Executors.newCachedThreadPool(
+        Threads.newDaemonThreadFactory("p"));
       // Executors.newFixedThreadPool(servers * 10, Threads.getNamedThreadFactory("p"));
     // Share a connection so I can keep counts in the 'server' on concurrency.
     final Connection sharedConnection = ConnectionFactory.createConnection(getConf()/*, pool*/);

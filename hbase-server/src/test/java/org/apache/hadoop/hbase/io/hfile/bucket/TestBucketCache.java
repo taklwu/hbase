@@ -48,15 +48,19 @@ import org.apache.hadoop.hbase.io.hfile.HFileContext;
 import org.apache.hadoop.hbase.io.hfile.HFileContextBuilder;
 import org.apache.hadoop.hbase.io.hfile.bucket.BucketAllocator.BucketSizeInfo;
 import org.apache.hadoop.hbase.io.hfile.bucket.BucketAllocator.IndexStatistics;
+import org.apache.hadoop.hbase.io.hfile.bucket.BucketCache.RAMQueueEntry;
+import org.apache.hadoop.hbase.nio.ByteBuff;
 import org.apache.hadoop.hbase.testclassification.IOTests;
 import org.apache.hadoop.hbase.testclassification.MediumTests;
 import org.junit.After;
+import org.junit.Assert;
 import org.junit.Before;
 import org.junit.ClassRule;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
 import org.junit.runner.RunWith;
 import org.junit.runners.Parameterized;
+import org.mockito.Mockito;
 
 import org.apache.hbase.thirdparty.com.google.common.collect.ImmutableMap;
 
@@ -197,14 +201,19 @@ public class TestBucketCache {
     CacheTestUtils.testHeapSizeChanges(cache, BLOCK_SIZE);
   }
 
+  private void waitUntilFlushedToBucket(BucketCache cache, BlockCacheKey cacheKey)
+      throws InterruptedException {
+    while (!cache.backingMap.containsKey(cacheKey) || cache.ramCache.containsKey(cacheKey)) {
+      Thread.sleep(100);
+    }
+  }
+
   // BucketCache.cacheBlock is async, it first adds block to ramCache and writeQueue, then writer
   // threads will flush it to the bucket and put reference entry in backingMap.
   private void cacheAndWaitUntilFlushedToBucket(BucketCache cache, BlockCacheKey cacheKey,
       Cacheable block) throws InterruptedException {
     cache.cacheBlock(cacheKey, block);
-    while (!cache.backingMap.containsKey(cacheKey)) {
-      Thread.sleep(100);
-    }
+    waitUntilFlushedToBucket(cache, cacheKey);
   }
 
   @Test
@@ -409,7 +418,7 @@ public class TestBucketCache {
   }
 
   @Test
-  public void testCacheBlockNextBlockMetadataMissing() {
+  public void testCacheBlockNextBlockMetadataMissing() throws Exception {
     int size = 100;
     int length = HConstants.HFILEBLOCK_HEADER_SIZE + size;
     byte[] byteArr = new byte[length];
@@ -427,22 +436,61 @@ public class TestBucketCache {
     blockWithNextBlockMetadata.serialize(block1Buffer, true);
     blockWithoutNextBlockMetadata.serialize(block2Buffer, true);
 
-    //Add blockWithNextBlockMetadata, expect blockWithNextBlockMetadata back.
+    // Add blockWithNextBlockMetadata, expect blockWithNextBlockMetadata back.
     CacheTestUtils.getBlockAndAssertEquals(cache, key, blockWithNextBlockMetadata, actualBuffer,
-        block1Buffer);
+      block1Buffer);
 
-    //Add blockWithoutNextBlockMetada, expect blockWithNextBlockMetadata back.
+    waitUntilFlushedToBucket(cache, key);
+
+    // Add blockWithoutNextBlockMetada, expect blockWithNextBlockMetadata back.
     CacheTestUtils.getBlockAndAssertEquals(cache, key, blockWithoutNextBlockMetadata, actualBuffer,
-        block1Buffer);
+      block1Buffer);
 
-    //Clear and add blockWithoutNextBlockMetadata
+    // Clear and add blockWithoutNextBlockMetadata
     cache.evictBlock(key);
     assertNull(cache.getBlock(key, false, false, false));
     CacheTestUtils.getBlockAndAssertEquals(cache, key, blockWithoutNextBlockMetadata, actualBuffer,
-        block2Buffer);
+      block2Buffer);
 
-    //Add blockWithNextBlockMetadata, expect blockWithNextBlockMetadata to replace.
+    waitUntilFlushedToBucket(cache, key);
+
+    // Add blockWithNextBlockMetadata, expect blockWithNextBlockMetadata to replace.
     CacheTestUtils.getBlockAndAssertEquals(cache, key, blockWithNextBlockMetadata, actualBuffer,
-        block1Buffer);
+      block1Buffer);
+  }
+
+  @Test
+  public void testFreeBlockWhenIOEngineWriteFailure() throws IOException {
+    // initialize an block.
+    int size = 100, offset = 20;
+    int length = HConstants.HFILEBLOCK_HEADER_SIZE + size;
+    ByteBuffer buf = ByteBuffer.allocate(length);
+    HFileContext meta = new HFileContextBuilder().build();
+    HFileBlock block = new HFileBlock(BlockType.DATA, size, size, -1, buf, HFileBlock.FILL_HEADER,
+        offset, 52, -1, meta);
+
+    // initialize an mocked ioengine.
+    IOEngine ioEngine = Mockito.mock(IOEngine.class);
+    Mockito.when(ioEngine.usesSharedMemory()).thenReturn(false);
+    // Mockito.doNothing().when(ioEngine).write(Mockito.any(ByteBuffer.class), Mockito.anyLong());
+    Mockito.doThrow(RuntimeException.class).when(ioEngine).write(Mockito.any(ByteBuffer.class),
+      Mockito.anyLong());
+    Mockito.doThrow(RuntimeException.class).when(ioEngine).write(Mockito.any(ByteBuff.class),
+      Mockito.anyLong());
+
+    // create an bucket allocator.
+    long availableSpace = 1024 * 1024 * 1024L;
+    BucketAllocator allocator = new BucketAllocator(availableSpace, null);
+
+    BlockCacheKey key = new BlockCacheKey("dummy", 1L);
+    RAMQueueEntry re = new RAMQueueEntry(key, block, 1, true);
+
+    Assert.assertEquals(0, allocator.getUsedSize());
+    try {
+      re.writeToCache(ioEngine, allocator, new UniqueIndexMap<>(), null);
+      Assert.fail();
+    } catch (Exception e) {
+    }
+    Assert.assertEquals(0, allocator.getUsedSize());
   }
 }

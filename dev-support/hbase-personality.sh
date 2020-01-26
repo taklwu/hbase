@@ -31,7 +31,7 @@
 # test-patch  --plugins=all,-hadoopcheck --personality=dev-support/hbase-personality.sh HBASE-15074
 # ````
 #
-# pass the `--jenkins` flag if you want to allow test-patch to destructively alter local working
+# pass the `--sentinel` flag if you want to allow test-patch to destructively alter local working
 # directory / branch in order to have things match what the issue patch requests.
 
 personality_plugins "all"
@@ -44,6 +44,23 @@ if ! declare -f "yetus_info" >/dev/null; then
   }
 
 fi
+
+# work around yetus overwriting JAVA_HOME from our docker image
+function docker_do_env_adds
+{
+  declare k
+
+  for k in "${DOCKER_EXTRAENVS[@]}"; do
+    if [[ "JAVA_HOME" == "${k}" ]]; then
+      if [ -n "${JAVA_HOME}" ]; then
+        DOCKER_EXTRAARGS+=("--env=JAVA_HOME=${JAVA_HOME}")
+      fi
+    else
+      DOCKER_EXTRAARGS+=("--env=${k}=${!k}")
+    fi
+  done
+}
+
 
 ## @description  Globals specific to this personality
 ## @audience     private
@@ -86,13 +103,20 @@ function personality_parse_args
   for i in "$@"; do
     case ${i} in
       --exclude-tests-url=*)
+        delete_parameter "${i}"
         EXCLUDE_TESTS_URL=${i#*=}
       ;;
       --include-tests-url=*)
+        delete_parameter "${i}"
         INCLUDE_TESTS_URL=${i#*=}
       ;;
       --hadoop-profile=*)
+        delete_parameter "${i}"
         HADOOP_PROFILE=${i#*=}
+      ;;
+      --skip-errorprone)
+        delete_parameter "${i}"
+        SKIP_ERRORPRONE=true
       ;;
     esac
   done
@@ -108,6 +132,8 @@ function personality_modules
   local repostatus=$1
   local testtype=$2
   local extra=""
+  local branch1jdk8=()
+  local jdk8module=""
   local MODULES=("${CHANGED_MODULES[@]}")
 
   yetus_info "Personality: ${repostatus} ${testtype}"
@@ -115,6 +141,9 @@ function personality_modules
   clear_personality_queue
 
   extra="-DHBasePatchProcess"
+  if [[ "${PATCH_BRANCH}" = branch-1* ]]; then
+    extra="${extra} -Dhttps.protocols=TLSv1.2"
+  fi
 
   if [[ -n "${HADOOP_PROFILE}" ]]; then
     extra="${extra} -Dhadoop.profile=${HADOOP_PROFILE}"
@@ -142,6 +171,21 @@ function personality_modules
     return
   fi
 
+  # This list should include any modules that require jdk8. Maven should be configured to only
+  # include them when a proper JDK is in use, but that doesn' work if we specifically ask for the
+  # module to build as yetus does if something changes in the module.  Rather than try to
+  # figure out what jdk is in use so we can duplicate the module activation logic, just
+  # build at the top level if anything changes in one of these modules and let maven sort it out.
+  branch1jdk8=(hbase-error-prone hbase-tinylfu-blockcache)
+  if [[ "${PATCH_BRANCH}" = branch-1* ]]; then
+    for jdk8module in "${branch1jdk8[@]}"; do
+      if [[ "${MODULES[*]}" =~ ${jdk8module} ]]; then
+        MODULES=(.)
+        break
+      fi
+    done
+  fi
+
   if [[ ${testtype} == findbugs ]]; then
     # Run findbugs on each module individually to diff pre-patch and post-patch results and
     # report new warnings for changed modules only.
@@ -162,7 +206,8 @@ function personality_modules
     return
   fi
 
-  if [[ ${testtype} == compile ]]; then
+  if [[ ${testtype} == compile ]] && [[ "${SKIP_ERRORPRONE}" != "true" ]] &&
+      [[ "${PATCH_BRANCH}" != branch-1* ]] ; then
     extra="${extra} -PerrorProne"
   fi
 
@@ -179,6 +224,18 @@ function personality_modules
     if [ -n "${BUILD_ID}" ]; then
       extra="${extra} -Dbuild.id=${BUILD_ID}"
     fi
+
+    # If the set of changed files includes CommonFSUtils then add the hbase-server
+    # module to the set of modules (if not already included) to be tested
+    for f in "${CHANGED_FILES[@]}"
+    do
+      if [[ "${f}" =~ CommonFSUtils ]]; then
+        if [[ ! "${MODULES[*]}" =~ hbase-server ]] && [[ ! "${MODULES[*]}" =~ \. ]]; then
+          MODULES+=("hbase-server")
+        fi
+        break
+      fi
+    done
   fi
 
   for module in "${MODULES[@]}"; do
@@ -256,6 +313,20 @@ function get_include_exclude_tests_arg
         yetus_error "Wget error $? in fetching includes file from url" \
              "${INCLUDE_TESTS_URL}. Ignoring and proceeding."
       fi
+  else
+    # Use branch specific exclude list when EXCLUDE_TESTS_URL and INCLUDE_TESTS_URL are empty
+    FLAKY_URL="https://builds.apache.org/job/HBase-Find-Flaky-Tests/job/${PATCH_BRANCH}/lastSuccessfulBuild/artifact/excludes/"
+    if wget "${FLAKY_URL}" -O "excludes"; then
+      excludes=$(cat excludes)
+        yetus_debug "excludes=${excludes}"
+        if [[ -n "${excludes}" ]]; then
+          eval "${__resultvar}='-Dtest.exclude.pattern=${excludes}'"
+        fi
+        rm excludes
+      else
+        yetus_error "Wget error $? in fetching excludes file from url" \
+             "${FLAKY_URL}. Ignoring and proceeding."
+      fi
   fi
 }
 
@@ -290,6 +361,7 @@ function refguide_rebuild
   local repostatus=$1
   local logfile="${PATCH_DIR}/${repostatus}-refguide.log"
   declare -i count
+  declare pdf_output
 
   if ! verify_needed_test refguide; then
     return 0
@@ -326,7 +398,13 @@ function refguide_rebuild
     return 1
   fi
 
-  if [[ ! -f "${PATCH_DIR}/${repostatus}-site/apache_hbase_reference_guide.pdf" ]]; then
+  if [[ "${PATCH_BRANCH}" = branch-1* ]]; then
+    pdf_output="book.pdf"
+  else
+    pdf_output="apache_hbase_reference_guide.pdf"
+  fi
+
+  if [[ ! -f "${PATCH_DIR}/${repostatus}-site/${pdf_output}" ]]; then
     add_vote_table -1 refguide "${repostatus} failed to produce the pdf version of the reference guide."
     add_footer_table refguide "@@BASE@@/${repostatus}-refguide.log"
     return 1
@@ -422,6 +500,7 @@ function hadoopcheck_parse_args
   for i in "$@"; do
     case ${i} in
       --quick-hadoopcheck)
+        delete_parameter "${i}"
         QUICK_HADOOPCHECK=true
       ;;
     esac
@@ -464,32 +543,59 @@ function hadoopcheck_rebuild
 
   # All supported Hadoop versions that we want to test the compilation with
   # See the Hadoop section on prereqs in the HBase Reference Guide
-  hbase_common_hadoop2_versions="2.7.1 2.7.2 2.7.3 2.7.4"
-  if [[ "${PATCH_BRANCH}" = branch-1.* ]] && [[ "${PATCH_BRANCH#branch-1.}" -lt "5" ]]; then
-    yetus_info "Setting Hadoop 2 versions to test based on before-branch-1.5 rules."
+  if [[ "${PATCH_BRANCH}" = branch-1.* ]] && [[ "${PATCH_BRANCH#branch-1.}" -lt "4" ]]; then
+    yetus_info "Setting Hadoop 2 versions to test based on before-branch-1.4 rules."
     if [[ "${QUICK_HADOOPCHECK}" == "true" ]]; then
-      hbase_hadoop2_versions="2.4.1 2.5.2 2.6.5 2.7.4"
+      hbase_hadoop2_versions="2.4.1 2.5.2 2.6.5 2.7.7"
     else
-      hbase_hadoop2_versions="2.4.0 2.4.1 2.5.0 2.5.1 2.5.2 2.6.1 2.6.2 2.6.3 2.6.4 2.6.5 ${hbase_common_hadoop2_versions}"
+      hbase_hadoop2_versions="2.4.0 2.4.1 2.5.0 2.5.1 2.5.2 2.6.1 2.6.2 2.6.3 2.6.4 2.6.5 2.7.1 2.7.2 2.7.3 2.7.4 2.7.5 2.7.6 2.7.7"
+    fi
+  elif [[ "${PATCH_BRANCH}" = branch-1.4 ]]; then
+    yetus_info "Setting Hadoop 2 versions to test based on branch-1.4 rules."
+    if [[ "${QUICK_HADOOPCHECK}" == "true" ]]; then
+      hbase_hadoop2_versions="2.7.7"
+    else
+      hbase_hadoop2_versions="2.7.1 2.7.2 2.7.3 2.7.4 2.7.5 2.7.6 2.7.7"
     fi
   elif [[ "${PATCH_BRANCH}" = branch-2.0 ]]; then
     yetus_info "Setting Hadoop 2 versions to test based on branch-2.0 rules."
     if [[ "${QUICK_HADOOPCHECK}" == "true" ]]; then
-      hbase_hadoop2_versions="2.6.5 2.7.4"
+      hbase_hadoop2_versions="2.6.5 2.7.7 2.8.5"
     else
-      hbase_hadoop2_versions="2.6.1 2.6.2 2.6.3 2.6.4 2.6.5 ${hbase_common_hadoop2_versions}"
+      hbase_hadoop2_versions="2.6.1 2.6.2 2.6.3 2.6.4 2.6.5 2.7.1 2.7.2 2.7.3 2.7.4 2.7.5 2.7.6 2.7.7 2.8.2 2.8.3 2.8.4 2.8.5"
+    fi
+  elif [[ "${PATCH_BRANCH}" = branch-2.1 ]]; then
+    yetus_info "Setting Hadoop 2 versions to test based on branch-2.1 rules."
+    if [[ "${QUICK_HADOOPCHECK}" == "true" ]]; then
+      hbase_hadoop2_versions="2.7.7 2.8.5"
+    else
+      hbase_hadoop2_versions="2.7.1 2.7.2 2.7.3 2.7.4 2.7.5 2.7.6 2.7.7 2.8.2 2.8.3 2.8.4 2.8.5"
     fi
   else
-    yetus_info "Setting Hadoop 2 versions to test based on branch-1.5+/branch-2.1+/master/feature branch rules."
+    yetus_info "Setting Hadoop 2 versions to test based on branch-1.5+/branch-2.2+/master/feature branch rules."
     if [[ "${QUICK_HADOOPCHECK}" == "true" ]]; then
-      hbase_hadoop2_versions="2.7.4"
+      hbase_hadoop2_versions="2.8.5 2.9.2"
     else
-      hbase_hadoop2_versions="${hbase_common_hadoop2_versions}"
+      hbase_hadoop2_versions="2.8.5 2.9.2"
     fi
   fi
-  hbase_hadoop3_versions="3.0.0"
   if [[ "${PATCH_BRANCH}" = branch-1* ]]; then
+    yetus_info "Setting Hadoop 3 versions to test based on branch-1.x rules."
     hbase_hadoop3_versions=""
+  elif [[ "${PATCH_BRANCH}" = branch-2.0 ]] || [[ "${PATCH_BRANCH}" = branch-2.1 ]]; then
+    yetus_info "Setting Hadoop 3 versions to test based on branch-2.0/branch-2.1 rules"
+    if [[ "${QUICK_HADOOPCHECK}" == "true" ]]; then
+      hbase_hadoop3_versions="3.0.3 3.1.2"
+    else
+      hbase_hadoop3_versions="3.0.3 3.1.1 3.1.2"
+    fi
+  else
+    yetus_info "Setting Hadoop 3 versions to test based on branch-2.2+/master/feature branch rules"
+    if [[ "${QUICK_HADOOPCHECK}" == "true" ]]; then
+      hbase_hadoop3_versions="3.1.2"
+    else
+      hbase_hadoop3_versions="3.1.1 3.1.2"
+    fi
   fi
 
   export MAVEN_OPTS="${MAVEN_OPTS}"
@@ -535,6 +641,12 @@ function hadoopcheck_rebuild
   else
     add_vote_table +1 hadoopcheck "Patch does not cause any errors with Hadoop ${hbase_hadoop2_versions}."
   fi
+
+  logfile="${PATCH_DIR}/patch-install-after-hadoopcheck.txt"
+  echo_and_redirect "${logfile}" \
+    $(maven_executor) clean install \
+      -DskipTests -DHBasePatchProcess
+
   return 0
 }
 
@@ -667,6 +779,24 @@ function hbaseanti_patchfile
 
   add_vote_table +1 hbaseanti "" "Patch does not have any anti-patterns."
   return 0
+}
+
+## @description  process the javac output for generating WARNING/ERROR
+## @audience     private
+## @stability    evolving
+## @param        input filename
+## @param        output filename
+# Override the default javac_logfilter so that we can do a sort before outputing the WARNING/ERROR.
+# This is because that the output order of the error prone warnings is not stable, so the diff
+# method will report unexpected errors if we do not sort it. Notice that a simple sort will cause
+# line number being sorted by lexicographical so the output maybe a bit strange to human but it is
+# really hard to sort by file name first and then line number and column number in shell...
+function hbase_javac_logfilter
+{
+  declare input=$1
+  declare output=$2
+
+  ${GREP} -E '\[(ERROR|WARNING)\] /.*\.java:' "${input}" | sort > "${output}"
 }
 
 ## This is named so that yetus will check us right after running tests.

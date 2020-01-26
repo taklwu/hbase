@@ -48,6 +48,9 @@ public class TestStateMachineProcedure {
   private static final Logger LOG = LoggerFactory.getLogger(TestStateMachineProcedure.class);
 
   private static final Exception TEST_FAILURE_EXCEPTION = new Exception("test failure") {
+
+    private static final long serialVersionUID = 2147942238987041310L;
+
     @Override
     public boolean equals(final Object other) {
       if (this == other) return true;
@@ -142,6 +145,24 @@ public class TestStateMachineProcedure {
   }
 
   @Test
+  public void testChildNormalRollbackStateCount() {
+    procExecutor.getEnvironment().triggerChildRollback = true;
+    TestSMProcedureBadRollback testNormalRollback = new TestSMProcedureBadRollback();
+    long procId = procExecutor.submitProcedure(testNormalRollback);
+    ProcedureTestingUtility.waitProcedure(procExecutor, procId);
+    assertEquals(0, testNormalRollback.stateCount);
+  }
+
+  @Test
+  public void testChildBadRollbackStateCount() {
+    procExecutor.getEnvironment().triggerChildRollback = true;
+    TestSMProcedureBadRollback testBadRollback = new TestSMProcedureBadRollback();
+    long procId = procExecutor.submitProcedure(testBadRollback);
+    ProcedureTestingUtility.waitProcedure(procExecutor, procId);
+    assertEquals(0, testBadRollback.stateCount);
+  }
+
+  @Test
   public void testChildOnLastStepWithRollbackDoubleExecution() throws Exception {
     procExecutor.getEnvironment().triggerChildRollback = true;
     ProcedureTestingUtility.setKillAndToggleBeforeStoreUpdate(procExecutor, true);
@@ -174,6 +195,11 @@ public class TestStateMachineProcedure {
     }
 
     @Override
+    protected boolean isRollbackSupported(TestSMProcedureState state) {
+      return true;
+    }
+
+    @Override
     protected void rollbackState(TestProcEnv env, TestSMProcedureState state) {
       LOG.info("ROLLBACK " + state + " " + this);
       env.rollbackCount.incrementAndGet();
@@ -195,9 +221,67 @@ public class TestStateMachineProcedure {
     }
   }
 
+  public static class TestSMProcedureBadRollback
+          extends StateMachineProcedure<TestProcEnv, TestSMProcedureState> {
+    @Override
+    protected Flow executeFromState(TestProcEnv env, TestSMProcedureState state) {
+      LOG.info("EXEC " + state + " " + this);
+      env.execCount.incrementAndGet();
+      switch (state) {
+        case STEP_1:
+          if (!env.loop) {
+            setNextState(TestSMProcedureState.STEP_2);
+          }
+          break;
+        case STEP_2:
+          addChildProcedure(new SimpleChildProcedure());
+          return Flow.NO_MORE_STATE;
+      }
+      return Flow.HAS_MORE_STATE;
+    }
+    @Override
+    protected void rollbackState(TestProcEnv env, TestSMProcedureState state) {
+      LOG.info("ROLLBACK " + state + " " + this);
+      env.rollbackCount.incrementAndGet();
+    }
+
+    @Override
+    protected TestSMProcedureState getState(int stateId) {
+      return TestSMProcedureState.values()[stateId];
+    }
+
+    @Override
+    protected int getStateId(TestSMProcedureState state) {
+      return state.ordinal();
+    }
+
+    @Override
+    protected TestSMProcedureState getInitialState() {
+      return TestSMProcedureState.STEP_1;
+    }
+
+    @Override
+    protected void rollback(final TestProcEnv env)
+            throws IOException, InterruptedException {
+      if (isEofState()) {
+        stateCount--;
+      }
+      try {
+        updateTimestamp();
+        rollbackState(env, getCurrentState());
+        throw new IOException();
+      } catch(IOException e) {
+        //do nothing for now
+      } finally {
+        stateCount--;
+        updateTimestamp();
+      }
+    }
+  }
+
   public static class SimpleChildProcedure extends NoopProcedure<TestProcEnv> {
     @Override
-    protected Procedure[] execute(TestProcEnv env) {
+    protected Procedure<TestProcEnv>[] execute(TestProcEnv env) {
       LOG.info("EXEC " + this);
       env.execCount.incrementAndGet();
       if (env.triggerChildRollback) {

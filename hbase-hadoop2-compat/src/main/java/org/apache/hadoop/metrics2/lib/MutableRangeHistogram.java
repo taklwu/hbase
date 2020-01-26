@@ -36,11 +36,7 @@ public abstract class MutableRangeHistogram extends MutableHistogram implements 
   }
 
   public MutableRangeHistogram(String name, String description) {
-    this(name, description, Integer.MAX_VALUE << 2);
-  }
-
-  public MutableRangeHistogram(String name, String description, long expectedMax) {
-    super(name, description, expectedMax);
+    super(name, description);
   }
 
   /**
@@ -81,7 +77,7 @@ public abstract class MutableRangeHistogram extends MutableHistogram implements 
       priorRange = ranges[i];
       cumNum = val;
     }
-    long val = histogram.getCount();
+    long val = snapshot.getCount();
     if (val - cumNum > 0) {
       metricsRecordBuilder.addCounter(
           Interns.info(name + "_" + rangeType + "_" + ranges[ranges.length - 1] + "-inf", desc),

@@ -229,7 +229,8 @@ public class RestoreSnapshotHelper {
         if (regionNames.contains(regionName)) {
           LOG.info("region to restore: " + regionName);
           regionNames.remove(regionName);
-          metaChanges.addRegionToRestore(regionInfo);
+          metaChanges.addRegionToRestore(ProtobufUtil.toRegionInfo(regionManifests.get(regionName)
+              .getRegionInfo()));
         } else {
           LOG.info("region to remove: " + regionName);
           metaChanges.addRegionToRemove(regionInfo);
@@ -620,7 +621,7 @@ public class RestoreSnapshotHelper {
   private void cloneHdfsMobRegion(final Map<String, SnapshotRegionManifest> regionManifests,
       final RegionInfo region) throws IOException {
     // clone region info (change embedded tableName with the new one)
-    Path clonedRegionPath = MobUtils.getMobRegionPath(conf, tableDesc.getTableName());
+    Path clonedRegionPath = MobUtils.getMobRegionPath(rootDir, tableDesc.getTableName());
     cloneRegion(clonedRegionPath, region, regionManifests.get(region.getEncodedName()));
   }
 
@@ -827,7 +828,7 @@ public class RestoreSnapshotHelper {
       throw new IllegalArgumentException("Filesystems for restore directory and HBase root " +
           "directory should be the same");
     }
-    if (restoreDir.toUri().getPath().startsWith(rootDir.toUri().getPath())) {
+    if (restoreDir.toUri().getPath().startsWith(rootDir.toUri().getPath() +"/")) {
       throw new IllegalArgumentException("Restore directory cannot be a sub directory of HBase " +
           "root directory. RootDir: " + rootDir + ", restoreDir: " + restoreDir);
     }

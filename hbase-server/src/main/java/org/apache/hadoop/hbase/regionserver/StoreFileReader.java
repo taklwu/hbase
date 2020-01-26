@@ -85,6 +85,10 @@ public class StoreFileReader {
   @VisibleForTesting
   final boolean shared;
 
+  private volatile Listener listener;
+
+  private boolean closed = false;
+
   private StoreFileReader(HFile.Reader reader, AtomicInteger refCount, boolean shared) {
     this.reader = reader;
     bloomFilterType = BloomType.NONE;
@@ -148,10 +152,24 @@ public class StoreFileReader {
    */
   public StoreFileScanner getStoreFileScanner(boolean cacheBlocks, boolean pread,
       boolean isCompaction, long readPt, long scannerOrder, boolean canOptimizeForNonNullColumn) {
-    // Increment the ref count
-    refCount.incrementAndGet();
     return new StoreFileScanner(this, getScanner(cacheBlocks, pread, isCompaction),
         !isCompaction, reader.hasMVCCInfo(), readPt, scannerOrder, canOptimizeForNonNullColumn);
+  }
+
+  /**
+   * Return the ref count associated with the reader whenever a scanner associated with the
+   * reader is opened.
+   */
+  int getRefCount() {
+    return refCount.get();
+  }
+
+  /**
+   * Indicate that the scanner has started reading with this reader. We need to increment the ref
+   * count so reader is not close until some object is holding the lock
+   */
+  void incrementRefCount() {
+    refCount.incrementAndGet();
   }
 
   /**
@@ -163,6 +181,9 @@ public class StoreFileReader {
     if (!shared) {
       try {
         reader.close(false);
+        if (this.listener != null) {
+          this.listener.storeFileReaderClosed(this);
+        }
       } catch (IOException e) {
         LOG.warn("failed to close stream reader", e);
       }
@@ -170,13 +191,14 @@ public class StoreFileReader {
   }
 
   /**
-   * @deprecated Do not write further code which depends on this call. Instead
-   *   use getStoreFileScanner() which uses the StoreFileScanner class/interface
-   *   which is the preferred way to scan a store with higher level concepts.
+   * @deprecated since 2.0.0 and will be removed in 3.0.0. Do not write further code which depends
+   *   on this call. Instead use getStoreFileScanner() which uses the StoreFileScanner
+   *   class/interface which is the preferred way to scan a store with higher level concepts.
    *
    * @param cacheBlocks should we cache the blocks?
    * @param pread use pread (for concurrent small readers)
    * @return the underlying HFileScanner
+   * @see <a href="https://issues.apache.org/jira/browse/HBASE-15296">HBASE-15296</a>
    */
   @Deprecated
   public HFileScanner getScanner(boolean cacheBlocks, boolean pread) {
@@ -184,9 +206,9 @@ public class StoreFileReader {
   }
 
   /**
-   * @deprecated Do not write further code which depends on this call. Instead
-   *   use getStoreFileScanner() which uses the StoreFileScanner class/interface
-   *   which is the preferred way to scan a store with higher level concepts.
+   * @deprecated since 2.0.0 and will be removed in 3.0.0. Do not write further code which depends
+   *   on this call. Instead use getStoreFileScanner() which uses the StoreFileScanner
+   *   class/interface which is the preferred way to scan a store with higher level concepts.
    *
    * @param cacheBlocks
    *          should we cache the blocks?
@@ -195,6 +217,7 @@ public class StoreFileReader {
    * @param isCompaction
    *          is scanner being used for compaction?
    * @return the underlying HFileScanner
+   * @see <a href="https://issues.apache.org/jira/browse/HBASE-15296">HBASE-15296</a>
    */
   @Deprecated
   public HFileScanner getScanner(boolean cacheBlocks, boolean pread,
@@ -203,7 +226,16 @@ public class StoreFileReader {
   }
 
   public void close(boolean evictOnClose) throws IOException {
-    reader.close(evictOnClose);
+    synchronized (this) {
+      if (closed) {
+        return;
+      }
+      reader.close(evictOnClose);
+      closed = true;
+    }
+    if (listener != null) {
+      listener.storeFileReaderClosed(this);
+    }
   }
 
   /**
@@ -637,5 +669,13 @@ public class StoreFileReader {
 
   void setSkipResetSeqId(boolean skipResetSeqId) {
     this.skipResetSeqId = skipResetSeqId;
+  }
+
+  public void setListener(Listener listener) {
+    this.listener = listener;
+  }
+
+  public interface Listener {
+    void storeFileReaderClosed(StoreFileReader reader);
   }
 }

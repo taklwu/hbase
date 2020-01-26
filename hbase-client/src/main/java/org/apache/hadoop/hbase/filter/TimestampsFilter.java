@@ -20,6 +20,7 @@ package org.apache.hadoop.hbase.filter;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.TreeSet;
 
 import org.apache.hadoop.hbase.Cell;
@@ -237,5 +238,15 @@ public class TimestampsFilter extends FilterBase {
 
     return String.format("%s (%d/%d): [%s] canHint: [%b]", this.getClass().getSimpleName(),
         count, this.timestamps.size(), tsList.toString(), canHint);
+  }
+
+  @Override
+  public boolean equals(Object obj) {
+    return obj instanceof Filter && areSerializedFieldsEqual((Filter) obj);
+  }
+
+  @Override
+  public int hashCode() {
+    return Objects.hash(getTimestamps());
   }
 }

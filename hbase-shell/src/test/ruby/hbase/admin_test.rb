@@ -57,6 +57,10 @@ module Hbase
       command(:disable, @test_name)
       assert(!command(:is_enabled, @test_name))
     end
+
+    define_test 'hbck_chore_run' do
+      command(:hbck_chore_run)
+    end
   end
 
     # Simple administration methods tests
@@ -97,6 +101,16 @@ module Hbase
       assert(list.count > 0)
     end
 
+    define_test 'list_deadservers should return exact count of dead servers' do
+      output = capture_stdout { command(:list_deadservers) }
+      assert(output.include?('0 row(s)'))
+    end
+
+    define_test 'clear_deadservers should show exact row(s) count' do
+      output = capture_stdout { command(:clear_deadservers, 'test.server.com,16020,1574583397867') }
+      assert(output.include?('1 row(s)'))
+    end
+
     #-------------------------------------------------------------------------------
 
     define_test "flush should work" do
@@ -105,6 +119,13 @@ module Hbase
       servers.each do |s|
         command(:flush, s.toString)
       end
+    end
+
+    #-------------------------------------------------------------------------------
+
+    define_test 'alter_status should work' do
+      output = capture_stdout { command(:alter_status, @test_name) }
+      assert(output.include?('1/1 regions updated'))
     end
 
     #-------------------------------------------------------------------------------
@@ -322,6 +343,26 @@ module Hbase
 
     #-------------------------------------------------------------------------------
 
+    define_test 'enable and disable tables by regex' do
+      @t1 = 't1'
+      @t2 = 't11'
+      @regex = 't1.*'
+      command(:create, @t1, 'f')
+      command(:create, @t2, 'f')
+      admin.disable_all(@regex)
+      assert(command(:is_disabled, @t1))
+      assert(command(:is_disabled, @t2))
+      admin.enable_all(@regex)
+      assert(command(:is_enabled, @t1))
+      assert(command(:is_enabled, @t2))
+      admin.disable_all(@regex)
+      admin.drop_all(@regex)
+      assert(!command(:exists, @t1))
+      assert(!command(:exists, @t2))
+    end
+
+    #-------------------------------------------------------------------------------
+
     define_test "list_regions should fail for disabled table" do
       drop_test_table(@create_test_name)
       admin.create(@create_test_name, 'a')
@@ -442,6 +483,10 @@ module Hbase
       encodedRegionName = region.getRegionInfo().getEncodedName()
       command(:unassign, encodedRegionName, true)
     end
+
+    define_test "list regions should allow table name" do
+      command(:list_regions, @test_name)
+    end
   end
 
   # Simple administration methods tests
@@ -514,6 +559,13 @@ module Hbase
                    modification per alter.")
       assert_equal(['x:', 'z:'], table(@test_name).get_all_columns.sort)
       assert_match(/12345678/, admin.describe(@test_name))
+    end
+
+    define_test 'alter should be able to set the TargetRegionSize and TargetRegionCount' do
+      command(:alter, @test_name, 'NORMALIZER_TARGET_REGION_COUNT' => 156)
+      assert_match(/156/, admin.describe(@test_name))
+      command(:alter, @test_name, 'NORMALIZER_TARGET_REGION_SIZE' => 234)
+      assert_match(/234/, admin.describe(@test_name))
     end
 
     define_test 'alter should support shortcut DELETE alter specs' do

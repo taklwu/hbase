@@ -77,16 +77,14 @@ public class UnassignProcedure extends RegionTransitionProcedure {
 
   /**
    * Where to send the unassign RPC.
+   * this one may not accurate since another RTP may change this location for
+   * the region. The hostingServer will be updated in updateTransition
    */
   protected volatile ServerName hostingServer;
   /**
    * The Server we will subsequently assign the region too (can be null).
    */
   protected volatile ServerName destinationServer;
-
-  // TODO: should this be in a reassign procedure?
-  //       ...and keep unassign for 'disable' case?
-  private boolean force;
 
   /**
    * Whether deleting the region from in-memory states after unassigning the region.
@@ -109,12 +107,11 @@ public class UnassignProcedure extends RegionTransitionProcedure {
   }
 
   public UnassignProcedure(final RegionInfo regionInfo, final ServerName hostingServer,
-      final ServerName destinationServer, final boolean force,
+      final ServerName destinationServer, final boolean override,
       final boolean removeAfterUnassigning) {
-    super(regionInfo);
+    super(regionInfo, override);
     this.hostingServer = hostingServer;
     this.destinationServer = destinationServer;
-    this.force = force;
     this.removeAfterUnassigning = removeAfterUnassigning;
 
     // we don't need REGION_TRANSITION_QUEUE, we jump directly to sending the request
@@ -142,12 +139,14 @@ public class UnassignProcedure extends RegionTransitionProcedure {
       throws IOException {
     UnassignRegionStateData.Builder state = UnassignRegionStateData.newBuilder()
         .setTransitionState(getTransitionState())
-        .setHostingServer(ProtobufUtil.toServerName(this.hostingServer))
         .setRegionInfo(ProtobufUtil.toRegionInfo(getRegionInfo()));
+    if (this.hostingServer != null) {
+      state.setHostingServer(ProtobufUtil.toServerName(this.hostingServer));
+    }
     if (this.destinationServer != null) {
       state.setDestinationServer(ProtobufUtil.toServerName(destinationServer));
     }
-    if (force) {
+    if (isOverride()) {
       state.setForce(true);
     }
     if (removeAfterUnassigning) {
@@ -166,8 +165,10 @@ public class UnassignProcedure extends RegionTransitionProcedure {
         serializer.deserialize(UnassignRegionStateData.class);
     setTransitionState(state.getTransitionState());
     setRegionInfo(ProtobufUtil.toRegionInfo(state.getRegionInfo()));
-    this.hostingServer = ProtobufUtil.toServerName(state.getHostingServer());
-    force = state.getForce();
+    // The 'force' flag is the override flag in unassign.
+    setOverride(state.getForce());
+    this.hostingServer =
+        state.hasHostingServer()? ProtobufUtil.toServerName(state.getHostingServer()): null;
     if (state.hasDestinationServer()) {
       this.destinationServer = ProtobufUtil.toServerName(state.getDestinationServer());
     }
@@ -199,6 +200,13 @@ public class UnassignProcedure extends RegionTransitionProcedure {
       return false;
     }
 
+    if (regionNode.getRegionLocation() != null && !regionNode
+        .getRegionLocation().equals(hostingServer)) {
+      LOG.info("HostingServer changed from {} to {} for {}", hostingServer,
+          regionNode.getRegionLocation(), this);
+      this.hostingServer = regionNode.getRegionLocation();
+    }
+
 
     // Mark the region as CLOSING.
     env.getAssignmentManager().markRegionAsClosing(regionNode);
@@ -223,6 +231,7 @@ public class UnassignProcedure extends RegionTransitionProcedure {
     } else {
       // Remove from in-memory states
       am.getRegionStates().deleteRegion(regionInfo);
+      am.getRegionStates().removeRegionFromServer(regionNode.getRegionLocation(), regionNode);
       env.getMasterServices().getServerManager().removeRegion(regionInfo);
       FavoredNodesManager fnm = env.getMasterServices().getFavoredNodesManager();
       if (fnm != null) {
@@ -263,6 +272,7 @@ public class UnassignProcedure extends RegionTransitionProcedure {
       // This exception comes from ServerCrashProcedure AFTER log splitting. Its a signaling
       // exception. SCP found this region as a RIT during its processing of the crash.  Its call
       // into here says it is ok to let this procedure go complete.
+      LOG.info("Safe to let procedure move to next step; {}", this);
       return true;
     }
     if (exception instanceof NotServingRegionException) {
@@ -310,7 +320,7 @@ public class UnassignProcedure extends RegionTransitionProcedure {
           exception.getClass().getSimpleName());
       if (!env.getMasterServices().getServerManager().expireServer(serverName)) {
         // Failed to queue an expire. Lots of possible reasons including it may be already expired.
-        // In ServerCrashProcedure and RecoverMetaProcedure, there is a handleRIT stage where we
+        // In ServerCrashProcedure, there is a handleRIT stage where we
         // will iterator over all the RIT procedures for the related regions of a crashed RS and
         // fail them with ServerCrashException. You can see the isSafeToProceed method above for
         // more details.
@@ -337,6 +347,7 @@ public class UnassignProcedure extends RegionTransitionProcedure {
           // Return true; wake up the procedure so we can act on proceed.
           return true;
         }
+        LOG.info("Failed expiration and log splitting not done on {}", serverName);
       }
       // Return false so this procedure stays in suspended state. It will be woken up by the
       // ServerCrashProcedure that was scheduled when we called #expireServer above. SCP calls
@@ -356,7 +367,12 @@ public class UnassignProcedure extends RegionTransitionProcedure {
 
   @Override
   public ServerName getServer(final MasterProcedureEnv env) {
-    return this.hostingServer;
+    RegionStateNode node =
+        env.getAssignmentManager().getRegionStates().getRegionStateNode(this.getRegionInfo());
+    if (node == null) {
+      return null;
+    }
+    return node.getRegionLocation();
   }
 
   @Override

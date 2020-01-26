@@ -31,7 +31,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
-
 import org.apache.hadoop.hbase.HBaseClassTestRule;
 import org.apache.hadoop.hbase.HBaseTestingUtility;
 import org.apache.hadoop.hbase.HColumnDescriptor;
@@ -69,6 +68,7 @@ import org.junit.experimental.categories.Category;
 import org.junit.rules.TestName;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
 import org.apache.hadoop.hbase.shaded.protobuf.RequestConverter;
 import org.apache.hadoop.hbase.shaded.protobuf.generated.MasterProtos.MergeTableRegionsRequest;
 
@@ -501,9 +501,50 @@ public class TestAdmin1 {
    }
 
   /**
+   * Verify schema change for read only table
+   */
+  @Test
+  public void testReadOnlyTableModify() throws IOException, InterruptedException {
+    final TableName tableName = TableName.valueOf(name.getMethodName());
+    TEST_UTIL.createTable(tableName, HConstants.CATALOG_FAMILY).close();
+
+    // Make table read only
+    TableDescriptor htd = TableDescriptorBuilder.newBuilder(this.admin.getDescriptor(tableName))
+      .setReadOnly(true).build();
+    admin.modifyTable(htd);
+
+    // try to modify the read only table now
+    htd = TableDescriptorBuilder.newBuilder(this.admin.getDescriptor(tableName))
+      .setCompactionEnabled(false).build();
+    admin.modifyTable(htd);
+    // Delete the table
+    this.admin.disableTable(tableName);
+    this.admin.deleteTable(tableName);
+    assertFalse(this.admin.tableExists(tableName));
+  }
+
+  @Test(expected = TableNotDisabledException.class)
+  public void testModifyRegionReplicasEnabledTable() throws Exception {
+    final TableName tableName = TableName.valueOf(name.getMethodName());
+    TEST_UTIL.createTable(tableName, HConstants.CATALOG_FAMILY).close();
+
+    // Modify region replication count
+    TableDescriptor htd = TableDescriptorBuilder.newBuilder(admin.getDescriptor(tableName))
+        .setRegionReplication(3).build();
+    try {
+      // try to modify the region replication count without disabling the table
+      admin.modifyTable(htd);
+      fail("Expected an exception");
+    } finally {
+      // Delete the table
+      admin.disableTable(tableName);
+      admin.deleteTable(tableName);
+      assertFalse(admin.tableExists(tableName));
+    }
+  }
+
+  /**
    * Verify schema modification takes.
-   * @throws IOException
-   * @throws InterruptedException
    */
   @Test
   public void testOnlineChangeTableSchema() throws IOException, InterruptedException {
@@ -591,9 +632,9 @@ public class TestAdmin1 {
     assertFalse(this.admin.tableExists(tableName));
   }
 
-  protected void verifyRoundRobinDistribution(ClusterConnection c, RegionLocator regionLocator, int
-      expectedRegions) throws IOException {
-    int numRS = c.getCurrentNrHRS();
+  private void verifyRoundRobinDistribution(RegionLocator regionLocator, int expectedRegions)
+      throws IOException {
+    int numRS = TEST_UTIL.getMiniHBaseCluster().getNumLiveRegionServers();
     List<HRegionLocation> regions = regionLocator.getAllRegionLocations();
     Map<ServerName, List<RegionInfo>> server2Regions = new HashMap<>();
     for (HRegionLocation loc : regions) {
@@ -738,7 +779,7 @@ public class TestAdmin1 {
       assertTrue(Bytes.equals(hri.getStartKey(), splitKeys[8]));
       assertTrue(hri.getEndKey() == null || hri.getEndKey().length == 0);
 
-      verifyRoundRobinDistribution(conn, l, expectedRegions);
+      verifyRoundRobinDistribution(l, expectedRegions);
     }
 
 
@@ -799,7 +840,7 @@ public class TestAdmin1 {
       assertTrue(Bytes.equals(hri.getStartKey(), new byte[] { 9, 9, 9, 9, 9, 9, 9, 9, 9, 9 }));
       assertTrue(hri.getEndKey() == null || hri.getEndKey().length == 0);
 
-      verifyRoundRobinDistribution(conn, l, expectedRegions);
+      verifyRoundRobinDistribution(l, expectedRegions);
     }
 
     // Try once more with something that divides into something infinite
@@ -823,7 +864,7 @@ public class TestAdmin1 {
           "but only found " + regions.size(), expectedRegions, regions.size());
       System.err.println("Found " + regions.size() + " regions");
 
-      verifyRoundRobinDistribution(conn, l, expectedRegions);
+      verifyRoundRobinDistribution(l, expectedRegions);
     }
 
 
@@ -1513,5 +1554,25 @@ public class TestAdmin1 {
     } catch (TableExistsException ex) {
       // expected
     }
+  }
+
+  @Test
+  public void testModifyTableOnTableWithRegionReplicas() throws Exception {
+    TableName tableName = TableName.valueOf(name.getMethodName());
+    TableDescriptor desc = TableDescriptorBuilder.newBuilder(tableName)
+        .setColumnFamily(ColumnFamilyDescriptorBuilder.of(Bytes.toBytes("cf")))
+        .setRegionReplication(5)
+        .build();
+
+    admin.createTable(desc);
+
+    int maxFileSize = 10000000;
+    TableDescriptor newDesc = TableDescriptorBuilder.newBuilder(desc)
+        .setMaxFileSize(maxFileSize)
+        .build();
+
+    admin.modifyTable(newDesc);
+    TableDescriptor newTableDesc = admin.getDescriptor(tableName);
+    assertEquals(maxFileSize, newTableDesc.getMaxFileSize());
   }
 }

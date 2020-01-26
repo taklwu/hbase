@@ -33,8 +33,12 @@ import org.apache.hadoop.hbase.HTableDescriptor;
 import org.apache.hadoop.hbase.TableName;
 import org.apache.hadoop.hbase.TableNotFoundException;
 import org.apache.hadoop.hbase.client.Admin;
+import org.apache.hadoop.hbase.client.ColumnFamilyDescriptor;
+import org.apache.hadoop.hbase.client.ColumnFamilyDescriptorBuilder;
 import org.apache.hadoop.hbase.client.Connection;
 import org.apache.hadoop.hbase.client.ConnectionFactory;
+import org.apache.hadoop.hbase.client.TableDescriptor;
+import org.apache.hadoop.hbase.client.TableDescriptorBuilder;
 import org.apache.hadoop.hbase.replication.BaseReplicationEndpoint;
 import org.apache.hadoop.hbase.replication.ReplicationPeerConfig;
 import org.apache.hadoop.hbase.replication.TestReplicationBase;
@@ -178,6 +182,28 @@ public class TestReplicationAdminWithClusters extends TestReplicationBase {
     }
   }
 
+  @Test
+  public void testEnableReplicationForTableWithRegionReplica() throws Exception {
+    TableName tn = TableName.valueOf(name.getMethodName());
+    TableDescriptor td = TableDescriptorBuilder.newBuilder(tn)
+        .setRegionReplication(5)
+        .setColumnFamily(ColumnFamilyDescriptorBuilder.newBuilder(noRepfamName).build())
+        .build();
+
+    admin1.createTable(td);
+
+    try {
+      admin1.enableTableReplication(tn);
+      td = admin1.getDescriptor(tn);
+      for (ColumnFamilyDescriptor fam : td.getColumnFamilies()) {
+        assertEquals(HConstants.REPLICATION_SCOPE_GLOBAL, fam.getScope());
+      }
+    } finally {
+      utility1.deleteTable(tn);
+      utility2.deleteTable(tn);
+    }
+  }
+
   @Test(expected = TableNotFoundException.class)
   public void testDisableReplicationForNonExistingTable() throws Exception {
     admin1.disableTableReplication(TableName.valueOf(name.getMethodName()));
@@ -299,7 +325,7 @@ public class TestReplicationAdminWithClusters extends TestReplicationBase {
 
     @Override
     public UUID getPeerUUID() {
-      return UUID.randomUUID();
+      return utility1.getRandomUUID();
     }
 
     @Override

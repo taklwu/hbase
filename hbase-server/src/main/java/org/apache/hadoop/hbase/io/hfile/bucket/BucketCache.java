@@ -203,7 +203,7 @@ public class BucketCache implements BlockCache, HeapSize {
    * Key set of offsets in BucketCache is limited so soft reference is the best choice here.
    */
   @VisibleForTesting
-  final IdReadWriteLock offsetLock = new IdReadWriteLock(ReferenceType.SOFT);
+  final IdReadWriteLock<Long> offsetLock = new IdReadWriteLock<>(ReferenceType.SOFT);
 
   private final NavigableSet<BlockCacheKey> blocksByHFile =
       new ConcurrentSkipListSet<>(new Comparator<BlockCacheKey>() {
@@ -418,42 +418,35 @@ public class BucketCache implements BlockCache, HeapSize {
    * @param inMemory if block is in-memory
    * @param wait if true, blocking wait when queue is full
    */
-  public void cacheBlockWithWait(BlockCacheKey cacheKey, Cacheable cachedItem, boolean inMemory,
+  private void cacheBlockWithWait(BlockCacheKey cacheKey, Cacheable cachedItem, boolean inMemory,
       boolean wait) {
-    if (LOG.isTraceEnabled()) LOG.trace("Caching key=" + cacheKey + ", item=" + cachedItem);
+    if (cacheEnabled) {
+      if (backingMap.containsKey(cacheKey) || ramCache.containsKey(cacheKey)) {
+        if (BlockCacheUtil.shouldReplaceExistingCacheBlock(this, cacheKey, cachedItem)) {
+          cacheBlockWithWaitInternal(cacheKey, cachedItem, inMemory, wait);
+        }
+      } else {
+        cacheBlockWithWaitInternal(cacheKey, cachedItem, inMemory, wait);
+      }
+    }
+  }
+
+  private void cacheBlockWithWaitInternal(BlockCacheKey cacheKey, Cacheable cachedItem,
+      boolean inMemory, boolean wait) {
     if (!cacheEnabled) {
       return;
     }
-
-    if (backingMap.containsKey(cacheKey) || ramCache.containsKey(cacheKey)) {
-      Cacheable existingBlock = getBlock(cacheKey, false, false, false);
-
-      try {
-        int comparison = BlockCacheUtil.validateBlockAddition(existingBlock, cachedItem, cacheKey);
-        if (comparison != 0) {
-          if (comparison < 0) {
-            LOG.warn("Cached block contents differ by nextBlockOnDiskSize. Keeping cached block.");
-            return;
-          } else {
-            LOG.warn("Cached block contents differ by nextBlockOnDiskSize. Caching new block.");
-          }
-        } else {
-          String msg = "Caching an already cached block: " + cacheKey;
-          msg += ". This is harmless and can happen in rare cases (see HBASE-8547)";
-          LOG.warn(msg);
-          return;
-        }
-      } finally {
-        // return the block since we need to decrement the count
-        returnBlock(cacheKey, existingBlock);
-      }
-    }
-
-    /*
-     * Stuff the entry into the RAM cache so it can get drained to the persistent store
-     */
+    LOG.trace("Caching key={}, item={}", cacheKey, cachedItem);
+    // Stuff the entry into the RAM cache so it can get drained to the persistent store
     RAMQueueEntry re =
         new RAMQueueEntry(cacheKey, cachedItem, accessCount.incrementAndGet(), inMemory);
+    /**
+     * Don't use ramCache.put(cacheKey, re) here. because there may be a existing entry with same
+     * key in ramCache, the heap size of bucket cache need to update if replacing entry from
+     * ramCache. But WriterThread will also remove entry from ramCache and update heap size, if
+     * using ramCache.put(), It's possible that the removed entry in WriterThread is not the correct
+     * one, then the heap size will mess up (HBASE-20789)
+     */
     if (ramCache.putIfAbsent(cacheKey, re) != null) {
       return;
     }
@@ -559,37 +552,6 @@ public class BucketCache implements BlockCache, HeapSize {
   @Override
   public boolean evictBlock(BlockCacheKey cacheKey) {
     return evictBlock(cacheKey, true);
-  }
-
-  // does not check for the ref count. Just tries to evict it if found in the
-  // bucket map
-  private boolean forceEvict(BlockCacheKey cacheKey) {
-    if (!cacheEnabled) {
-      return false;
-    }
-    RAMQueueEntry removedBlock = checkRamCache(cacheKey);
-    BucketEntry bucketEntry = backingMap.get(cacheKey);
-    if (bucketEntry == null) {
-      if (removedBlock != null) {
-        cacheStats.evicted(0, cacheKey.isPrimary());
-        return true;
-      } else {
-        return false;
-      }
-    }
-    ReentrantReadWriteLock lock = offsetLock.getLock(bucketEntry.offset());
-    try {
-      lock.writeLock().lock();
-      if (backingMap.remove(cacheKey, bucketEntry)) {
-        blockEvicted(cacheKey, bucketEntry, removedBlock == null);
-      } else {
-        return false;
-      }
-    } finally {
-      lock.writeLock().unlock();
-    }
-    cacheStats.evicted(bucketEntry.getCachedTime(), cacheKey.isPrimary());
-    return true;
   }
 
   private RAMQueueEntry checkRamCache(BlockCacheKey cacheKey) {
@@ -835,7 +797,7 @@ public class BucketCache implements BlockCache, HeapSize {
       bucketQueue.add(bucketMulti);
       bucketQueue.add(bucketMemory);
 
-      int remainingBuckets = 3;
+      int remainingBuckets = bucketQueue.size();
       long bytesFreed = 0;
 
       BucketEntryGroup bucketGroup;
@@ -937,6 +899,31 @@ public class BucketCache implements BlockCache, HeapSize {
     }
 
     /**
+     * Put the new bucket entry into backingMap. Notice that we are allowed to replace the existing
+     * cache with a new block for the same cache key. there's a corner case: one thread cache a
+     * block in ramCache, copy to io-engine and add a bucket entry to backingMap. Caching another
+     * new block with the same cache key do the same thing for the same cache key, so if not evict
+     * the previous bucket entry, then memory leak happen because the previous bucketEntry is gone
+     * but the bucketAllocator do not free its memory.
+     * @see BlockCacheUtil#shouldReplaceExistingCacheBlock(BlockCache blockCache,BlockCacheKey
+     *      cacheKey, Cacheable newBlock)
+     * @param key Block cache key
+     * @param bucketEntry Bucket entry to put into backingMap.
+     */
+    private void putIntoBackingMap(BlockCacheKey key, BucketEntry bucketEntry) {
+      BucketEntry previousEntry = backingMap.put(key, bucketEntry);
+      if (previousEntry != null && previousEntry != bucketEntry) {
+        ReentrantReadWriteLock lock = offsetLock.getLock(previousEntry.offset());
+        lock.writeLock().lock();
+        try {
+          blockEvicted(key, previousEntry, false);
+        } finally {
+          lock.writeLock().unlock();
+        }
+      }
+    }
+
+    /**
      * Flush the entries in ramCache to IOEngine and add bucket entry to backingMap.
      * Process all that are passed in even if failure being sure to remove from ramCache else we'll
      * never undo the references and we'll OOME.
@@ -1017,7 +1004,7 @@ public class BucketCache implements BlockCache, HeapSize {
         BlockCacheKey key = entries.get(i).getKey();
         // Only add if non-null entry.
         if (bucketEntries[i] != null) {
-          backingMap.put(key, bucketEntries[i]);
+          putIntoBackingMap(key, bucketEntries[i]);
         }
         // Always remove from ramCache even if we failed adding it to the block cache above.
         RAMQueueEntry ramCacheEntry = ramCache.remove(key);
@@ -1028,8 +1015,15 @@ public class BucketCache implements BlockCache, HeapSize {
           ReentrantReadWriteLock lock = offsetLock.getLock(bucketEntries[i].offset());
           try {
             lock.writeLock().lock();
-            if (backingMap.remove(key, bucketEntries[i])) {
-              blockEvicted(key, bucketEntries[i], false);
+            int refCount = bucketEntries[i].getRefCount();
+            if (refCount == 0) {
+              if (backingMap.remove(key, bucketEntries[i])) {
+                blockEvicted(key, bucketEntries[i], false);
+              } else {
+                bucketEntries[i].markForEvict();
+              }
+            } else {
+              bucketEntries[i].markForEvict();
             }
           } finally {
             lock.writeLock().unlock();
@@ -1484,30 +1478,37 @@ public class BucketCache implements BlockCache, HeapSize {
       this.accessCounter = accessCounter;
     }
 
-    public BucketEntry writeToCache(final IOEngine ioEngine,
-        final BucketAllocator bucketAllocator,
-        final UniqueIndexMap<Integer> deserialiserMap,
-        final LongAdder realCacheSize) throws CacheFullException, IOException,
-        BucketAllocatorException {
+    private BucketEntry getBucketEntry(IOEngine ioEngine, long offset, int len) {
+      if (ioEngine.usesSharedMemory()) {
+        if (UnsafeAvailChecker.isAvailable()) {
+          return new UnsafeSharedMemoryBucketEntry(offset, len, accessCounter, inMemory);
+        } else {
+          return new SharedMemoryBucketEntry(offset, len, accessCounter, inMemory);
+        }
+      } else {
+        return new BucketEntry(offset, len, accessCounter, inMemory);
+      }
+    }
+
+    public BucketEntry writeToCache(final IOEngine ioEngine, final BucketAllocator bucketAllocator,
+        final UniqueIndexMap<Integer> deserialiserMap, final LongAdder realCacheSize)
+        throws IOException {
       int len = data.getSerializedLength();
       // This cacheable thing can't be serialized
-      if (len == 0) return null;
+      if (len == 0) {
+        return null;
+      }
       long offset = bucketAllocator.allocateBlock(len);
-      BucketEntry bucketEntry = ioEngine.usesSharedMemory()
-          ? UnsafeAvailChecker.isAvailable()
-              ? new UnsafeSharedMemoryBucketEntry(offset, len, accessCounter, inMemory)
-              : new SharedMemoryBucketEntry(offset, len, accessCounter, inMemory)
-          : new BucketEntry(offset, len, accessCounter, inMemory);
-      bucketEntry.setDeserialiserReference(data.getDeserializer(), deserialiserMap);
+      boolean succ = false;
+      BucketEntry bucketEntry;
       try {
+        bucketEntry = getBucketEntry(ioEngine, offset, len);
+        bucketEntry.setDeserialiserReference(data.getDeserializer(), deserialiserMap);
         if (data instanceof HFileBlock) {
           // If an instance of HFileBlock, save on some allocations.
-          HFileBlock block = (HFileBlock)data;
+          HFileBlock block = (HFileBlock) data;
           ByteBuff sliceBuf = block.getBufferReadOnly();
           ByteBuffer metadata = block.getMetaData();
-          if (LOG.isTraceEnabled()) {
-            LOG.trace("Write offset=" + offset + ", len=" + len);
-          }
           ioEngine.write(sliceBuf, offset);
           ioEngine.write(metadata, offset + len - metadata.limit());
         } else {
@@ -1515,12 +1516,12 @@ public class BucketCache implements BlockCache, HeapSize {
           data.serialize(bb, true);
           ioEngine.write(bb, offset);
         }
-      } catch (IOException ioe) {
-        // free it in bucket allocator
-        bucketAllocator.freeBlock(offset);
-        throw ioe;
+        succ = true;
+      } finally {
+        if (!succ) {
+          bucketAllocator.freeBlock(offset);
+        }
       }
-
       realCacheSize.add(len);
       return bucketEntry;
     }
@@ -1641,7 +1642,7 @@ public class BucketCache implements BlockCache, HeapSize {
       if (bucketEntry != null) {
         int refCount = bucketEntry.decrementRefCountAndGet();
         if (refCount == 0 && bucketEntry.isMarkedForEvict()) {
-          forceEvict(cacheKey);
+          evictBlock(cacheKey);
         }
       }
     }

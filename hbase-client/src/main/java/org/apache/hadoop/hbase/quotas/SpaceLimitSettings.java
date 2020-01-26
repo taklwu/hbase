@@ -38,9 +38,7 @@ class SpaceLimitSettings extends QuotaSettings {
 
   SpaceLimitSettings(TableName tableName, long sizeLimit, SpaceViolationPolicy violationPolicy) {
     super(null, Objects.requireNonNull(tableName), null);
-    if (sizeLimit < 0L) {
-      throw new IllegalArgumentException("Size limit must be a non-negative value.");
-    }
+    validateSizeLimit(sizeLimit);
     proto = buildProtoAddQuota(sizeLimit, Objects.requireNonNull(violationPolicy));
   }
 
@@ -54,9 +52,7 @@ class SpaceLimitSettings extends QuotaSettings {
 
   SpaceLimitSettings(String namespace, long sizeLimit, SpaceViolationPolicy violationPolicy) {
     super(null, null, Objects.requireNonNull(namespace));
-    if (sizeLimit < 0L) {
-      throw new IllegalArgumentException("Size limit must be a non-negative value.");
-    }
+    validateSizeLimit(sizeLimit);
     proto = buildProtoAddQuota(sizeLimit, Objects.requireNonNull(violationPolicy));
   }
 
@@ -205,7 +201,7 @@ class SpaceLimitSettings extends QuotaSettings {
     if (proto.getQuota().getRemove()) {
       sb.append(", REMOVE => ").append(proto.getQuota().getRemove());
     } else {
-      sb.append(", LIMIT => ").append(proto.getQuota().getSoftLimit());
+      sb.append(", LIMIT => ").append(sizeToString(proto.getQuota().getSoftLimit()));
       sb.append(", VIOLATION_POLICY => ").append(proto.getQuota().getViolationPolicy());
     }
     return sb.toString();
@@ -239,5 +235,12 @@ class SpaceLimitSettings extends QuotaSettings {
       // else, we don't know what to do, so return the original object
     }
     return this;
+  }
+
+  // Helper function to validate sizeLimit
+  private void validateSizeLimit(long sizeLimit) {
+    if (sizeLimit < 0L) {
+      throw new IllegalArgumentException("Size limit must be a non-negative value.");
+    }
   }
 }

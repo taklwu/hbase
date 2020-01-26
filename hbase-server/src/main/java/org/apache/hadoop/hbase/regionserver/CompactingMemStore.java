@@ -63,10 +63,13 @@ public class CompactingMemStore extends AbstractMemStore {
   public static final String IN_MEMORY_FLUSH_THRESHOLD_FACTOR_KEY =
       "hbase.memstore.inmemoryflush.threshold.factor";
   private static final double IN_MEMORY_FLUSH_THRESHOLD_FACTOR_DEFAULT = 0.014;
+  // In-Memory compaction pool size
+  public static final String IN_MEMORY_CONPACTION_POOL_SIZE_KEY =
+      "hbase.regionserver.inmemory.compaction.pool.size";
+  public static final int IN_MEMORY_CONPACTION_POOL_SIZE_DEFAULT = 10;
 
   private static final Logger LOG = LoggerFactory.getLogger(CompactingMemStore.class);
   private HStore store;
-  private RegionServicesForStores regionServices;
   private CompactionPipeline pipeline;
   protected MemStoreCompactor compactor;
 
@@ -93,7 +96,7 @@ public class CompactingMemStore extends AbstractMemStore {
   private IndexType indexType = IndexType.ARRAY_MAP;  // default implementation
 
   public static final long DEEP_OVERHEAD = ClassSize.align( AbstractMemStore.DEEP_OVERHEAD
-      + 7 * ClassSize.REFERENCE     // Store, RegionServicesForStores, CompactionPipeline,
+      + 6 * ClassSize.REFERENCE     // Store, CompactionPipeline,
                                     // MemStoreCompactor, inMemoryFlushInProgress, allowCompaction,
                                     // indexType
       + Bytes.SIZEOF_LONG           // inmemoryFlushSize
@@ -104,7 +107,7 @@ public class CompactingMemStore extends AbstractMemStore {
   public CompactingMemStore(Configuration conf, CellComparator c,
       HStore store, RegionServicesForStores regionServices,
       MemoryCompactionPolicy compactionPolicy) throws IOException {
-    super(conf, c);
+    super(conf, c, regionServices);
     this.store = store;
     this.regionServices = regionServices;
     this.pipeline = new CompactionPipeline(getRegionServices());

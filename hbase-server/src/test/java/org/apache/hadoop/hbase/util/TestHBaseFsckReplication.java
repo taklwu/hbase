@@ -30,7 +30,7 @@ import org.apache.hadoop.hbase.replication.ReplicationQueueStorage;
 import org.apache.hadoop.hbase.replication.ReplicationStorageFactory;
 import org.apache.hadoop.hbase.testclassification.MediumTests;
 import org.apache.hadoop.hbase.testclassification.ReplicationTests;
-import org.apache.hadoop.hbase.util.HBaseFsck.ErrorReporter.ERROR_CODE;
+import org.apache.hadoop.hbase.util.HbckErrorReporter.ERROR_CODE;
 import org.apache.hadoop.hbase.util.hbck.HbckTestingUtil;
 import org.junit.AfterClass;
 import org.junit.BeforeClass;
@@ -49,6 +49,7 @@ public class TestHBaseFsckReplication {
 
   @BeforeClass
   public static void setUp() throws Exception {
+    UTIL.getConfiguration().setBoolean("hbase.write.hbck1.lock.file", false);
     UTIL.startMiniCluster(1);
   }
 

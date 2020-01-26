@@ -1189,6 +1189,7 @@ public class PerformanceEvaluation extends Configured implements Tool {
     }
 
     void updateScanMetrics(final ScanMetrics metrics) {
+      if (metrics == null) return;
       Map<String,Long> metricsMap = metrics.getMetricsMap();
       Long rpcCalls = metricsMap.get(ScanMetrics.RPC_CALLS_METRIC_NAME);
       if (rpcCalls != null) {
@@ -2711,6 +2712,7 @@ public class PerformanceEvaluation extends Configured implements Tool {
       final String blockSize = "--blockSize=";
       if(cmd.startsWith(blockSize) ) {
         opts.blockSize = Integer.parseInt(cmd.substring(blockSize.length()));
+        continue;
       }
 
       final String valueSize = "--valueSize=";

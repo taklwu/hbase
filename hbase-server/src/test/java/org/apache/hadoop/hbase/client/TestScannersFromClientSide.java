@@ -17,9 +17,13 @@
  */
 package org.apache.hadoop.hbase.client;
 
+import static org.apache.hadoop.hbase.HConstants.RPC_CODEC_CONF_KEY;
+import static org.apache.hadoop.hbase.client.TestFromClientSide3.generateHugeValue;
+import static org.apache.hadoop.hbase.ipc.RpcClient.DEFAULT_CODEC_CLASS;
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
@@ -42,6 +46,9 @@ import org.apache.hadoop.hbase.HRegionLocation;
 import org.apache.hadoop.hbase.HTestConst;
 import org.apache.hadoop.hbase.KeyValue;
 import org.apache.hadoop.hbase.MiniHBaseCluster;
+import org.apache.hadoop.hbase.exceptions.DeserializationException;
+import org.apache.hadoop.hbase.filter.FilterBase;
+import org.apache.hadoop.hbase.testclassification.MediumTests;
 import org.apache.hadoop.hbase.TableName;
 import org.apache.hadoop.hbase.TableNotFoundException;
 import org.apache.hadoop.hbase.filter.BinaryComparator;
@@ -50,7 +57,6 @@ import org.apache.hadoop.hbase.filter.ColumnRangeFilter;
 import org.apache.hadoop.hbase.filter.QualifierFilter;
 import org.apache.hadoop.hbase.regionserver.HRegionServer;
 import org.apache.hadoop.hbase.testclassification.ClientTests;
-import org.apache.hadoop.hbase.testclassification.MediumTests;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.hbase.util.EnvironmentEdgeManager;
 import org.junit.After;
@@ -608,6 +614,30 @@ public class TestScannersFromClientSide {
        "Testing offset + multiple CFs + maxResults");
   }
 
+  @Test
+  public void testScanRawDeleteFamilyVersion() throws Exception {
+    TableName tableName = TableName.valueOf(name.getMethodName());
+    TEST_UTIL.createTable(tableName, FAMILY);
+    Configuration conf = new Configuration(TEST_UTIL.getConfiguration());
+    conf.set(RPC_CODEC_CONF_KEY, "");
+    conf.set(DEFAULT_CODEC_CLASS, "");
+    try (Connection connection = ConnectionFactory.createConnection(conf);
+        Table table = connection.getTable(tableName)) {
+      Delete delete = new Delete(ROW);
+      delete.addFamilyVersion(FAMILY, 0L);
+      table.delete(delete);
+      Scan scan = new Scan(ROW).setRaw(true);
+      ResultScanner scanner = table.getScanner(scan);
+      int count = 0;
+      while (scanner.next() != null) {
+        count++;
+      }
+      assertEquals(1, count);
+    } finally {
+      TEST_UTIL.deleteTable(tableName);
+    }
+  }
+
   /**
    * Test from client side for scan while the region is reopened
    * on the same region server.
@@ -869,6 +899,156 @@ public class TestScannersFromClientSide {
         Result result = scanner.next();
         assertEquals(3, result.size());
       }
+    }
+  }
+
+  @Test
+  public void testScanWithSameStartRowStopRow() throws IOException {
+    TableName tableName = TableName.valueOf(name.getMethodName());
+    try (Table table = TEST_UTIL.createTable(tableName, FAMILY)) {
+      table.put(new Put(ROW).addColumn(FAMILY, QUALIFIER, VALUE));
+
+      Scan scan = new Scan().withStartRow(ROW).withStopRow(ROW);
+      try (ResultScanner scanner = table.getScanner(scan)) {
+        assertNull(scanner.next());
+      }
+
+      scan = new Scan().withStartRow(ROW, true).withStopRow(ROW, true);
+      try (ResultScanner scanner = table.getScanner(scan)) {
+        Result result = scanner.next();
+        assertNotNull(result);
+        assertArrayEquals(ROW, result.getRow());
+        assertArrayEquals(VALUE, result.getValue(FAMILY, QUALIFIER));
+        assertNull(scanner.next());
+      }
+
+      scan = new Scan().withStartRow(ROW, true).withStopRow(ROW, false);
+      try (ResultScanner scanner = table.getScanner(scan)) {
+        assertNull(scanner.next());
+      }
+
+      scan = new Scan().withStartRow(ROW, false).withStopRow(ROW, false);
+      try (ResultScanner scanner = table.getScanner(scan)) {
+        assertNull(scanner.next());
+      }
+
+      scan = new Scan().withStartRow(ROW, false).withStopRow(ROW, true);
+      try (ResultScanner scanner = table.getScanner(scan)) {
+        assertNull(scanner.next());
+      }
+    }
+  }
+
+  @Test
+  public void testReverseScanWithFlush() throws Exception {
+    TableName tableName = TableName.valueOf(name.getMethodName());
+    final int BATCH_SIZE = 10;
+    final int ROWS_TO_INSERT = 100;
+    final byte[] LARGE_VALUE = generateHugeValue(128 * 1024);
+
+    try (Table table = TEST_UTIL.createTable(tableName, FAMILY);
+      Admin admin = TEST_UTIL.getAdmin()) {
+      List<Put> putList = new ArrayList<>();
+      for (long i = 0; i < ROWS_TO_INSERT; i++) {
+        Put put = new Put(Bytes.toBytes(i));
+        put.addColumn(FAMILY, QUALIFIER, LARGE_VALUE);
+        putList.add(put);
+
+        if (putList.size() >= BATCH_SIZE) {
+          table.put(putList);
+          admin.flush(tableName);
+          putList.clear();
+        }
+      }
+
+      if (!putList.isEmpty()) {
+        table.put(putList);
+        admin.flush(tableName);
+        putList.clear();
+      }
+
+      Scan scan = new Scan();
+      scan.setReversed(true);
+      int count = 0;
+
+      try (ResultScanner results = table.getScanner(scan)) {
+        for (Result result : results) {
+          count++;
+        }
+      }
+      assertEquals("Expected " + ROWS_TO_INSERT + " rows in the table but it is " + count,
+        ROWS_TO_INSERT, count);
+    }
+  }
+
+  @Test
+  public void testScannerWithPartialResults() throws Exception {
+    TableName tableName = TableName.valueOf("testScannerWithPartialResults");
+    try (Table table = TEST_UTIL.createMultiRegionTable(tableName,
+      Bytes.toBytes("c"), 4)) {
+      List<Put> puts = new ArrayList<>();
+      byte[] largeArray = new byte[10000];
+      Put put = new Put(Bytes.toBytes("aaaa0"));
+      put.addColumn(Bytes.toBytes("c"), Bytes.toBytes("1"), Bytes.toBytes("1"));
+      put.addColumn(Bytes.toBytes("c"), Bytes.toBytes("2"), Bytes.toBytes("2"));
+      put.addColumn(Bytes.toBytes("c"), Bytes.toBytes("3"), Bytes.toBytes("3"));
+      put.addColumn(Bytes.toBytes("c"), Bytes.toBytes("4"), Bytes.toBytes("4"));
+      puts.add(put);
+      put = new Put(Bytes.toBytes("aaaa1"));
+      put.addColumn(Bytes.toBytes("c"), Bytes.toBytes("1"), Bytes.toBytes("1"));
+      put.addColumn(Bytes.toBytes("c"), Bytes.toBytes("2"), largeArray);
+      put.addColumn(Bytes.toBytes("c"), Bytes.toBytes("3"), largeArray);
+      puts.add(put);
+      table.put(puts);
+      Scan scan = new Scan();
+      scan.addFamily(Bytes.toBytes("c"));
+      scan.setAttribute(Scan.SCAN_ATTRIBUTES_TABLE_NAME, tableName.getName());
+      scan.setMaxResultSize(10001);
+      scan.setStopRow(Bytes.toBytes("bbbb"));
+      scan.setFilter(new LimitKVsReturnFilter());
+      ResultScanner rs = table.getScanner(scan);
+      Result result;
+      int expectedKvNumber = 6;
+      int returnedKvNumber = 0;
+      while((result = rs.next()) != null) {
+        returnedKvNumber += result.listCells().size();
+      }
+      rs.close();
+      assertEquals(expectedKvNumber, returnedKvNumber);
+    }
+  }
+
+  public static class LimitKVsReturnFilter extends FilterBase {
+
+    private int cellCount = 0;
+
+    @Override
+    public ReturnCode filterCell(Cell v) throws IOException {
+      if (cellCount >= 6) {
+        cellCount++;
+        return ReturnCode.SKIP;
+      }
+      cellCount++;
+      return ReturnCode.INCLUDE;
+    }
+
+    @Override
+    public boolean filterAllRemaining() throws IOException {
+      if (cellCount < 7) {
+        return false;
+      }
+      cellCount++;
+      return true;
+    }
+
+    @Override
+    public String toString() {
+      return this.getClass().getSimpleName();
+    }
+
+    public static LimitKVsReturnFilter parseFrom(final byte [] pbBytes)
+        throws DeserializationException {
+      return new LimitKVsReturnFilter();
     }
   }
 }

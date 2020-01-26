@@ -17,6 +17,8 @@
  */
 package org.apache.hadoop.hbase.wal;
 
+import static org.apache.hadoop.hbase.wal.WALFactory.META_WAL_PROVIDER;
+import static org.apache.hadoop.hbase.wal.WALFactory.WAL_PROVIDER;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
@@ -60,6 +62,7 @@ import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.hbase.util.CommonFSUtils;
 import org.apache.hadoop.hbase.util.FSUtils;
 import org.apache.hadoop.hbase.util.Threads;
+import org.apache.hadoop.hbase.wal.WALFactory.Providers;
 import org.apache.hadoop.hdfs.DistributedFileSystem;
 import org.apache.hadoop.hdfs.MiniDFSCluster;
 import org.apache.hadoop.hdfs.protocol.HdfsConstants;
@@ -178,7 +181,7 @@ public class TestWALFactory {
     final MultiVersionConcurrencyControl mvcc = new MultiVersionConcurrencyControl(1);
     final int howmany = 3;
     RegionInfo[] infos = new RegionInfo[3];
-    Path tabledir = FSUtils.getTableDir(hbaseDir, tableName);
+    Path tabledir = FSUtils.getWALTableDir(conf, tableName);
     fs.mkdirs(tabledir);
     for (int i = 0; i < howmany; i++) {
       infos[i] = RegionInfoBuilder.newBuilder(tableName).setStartKey(Bytes.toBytes("" + i))
@@ -205,7 +208,7 @@ public class TestWALFactory {
           LOG.info("Region " + i + ": " + edit);
           WALKeyImpl walKey =  new WALKeyImpl(infos[i].getEncodedNameAsBytes(), tableName,
               System.currentTimeMillis(), mvcc, scopes);
-          log.append(infos[i], walKey, edit, true);
+          log.appendData(infos[i], walKey, edit);
           walKey.getWriteEntry();
         }
         log.sync();
@@ -267,8 +270,8 @@ public class TestWALFactory {
       for (int i = 0; i < total; i++) {
         WALEdit kvs = new WALEdit();
         kvs.add(new KeyValue(Bytes.toBytes(i), tableName.getName(), tableName.getName()));
-        wal.append(info, new WALKeyImpl(info.getEncodedNameAsBytes(), tableName,
-            System.currentTimeMillis(), mvcc, scopes), kvs, true);
+        wal.appendData(info, new WALKeyImpl(info.getEncodedNameAsBytes(), tableName,
+          System.currentTimeMillis(), mvcc, scopes), kvs);
       }
       // Now call sync and try reading.  Opening a Reader before you sync just
       // gives you EOFE.
@@ -286,8 +289,8 @@ public class TestWALFactory {
       for (int i = 0; i < total; i++) {
         WALEdit kvs = new WALEdit();
         kvs.add(new KeyValue(Bytes.toBytes(i), tableName.getName(), tableName.getName()));
-        wal.append(info, new WALKeyImpl(info.getEncodedNameAsBytes(), tableName,
-            System.currentTimeMillis(), mvcc, scopes), kvs, true);
+        wal.appendData(info, new WALKeyImpl(info.getEncodedNameAsBytes(), tableName,
+          System.currentTimeMillis(), mvcc, scopes), kvs);
       }
       wal.sync();
       reader = wals.createReader(fs, walPath);
@@ -308,8 +311,8 @@ public class TestWALFactory {
       for (int i = 0; i < total; i++) {
         WALEdit kvs = new WALEdit();
         kvs.add(new KeyValue(Bytes.toBytes(i), tableName.getName(), value));
-        wal.append(info, new WALKeyImpl(info.getEncodedNameAsBytes(), tableName,
-            System.currentTimeMillis(), mvcc, scopes), kvs,  true);
+        wal.appendData(info, new WALKeyImpl(info.getEncodedNameAsBytes(), tableName,
+          System.currentTimeMillis(), mvcc, scopes), kvs);
       }
       // Now I should have written out lots of blocks.  Sync then read.
       wal.sync();
@@ -385,9 +388,8 @@ public class TestWALFactory {
     for (int i = 0; i < total; i++) {
       WALEdit kvs = new WALEdit();
       kvs.add(new KeyValue(Bytes.toBytes(i), tableName.getName(), tableName.getName()));
-      wal.append(regionInfo, new WALKeyImpl(regionInfo.getEncodedNameAsBytes(), tableName,
-          System.currentTimeMillis(), mvcc, scopes),
-        kvs, true);
+      wal.appendData(regionInfo, new WALKeyImpl(regionInfo.getEncodedNameAsBytes(), tableName,
+        System.currentTimeMillis(), mvcc, scopes), kvs);
     }
     // Now call sync to send the data to HDFS datanodes
     wal.sync();
@@ -519,10 +521,8 @@ public class TestWALFactory {
           .setEndKey(Bytes.toBytes(Bytes.toString(row) + "1")).build();
       final WAL log = wals.getWAL(info);
 
-      final long txid = log.append(info,
-        new WALKeyImpl(info.getEncodedNameAsBytes(), htd.getTableName(), System.currentTimeMillis(),
-            mvcc, scopes),
-        cols, true);
+      final long txid = log.appendData(info, new WALKeyImpl(info.getEncodedNameAsBytes(),
+        htd.getTableName(), System.currentTimeMillis(), mvcc, scopes), cols);
       log.sync(txid);
       log.startCacheFlush(info.getEncodedNameAsBytes(), htd.getColumnFamilyNames());
       log.completeCacheFlush(info.getEncodedNameAsBytes());
@@ -577,10 +577,8 @@ public class TestWALFactory {
       }
       RegionInfo hri = RegionInfoBuilder.newBuilder(htd.getTableName()).build();
       final WAL log = wals.getWAL(hri);
-      final long txid = log.append(hri,
-        new WALKeyImpl(hri.getEncodedNameAsBytes(), htd.getTableName(), System.currentTimeMillis(),
-            mvcc, scopes),
-        cols, true);
+      final long txid = log.appendData(hri, new WALKeyImpl(hri.getEncodedNameAsBytes(),
+        htd.getTableName(), System.currentTimeMillis(), mvcc, scopes), cols);
       log.sync(txid);
       log.startCacheFlush(hri.getEncodedNameAsBytes(), htd.getColumnFamilyNames());
       log.completeCacheFlush(hri.getEncodedNameAsBytes());
@@ -631,8 +629,8 @@ public class TestWALFactory {
       cols.add(new KeyValue(row, Bytes.toBytes("column"),
           Bytes.toBytes(Integer.toString(i)),
           timestamp, new byte[]{(byte) (i + '0')}));
-      log.append(hri, new WALKeyImpl(hri.getEncodedNameAsBytes(), tableName,
-          System.currentTimeMillis(), mvcc, scopes), cols, true);
+      log.appendData(hri, new WALKeyImpl(hri.getEncodedNameAsBytes(), tableName,
+        System.currentTimeMillis(), mvcc, scopes), cols);
     }
     log.sync();
     assertEquals(COL_COUNT, visitor.increments);
@@ -641,8 +639,8 @@ public class TestWALFactory {
     cols.add(new KeyValue(row, Bytes.toBytes("column"),
         Bytes.toBytes(Integer.toString(11)),
         timestamp, new byte[]{(byte) (11 + '0')}));
-    log.append(hri, new WALKeyImpl(hri.getEncodedNameAsBytes(), tableName,
-        System.currentTimeMillis(), mvcc, scopes), cols, true);
+    log.appendData(hri, new WALKeyImpl(hri.getEncodedNameAsBytes(), tableName,
+      System.currentTimeMillis(), mvcc, scopes), cols);
     log.sync();
     assertEquals(COL_COUNT, visitor.increments);
   }
@@ -672,5 +670,80 @@ public class TestWALFactory {
       // Templates.
       increments++;
     }
+  }
+
+  @Test
+  public void testWALProviders() throws IOException {
+    Configuration conf = new Configuration();
+    WALFactory walFactory = new WALFactory(conf, this.currentServername.toString());
+    assertEquals(walFactory.getWALProvider().getClass(), walFactory.getMetaProvider().getClass());
+  }
+
+  @Test
+  public void testOnlySetWALProvider() throws IOException {
+    Configuration conf = new Configuration();
+    conf.set(WAL_PROVIDER, WALFactory.Providers.multiwal.name());
+    WALFactory walFactory = new WALFactory(conf, this.currentServername.toString());
+
+    assertEquals(WALFactory.Providers.multiwal.clazz, walFactory.getWALProvider().getClass());
+    assertEquals(WALFactory.Providers.multiwal.clazz, walFactory.getMetaProvider().getClass());
+  }
+
+  @Test
+  public void testOnlySetMetaWALProvider() throws IOException {
+    Configuration conf = new Configuration();
+    conf.set(META_WAL_PROVIDER, WALFactory.Providers.asyncfs.name());
+    WALFactory walFactory = new WALFactory(conf, this.currentServername.toString());
+
+    assertEquals(WALFactory.Providers.defaultProvider.clazz,
+        walFactory.getWALProvider().getClass());
+    assertEquals(WALFactory.Providers.asyncfs.clazz, walFactory.getMetaProvider().getClass());
+  }
+
+  @Test
+  public void testDefaultProvider() throws IOException {
+    final Configuration conf = new Configuration();
+    // AsyncFSWal is the default, we should be able to request any WAL.
+    final WALFactory normalWalFactory = new WALFactory(conf, this.currentServername.toString());
+    Class<? extends WALProvider> fshLogProvider = normalWalFactory.getProviderClass(
+        WALFactory.WAL_PROVIDER, Providers.filesystem.name());
+    assertEquals(Providers.filesystem.clazz, fshLogProvider);
+
+    // Imagine a world where MultiWAL is the default
+    final WALFactory customizedWalFactory = new WALFactory(
+        conf, this.currentServername.toString())  {
+      @Override
+      Providers getDefaultProvider() {
+        return Providers.multiwal;
+      }
+    };
+    // If we don't specify a WALProvider, we should get the default implementation.
+    Class<? extends WALProvider> multiwalProviderClass = customizedWalFactory.getProviderClass(
+        WALFactory.WAL_PROVIDER, Providers.multiwal.name());
+    assertEquals(Providers.multiwal.clazz, multiwalProviderClass);
+  }
+
+  @Test
+  public void testCustomProvider() throws IOException {
+    final Configuration config = new Configuration();
+    config.set(WALFactory.WAL_PROVIDER, IOTestProvider.class.getName());
+    final WALFactory walFactory = new WALFactory(config, this.currentServername.toString());
+    Class<? extends WALProvider> walProvider = walFactory.getProviderClass(
+        WALFactory.WAL_PROVIDER, Providers.filesystem.name());
+    assertEquals(IOTestProvider.class, walProvider);
+    WALProvider metaWALProvider = walFactory.getMetaProvider();
+    assertEquals(IOTestProvider.class, metaWALProvider.getClass());
+  }
+
+  @Test
+  public void testCustomMetaProvider() throws IOException {
+    final Configuration config = new Configuration();
+    config.set(WALFactory.META_WAL_PROVIDER, IOTestProvider.class.getName());
+    final WALFactory walFactory = new WALFactory(config, this.currentServername.toString());
+    Class<? extends WALProvider> walProvider = walFactory.getProviderClass(
+        WALFactory.WAL_PROVIDER, Providers.filesystem.name());
+    assertEquals(Providers.filesystem.clazz, walProvider);
+    WALProvider metaWALProvider = walFactory.getMetaProvider();
+    assertEquals(IOTestProvider.class, metaWALProvider.getClass());
   }
 }

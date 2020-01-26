@@ -23,7 +23,7 @@ import org.apache.hadoop.hbase.procedure2.Procedure;
 import org.apache.yetus.audience.InterfaceAudience;
 
 @InterfaceAudience.Private
-class TableQueue extends Queue<TableName> {
+public class TableQueue extends Queue<TableName> {
   private final LockStatus namespaceLockStatus;
 
   public TableQueue(TableName tableName, int priority, LockStatus tableLock,
@@ -34,21 +34,7 @@ class TableQueue extends Queue<TableName> {
 
   @Override
   public boolean isAvailable() {
-    // if there are no items in the queue, or the namespace is locked.
-    // we can't execute operation on this table
-    if (isEmpty() || namespaceLockStatus.hasExclusiveLock()) {
-      return false;
-    }
-
-    if (getLockStatus().hasExclusiveLock()) {
-      // if we have an exclusive lock already taken
-      // only child of the lock owner can be executed
-      final Procedure<?> nextProc = peek();
-      return nextProc != null && getLockStatus().hasLockAccess(nextProc);
-    }
-
-    // no xlock
-    return true;
+    return !isEmpty() && !namespaceLockStatus.hasExclusiveLock();
   }
 
   @Override
@@ -59,7 +45,7 @@ class TableQueue extends Queue<TableName> {
   /**
    * @param proc must not be null
    */
-  private static boolean requireTableExclusiveLock(TableProcedureInterface proc) {
+  public static boolean requireTableExclusiveLock(TableProcedureInterface proc) {
     switch (proc.getTableOperationType()) {
       case CREATE:
       case DELETE:

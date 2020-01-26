@@ -55,7 +55,7 @@ public abstract class StateMachineProcedure<TEnvironment, TState>
   private final AtomicBoolean aborted = new AtomicBoolean(false);
 
   private Flow stateFlow = Flow.HAS_MORE_STATE;
-  private int stateCount = 0;
+  protected int stateCount = 0;
   private int[] states = null;
 
   private List<Procedure<TEnvironment>> subProcList = null;
@@ -206,25 +206,29 @@ public abstract class StateMachineProcedure<TEnvironment, TState>
     try {
       updateTimestamp();
       rollbackState(env, getCurrentState());
-      stateCount--;
     } finally {
+      stateCount--;
       updateTimestamp();
     }
   }
 
-  private boolean isEofState() {
+  protected boolean isEofState() {
     return stateCount > 0 && states[stateCount-1] == EOF_STATE;
   }
 
   @Override
   protected boolean abort(final TEnvironment env) {
     LOG.debug("Abort requested for {}", this);
-    if (hasMoreState()) {
-      aborted.set(true);
-      return true;
+    if (!hasMoreState()) {
+      LOG.warn("Ignore abort request on {} because it has already been finished", this);
+      return false;
     }
-    LOG.debug("Ignoring abort request on {}", this);
-    return false;
+    if (!isRollbackSupported(getCurrentState())) {
+      LOG.warn("Ignore abort request on {} because it does not support rollback", this);
+      return false;
+    }
+    aborted.set(true);
+    return true;
   }
 
   /**

@@ -32,8 +32,8 @@ import java.util.stream.Collectors;
 import org.apache.hadoop.hbase.HBaseClassTestRule;
 import org.apache.hadoop.hbase.ServerName;
 import org.apache.hadoop.hbase.TableName;
+import org.apache.hadoop.hbase.TableNotFoundException;
 import org.apache.hadoop.hbase.master.HMaster;
-import org.apache.hadoop.hbase.master.NoSuchProcedureException;
 import org.apache.hadoop.hbase.master.RegionState;
 import org.apache.hadoop.hbase.master.ServerManager;
 import org.apache.hadoop.hbase.master.assignment.AssignmentManager;
@@ -82,22 +82,10 @@ public class TestAsyncRegionAdminApi extends TestAsyncAdminBase {
     // Region is assigned now. Let's assign it again.
     // Master should not abort, and region should stay assigned.
     admin.assign(hri.getRegionName()).get();
-    try {
-      am.waitForAssignment(hri);
-      fail("Expected NoSuchProcedureException");
-    } catch (NoSuchProcedureException e) {
-      // Expected
-    }
     assertTrue(regionStates.getRegionState(hri).isOpened());
 
     // unassign region
     admin.unassign(hri.getRegionName(), true).get();
-    try {
-      am.waitForAssignment(hri);
-      fail("Expected NoSuchProcedureException");
-    } catch (NoSuchProcedureException e) {
-      // Expected
-    }
     assertTrue(regionStates.getRegionState(hri).isClosed());
   }
 
@@ -389,6 +377,26 @@ public class TestAsyncRegionAdminApi extends TestAsyncAdminBase {
       } else {
         assertTrue(1 < countAfterSingleFamily);
       }
+    }
+  }
+
+  @Test
+  public void testNonExistentTableCompaction() {
+    testNonExistentTableCompaction(CompactionState.MINOR);
+    testNonExistentTableCompaction(CompactionState.MAJOR);
+  }
+
+  private void testNonExistentTableCompaction(CompactionState compactionState) {
+    try {
+      if (compactionState == CompactionState.MINOR) {
+        admin.compact(TableName.valueOf("NonExistentTable")).get();
+      } else {
+        admin.majorCompact(TableName.valueOf("NonExistentTable")).get();
+      }
+      fail("Expected TableNotFoundException when table doesn't exist");
+    } catch (Exception e) {
+      // expected.
+      assertTrue(e.getCause() instanceof TableNotFoundException);
     }
   }
 

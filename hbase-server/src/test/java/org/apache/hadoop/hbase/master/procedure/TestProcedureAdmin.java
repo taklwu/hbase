@@ -57,9 +57,9 @@ public class TestProcedureAdmin {
 
   protected static final HBaseTestingUtility UTIL = new HBaseTestingUtility();
 
-
   private static void setupConf(Configuration conf) {
     conf.setInt(MasterProcedureConstants.MASTER_PROCEDURE_THREADS, 1);
+    conf.setInt(MasterProcedureConstants.MASTER_URGENT_PROCEDURE_THREADS, 0);
   }
 
   @BeforeClass
@@ -207,7 +207,7 @@ public class TestProcedureAdmin {
     // Wait for one step to complete
     ProcedureTestingUtility.waitProcedure(procExec, procId);
 
-    List<Procedure<?>> procedures = procExec.getProcedures();
+    List<Procedure<MasterProcedureEnv>> procedures = procExec.getProcedures();
     assertTrue(procedures.size() >= 1);
     boolean found = false;
     for (Procedure<?> proc: procedures) {

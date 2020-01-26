@@ -53,6 +53,13 @@ public interface ProcedureScheduler {
   void addFront(Procedure proc);
 
   /**
+   * Inserts the specified element at the front of this queue.
+   * @param proc the Procedure to add
+   * @param notify whether need to notify worker
+   */
+  void addFront(Procedure proc, boolean notify);
+
+  /**
    * Inserts all elements in the iterator at the front of this queue.
    */
   void addFront(Iterator<Procedure> procedureIterator);
@@ -62,6 +69,13 @@ public interface ProcedureScheduler {
    * @param proc the Procedure to add
    */
   void addBack(Procedure proc);
+
+  /**
+   * Inserts the specified element at the end of this queue.
+   * @param proc the Procedure to add
+   * @param notify whether need to notify worker
+   */
+  void addBack(Procedure proc, boolean notify);
 
   /**
    * The procedure can't run at the moment.
@@ -90,11 +104,28 @@ public interface ProcedureScheduler {
 
   /**
    * Fetch one Procedure from the queue
+   * @param onlyUrgent Only poll the urgent procedure to execute
+   * @return a Procedure
+   */
+  Procedure poll(boolean onlyUrgent);
+
+  /**
+   * Fetch one Procedure from the queue
    * @param timeout how long to wait before giving up, in units of unit
    * @param unit a TimeUnit determining how to interpret the timeout parameter
    * @return the Procedure to execute, or null if nothing present.
    */
   Procedure poll(long timeout, TimeUnit unit);
+
+  /**
+   * Fetch one Procedure from the queue
+   * @param onlyUrgent Only poll the urgent procedure to execute
+   * @param timeout how long to wait before giving up, in units of unit
+   * @param unit a TimeUnit determining how to interpret the timeout parameter
+   * @return a Procedure
+   */
+  Procedure poll(boolean onlyUrgent, long timeout, TimeUnit unit);
+
 
   /**
    * List lock queues.
