@@ -39,14 +39,14 @@ import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hbase.ClusterMetrics;
 import org.apache.hadoop.hbase.ClusterMetrics.Option;
 import org.apache.hadoop.hbase.HBaseTestingUtility;
+import org.apache.hadoop.hbase.HColumnDescriptor;
 import org.apache.hadoop.hbase.HConstants;
 import org.apache.hadoop.hbase.HRegionLocation;
 import org.apache.hadoop.hbase.HTableDescriptor;
 import org.apache.hadoop.hbase.ServerName;
 import org.apache.hadoop.hbase.TableName;
 import org.apache.hadoop.hbase.client.Admin;
-import org.apache.hadoop.hbase.client.ColumnFamilyDescriptor;
-import org.apache.hadoop.hbase.client.ColumnFamilyDescriptorBuilder;
+import org.apache.hadoop.hbase.client.ClusterConnection;
 import org.apache.hadoop.hbase.client.Connection;
 import org.apache.hadoop.hbase.client.ConnectionFactory;
 import org.apache.hadoop.hbase.client.Delete;
@@ -56,7 +56,6 @@ import org.apache.hadoop.hbase.client.RegionLocator;
 import org.apache.hadoop.hbase.client.Scan;
 import org.apache.hadoop.hbase.client.Table;
 import org.apache.hadoop.hbase.client.TableDescriptor;
-import org.apache.hadoop.hbase.client.TableDescriptorBuilder;
 import org.apache.hadoop.hbase.coprocessor.MasterCoprocessor;
 import org.apache.hadoop.hbase.coprocessor.MasterCoprocessorEnvironment;
 import org.apache.hadoop.hbase.coprocessor.MasterObserver;
@@ -66,11 +65,17 @@ import org.apache.hadoop.hbase.master.assignment.RegionStates;
 import org.apache.hadoop.hbase.mob.MobFileName;
 import org.apache.hadoop.hbase.mob.MobUtils;
 import org.apache.hadoop.hbase.regionserver.HRegionFileSystem;
+import org.apache.hadoop.hbase.util.HBaseFsck.ErrorReporter;
+import org.apache.hadoop.hbase.util.HBaseFsck.HbckInfo;
+import org.apache.hadoop.hbase.util.HBaseFsck.TableInfo;
 import org.apache.hadoop.hbase.util.hbck.HFileCorruptionChecker;
 import org.apache.zookeeper.KeeperException;
 import org.junit.rules.TestName;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import org.apache.hadoop.hbase.shaded.protobuf.ProtobufUtil;
+import org.apache.hadoop.hbase.shaded.protobuf.generated.AdminProtos;
 
 /**
  * This is the base class for  HBaseFsck's ability to detect reasons for inconsistent tables.
@@ -93,7 +98,7 @@ public class BaseTestHBaseFsck {
   protected static RegionStates regionStates;
   protected static ExecutorService tableExecutorService;
   protected static ScheduledThreadPoolExecutor hbfsckExecutorService;
-  protected static Connection connection;
+  protected static ClusterConnection connection;
   protected static Admin admin;
 
   // for the instance, reset every test run
@@ -165,7 +170,7 @@ public class BaseTestHBaseFsck {
     }
 
     for (HRegionLocation location : locations) {
-      RegionInfo hri = location.getRegion();
+      RegionInfo hri = location.getRegionInfo();
       ServerName hsa = location.getServerName();
       if (Bytes.compareTo(hri.getStartKey(), startKey) == 0
           && Bytes.compareTo(hri.getEndKey(), endKey) == 0
@@ -237,14 +242,11 @@ public class BaseTestHBaseFsck {
    * @throws Exception
    */
   void setupTableWithRegionReplica(TableName tablename, int replicaCount) throws Exception {
-    TableDescriptorBuilder tableDescriptorBuilder =
-      TableDescriptorBuilder.newBuilder(tablename);
-    ColumnFamilyDescriptor columnFamilyDescriptor =
-      ColumnFamilyDescriptorBuilder.newBuilder(FAM).build();
-    tableDescriptorBuilder.setRegionReplication(replicaCount);
-    // If a table has no CF's it doesn't get checked
-    tableDescriptorBuilder.setColumnFamily(columnFamilyDescriptor);
-    createTable(TEST_UTIL, tableDescriptorBuilder.build(), SPLITS);
+    HTableDescriptor desc = new HTableDescriptor(tablename);
+    desc.setRegionReplication(replicaCount);
+    HColumnDescriptor hcd = new HColumnDescriptor(Bytes.toString(FAM));
+    desc.addFamily(hcd); // If a table has no CF's it doesn't get checked
+    createTable(TEST_UTIL, desc, SPLITS);
 
     tbl = connection.getTable(tablename, tableExecutorService);
     List<Put> puts = new ArrayList<>(ROWKEYS.length);
@@ -263,16 +265,12 @@ public class BaseTestHBaseFsck {
    * @throws Exception
    */
   void setupMobTable(TableName tablename) throws Exception {
-    TableDescriptorBuilder tableDescriptorBuilder =
-      TableDescriptorBuilder.newBuilder(tablename);
-    ColumnFamilyDescriptor columnFamilyDescriptor =
-      ColumnFamilyDescriptorBuilder
-        .newBuilder(FAM)
-        .setMobEnabled(true)
-        .setMobThreshold(0).build();
-    // If a table has no CF's it doesn't get checked
-    tableDescriptorBuilder.setColumnFamily(columnFamilyDescriptor);
-    createTable(TEST_UTIL, tableDescriptorBuilder.build(), SPLITS);
+    HTableDescriptor desc = new HTableDescriptor(tablename);
+    HColumnDescriptor hcd = new HColumnDescriptor(Bytes.toString(FAM));
+    hcd.setMobEnabled(true);
+    hcd.setMobThreshold(0);
+    desc.addFamily(hcd); // If a table has no CF's it doesn't get checked
+    createTable(TEST_UTIL, desc, SPLITS);
 
     tbl = connection.getTable(tablename, tableExecutorService);
     List<Put> puts = new ArrayList<>(ROWKEYS.length);
@@ -300,13 +298,17 @@ public class BaseTestHBaseFsck {
 
   /**
    * delete table in preparation for next test
+   *
+   * @param tablename
+   * @throws IOException
    */
   void cleanupTable(TableName tablename) throws Exception {
     if (tbl != null) {
       tbl.close();
       tbl = null;
     }
-    connection.clearRegionLocationCache();
+
+    ((ClusterConnection) connection).clearRegionCache();
     deleteTable(TEST_UTIL, tablename);
   }
 
@@ -318,8 +320,10 @@ public class BaseTestHBaseFsck {
     Collection<ServerName> regionServers = status.getLiveServerMetrics().keySet();
     Map<ServerName, List<String>> mm = new HashMap<>();
     for (ServerName hsi : regionServers) {
+      AdminProtos.AdminService.BlockingInterface server = connection.getAdmin(hsi);
+
       // list all online regions from this region server
-      List<RegionInfo> regions = admin.getRegions(hsi);
+      List<RegionInfo> regions = ProtobufUtil.getOnlineRegions(server);
       List<String> regionNames = new ArrayList<>(regions.size());
       for (RegionInfo hri : regions) {
         regionNames.add(hri.getRegionNameAsString());
@@ -458,7 +462,7 @@ public class BaseTestHBaseFsck {
   }
 
 
-  static class MockErrorReporter implements HbckErrorReporter {
+  static class MockErrorReporter implements ErrorReporter {
     static int calledCount = 0;
 
     @Override
@@ -482,19 +486,19 @@ public class BaseTestHBaseFsck {
     }
 
     @Override
-    public void reportError(ERROR_CODE errorCode, String message, HbckTableInfo table) {
+    public void reportError(ERROR_CODE errorCode, String message, TableInfo table) {
       calledCount++;
     }
 
     @Override
     public void reportError(ERROR_CODE errorCode,
-        String message, HbckTableInfo table, HbckRegionInfo info) {
+        String message, TableInfo table, HbckInfo info) {
       calledCount++;
     }
 
     @Override
     public void reportError(ERROR_CODE errorCode, String message,
-        HbckTableInfo table, HbckRegionInfo info1, HbckRegionInfo info2) {
+        TableInfo table, HbckInfo info1, HbckInfo info2) {
       calledCount++;
     }
 
@@ -530,7 +534,7 @@ public class BaseTestHBaseFsck {
     }
 
     @Override
-    public boolean tableHasErrors(HbckTableInfo table) {
+    public boolean tableHasErrors(TableInfo table) {
       calledCount++;
       return false;
     }
@@ -542,7 +546,7 @@ public class BaseTestHBaseFsck {
     HRegionLocation metaLocation = connection.getRegionLocator(TableName.META_TABLE_NAME)
         .getRegionLocation(HConstants.EMPTY_START_ROW);
     ServerName hsa = metaLocation.getServerName();
-    RegionInfo hri = metaLocation.getRegion();
+    RegionInfo hri = metaLocation.getRegionInfo();
     if (unassign) {
       LOG.info("Undeploying meta region " + hri + " from server " + hsa);
       try (Connection unmanagedConnection = ConnectionFactory.createConnection(conf)) {
@@ -609,21 +613,21 @@ public class BaseTestHBaseFsck {
     }
   }
 
-  public static void createTable(HBaseTestingUtility testUtil, TableDescriptor tableDescriptor,
-      byte[][] splitKeys) throws Exception {
+  public static void createTable(HBaseTestingUtility testUtil, HTableDescriptor htd,
+    byte [][] splitKeys) throws Exception {
     // NOTE: We need a latch because admin is not sync,
     // so the postOp coprocessor method may be called after the admin operation returned.
     MasterSyncCoprocessor coproc = testUtil.getHBaseCluster().getMaster()
         .getMasterCoprocessorHost().findCoprocessor(MasterSyncCoprocessor.class);
     coproc.tableCreationLatch = new CountDownLatch(1);
     if (splitKeys != null) {
-      admin.createTable(tableDescriptor, splitKeys);
+      admin.createTable(htd, splitKeys);
     } else {
-      admin.createTable(tableDescriptor);
+      admin.createTable(htd);
     }
     coproc.tableCreationLatch.await();
     coproc.tableCreationLatch = null;
-    testUtil.waitUntilAllRegionsAssigned(tableDescriptor.getTableName());
+    testUtil.waitUntilAllRegionsAssigned(htd.getTableName());
   }
 
   public static void deleteTable(HBaseTestingUtility testUtil, TableName tableName)

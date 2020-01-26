@@ -66,30 +66,30 @@ public class TestReadWriteSeqIdFiles {
 
   @Test
   public void test() throws IOException {
-    WALSplitUtil.writeRegionSequenceIdFile(walFS, REGION_DIR, 1000L);
-    assertEquals(1000L, WALSplitUtil.getMaxRegionSequenceId(walFS, REGION_DIR));
-    WALSplitUtil.writeRegionSequenceIdFile(walFS, REGION_DIR, 2000L);
-    assertEquals(2000L, WALSplitUtil.getMaxRegionSequenceId(walFS, REGION_DIR));
+    WALSplitter.writeRegionSequenceIdFile(walFS, REGION_DIR, 1000L);
+    assertEquals(1000L, WALSplitter.getMaxRegionSequenceId(walFS, REGION_DIR));
+    WALSplitter.writeRegionSequenceIdFile(walFS, REGION_DIR, 2000L);
+    assertEquals(2000L, WALSplitter.getMaxRegionSequenceId(walFS, REGION_DIR));
     // can not write a sequence id which is smaller
     try {
-      WALSplitUtil.writeRegionSequenceIdFile(walFS, REGION_DIR, 1500L);
+      WALSplitter.writeRegionSequenceIdFile(walFS, REGION_DIR, 1500L);
     } catch (IOException e) {
       // expected
       LOG.info("Expected error", e);
     }
 
-    Path editsdir = WALSplitUtil.getRegionDirRecoveredEditsDir(REGION_DIR);
+    Path editsdir = WALSplitter.getRegionDirRecoveredEditsDir(REGION_DIR);
     FileStatus[] files = FSUtils.listStatus(walFS, editsdir, new PathFilter() {
       @Override
       public boolean accept(Path p) {
-        return WALSplitUtil.isSequenceIdFile(p);
+        return WALSplitter.isSequenceIdFile(p);
       }
     });
     // only one seqid file should exist
     assertEquals(1, files.length);
 
     // verify all seqId files aren't treated as recovered.edits files
-    NavigableSet<Path> recoveredEdits = WALSplitUtil.getSplitEditFilesSorted(walFS, REGION_DIR);
+    NavigableSet<Path> recoveredEdits = WALSplitter.getSplitEditFilesSorted(walFS, REGION_DIR);
     assertEquals(0, recoveredEdits.size());
   }
 }

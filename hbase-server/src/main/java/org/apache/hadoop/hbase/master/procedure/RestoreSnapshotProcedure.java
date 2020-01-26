@@ -77,6 +77,8 @@ public class RestoreSnapshotProcedure
   // Monitor
   private MonitoredTask monitorStatus = null;
 
+  private Boolean traceEnabled = null;
+
   /**
    * Constructor (for failover)
    */
@@ -127,7 +129,9 @@ public class RestoreSnapshotProcedure
   @Override
   protected Flow executeFromState(final MasterProcedureEnv env, final RestoreSnapshotState state)
       throws InterruptedException {
-    LOG.trace("{} execute state={}", this, state);
+    if (isTraceEnabled()) {
+      LOG.trace(this + " execute state=" + state);
+    }
 
     // Make sure that the monitor status is set up
     getMonitorStatus();
@@ -368,7 +372,7 @@ public class RestoreSnapshotProcedure
    * @throws IOException
    **/
   private void updateTableDescriptor(final MasterProcedureEnv env) throws IOException {
-    env.getMasterServices().getTableDescriptors().update(modifiedTableDescriptor);
+    env.getMasterServices().getTableDescriptors().add(modifiedTableDescriptor);
   }
 
   /**
@@ -433,7 +437,7 @@ public class RestoreSnapshotProcedure
       // not overwritten/removed, so you end up with old informations
       // that are not correct after the restore.
       if (regionsToRemove != null) {
-        MetaTableAccessor.deleteRegionInfos(conn, regionsToRemove);
+        MetaTableAccessor.deleteRegions(conn, regionsToRemove);
         deleteRegionsFromInMemoryStates(regionsToRemove, env, regionReplication);
       }
 
@@ -544,5 +548,17 @@ public class RestoreSnapshotProcedure
       RestoreSnapshotHelper.restoreSnapshotAcl(snapshot, TableName.valueOf(snapshot.getTable()),
         env.getMasterServices().getConfiguration());
     }
+  }
+
+  /**
+   * The procedure could be restarted from a different machine. If the variable is null, we need to
+   * retrieve it.
+   * @return traceEnabled
+   */
+  private Boolean isTraceEnabled() {
+    if (traceEnabled == null) {
+      traceEnabled = LOG.isTraceEnabled();
+    }
+    return traceEnabled;
   }
 }

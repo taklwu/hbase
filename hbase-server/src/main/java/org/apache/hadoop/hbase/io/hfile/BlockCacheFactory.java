@@ -21,7 +21,6 @@ import static org.apache.hadoop.hbase.HConstants.BUCKET_CACHE_IOENGINE_KEY;
 import static org.apache.hadoop.hbase.HConstants.BUCKET_CACHE_SIZE_KEY;
 
 import java.io.IOException;
-import java.util.concurrent.ForkJoinPool;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hbase.HConstants;
@@ -41,12 +40,6 @@ public final class BlockCacheFactory {
   /**
    * Configuration keys for Bucket cache
    */
-
-  /**
-   * Configuration key to cache block policy (Lru, TinyLfu).
-   */
-  public static final String BLOCKCACHE_POLICY_KEY = "hfile.block.cache.policy";
-  public static final String BLOCKCACHE_POLICY_DEFAULT = "LRU";
 
   /**
    * If the chosen ioengine can persist its state across restarts, the path to the file to persist
@@ -78,48 +71,30 @@ public final class BlockCacheFactory {
   /**
    * The target block size used by blockcache instances. Defaults to
    * {@link HConstants#DEFAULT_BLOCKSIZE}.
+   * TODO: this config point is completely wrong, as it's used to determine the
+   * target block size of BlockCache instances. Rename.
    */
-  public static final String BLOCKCACHE_BLOCKSIZE_KEY = "hbase.blockcache.minblocksize";
+  public static final String BLOCKCACHE_BLOCKSIZE_KEY = "hbase.offheapcache.minblocksize";
 
   private static final String EXTERNAL_BLOCKCACHE_KEY = "hbase.blockcache.use.external";
   private static final boolean EXTERNAL_BLOCKCACHE_DEFAULT = false;
 
   private static final String EXTERNAL_BLOCKCACHE_CLASS_KEY = "hbase.blockcache.external.class";
 
-  /**
-   * @deprecated use {@link BlockCacheFactory#BLOCKCACHE_BLOCKSIZE_KEY} instead.
-   */
-  @Deprecated
-  static final String DEPRECATED_BLOCKCACHE_BLOCKSIZE_KEY = "hbase.offheapcache.minblocksize";
-
-  /**
-   * The config point hbase.offheapcache.minblocksize is completely wrong, which is replaced by
-   * {@link BlockCacheFactory#BLOCKCACHE_BLOCKSIZE_KEY}. Keep the old config key here for backward
-   * compatibility.
-   */
-  static {
-    Configuration.addDeprecation(DEPRECATED_BLOCKCACHE_BLOCKSIZE_KEY, BLOCKCACHE_BLOCKSIZE_KEY);
-  }
-
   private BlockCacheFactory() {
   }
 
   public static BlockCache createBlockCache(Configuration conf) {
-    if (conf.get(DEPRECATED_BLOCKCACHE_BLOCKSIZE_KEY) != null) {
-      LOG.warn("The config key {} is deprecated now, instead please use {}. In future release "
-          + "we will remove the deprecated config.", DEPRECATED_BLOCKCACHE_BLOCKSIZE_KEY,
-        BLOCKCACHE_BLOCKSIZE_KEY);
-    }
-    FirstLevelBlockCache l1Cache = createFirstLevelCache(conf);
-    if (l1Cache == null) {
+    LruBlockCache onHeapCache = createOnHeapCache(conf);
+    if (onHeapCache == null) {
       return null;
     }
     boolean useExternal = conf.getBoolean(EXTERNAL_BLOCKCACHE_KEY, EXTERNAL_BLOCKCACHE_DEFAULT);
     if (useExternal) {
       BlockCache l2CacheInstance = createExternalBlockcache(conf);
       return l2CacheInstance == null ?
-          l1Cache :
-          new InclusiveCombinedBlockCache(l1Cache, l2CacheInstance);
+          onHeapCache :
+          new InclusiveCombinedBlockCache(onHeapCache, l2CacheInstance);
     } else {
       // otherwise use the bucket cache.
       BucketCache bucketCache = createBucketCache(conf);
@@ -128,26 +103,20 @@ public final class BlockCacheFactory {
         LOG.warn(
             "From HBase 2.0 onwards only combined mode of LRU cache and bucket cache is available");
       }
-      return bucketCache == null ? l1Cache : new CombinedBlockCache(l1Cache, bucketCache);
+      return bucketCache == null ? onHeapCache : new CombinedBlockCache(onHeapCache, bucketCache);
     }
   }
 
-  private static FirstLevelBlockCache createFirstLevelCache(final Configuration c) {
+  private static LruBlockCache createOnHeapCache(final Configuration c) {
     final long cacheSize = MemorySizeUtil.getOnHeapCacheSize(c);
     if (cacheSize < 0) {
       return null;
     }
-    String policy = c.get(BLOCKCACHE_POLICY_KEY, BLOCKCACHE_POLICY_DEFAULT);
     int blockSize = c.getInt(BLOCKCACHE_BLOCKSIZE_KEY, HConstants.DEFAULT_BLOCKSIZE);
-    LOG.info("Allocating BlockCache size=" +
-        StringUtils.byteDesc(cacheSize) + ", blockSize=" + StringUtils.byteDesc(blockSize));
-    if (policy.equalsIgnoreCase("LRU")) {
-      return new LruBlockCache(cacheSize, blockSize, true, c);
-    } else if (policy.equalsIgnoreCase("TinyLFU")) {
-      return new TinyLfuBlockCache(cacheSize, blockSize, ForkJoinPool.commonPool(), c);
-    } else {
-      throw new IllegalArgumentException("Unknown policy: " + policy);
-    }
+    LOG.info(
+        "Allocating onheap LruBlockCache size=" + StringUtils.byteDesc(cacheSize) + ", blockSize="
+            + StringUtils.byteDesc(blockSize));
+    return new LruBlockCache(cacheSize, blockSize, true, c);
   }
 
   /**

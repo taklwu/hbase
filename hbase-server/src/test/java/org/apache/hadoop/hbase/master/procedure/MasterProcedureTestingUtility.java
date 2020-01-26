@@ -252,13 +252,10 @@ public class MasterProcedureTestingUtility {
         if (l == null) {
           return true;
         }
-        if (!l.getRegion().getTable().equals(tableName)) {
+        if (!l.getRegionInfo().getTable().equals(tableName)) {
           return false;
         }
-        if (l.getRegion().isOffline() || l.getRegion().isSplit()) {
-          return true;
-        }
-
+        if (l.getRegionInfo().isOffline() || l.getRegionInfo().isSplit()) return true;
         HRegionLocation[] locations = list.getRegionLocations();
         for (HRegionLocation location : locations) {
           if (location == null) continue;
@@ -362,11 +359,11 @@ public class MasterProcedureTestingUtility {
   //  Procedure Helpers
   // ==========================================================================
   public static long generateNonceGroup(final HMaster master) {
-    return master.getAsyncClusterConnection().getNonceGenerator().getNonceGroup();
+    return master.getClusterConnection().getNonceGenerator().getNonceGroup();
   }
 
   public static long generateNonce(final HMaster master) {
-    return master.getAsyncClusterConnection().getNonceGenerator().newNonce();
+    return master.getClusterConnection().getNonceGenerator().newNonce();
   }
 
   /**

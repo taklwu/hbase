@@ -351,8 +351,7 @@ public abstract class User {
     public static User createUserForTesting(Configuration conf,
         String name, String[] groups) {
       synchronized (UserProvider.class) {
-        if (!(UserProvider.groups instanceof TestingGroups) ||
-            conf.getBoolean(TestingGroups.TEST_CONF, false)) {
+        if (!(UserProvider.groups instanceof TestingGroups)) {
           UserProvider.groups = new TestingGroups(UserProvider.groups);
         }
       }
@@ -401,13 +400,11 @@ public abstract class User {
     }
   }
 
-  public static class TestingGroups extends Groups {
-    public static final String TEST_CONF = "hbase.group.service.for.test.only";
-
+  static class TestingGroups extends Groups {
     private final Map<String, List<String>> userToGroupsMapping = new HashMap<>();
     private Groups underlyingImplementation;
 
-    public TestingGroups(Groups underlyingImplementation) {
+    TestingGroups(Groups underlyingImplementation) {
       super(new Configuration());
       this.underlyingImplementation = underlyingImplementation;
     }

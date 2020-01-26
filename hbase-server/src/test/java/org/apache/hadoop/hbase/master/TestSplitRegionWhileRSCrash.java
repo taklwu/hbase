@@ -66,7 +66,7 @@ public class TestSplitRegionWhileRSCrash {
   @BeforeClass
   public static void setupCluster() throws Exception {
     UTIL.startMiniCluster(1);
-    admin = UTIL.getAdmin();
+    admin = UTIL.getHBaseAdmin();
     TABLE = UTIL.createTable(TABLE_NAME, CF);
     UTIL.waitTableAvailable(TABLE_NAME);
   }

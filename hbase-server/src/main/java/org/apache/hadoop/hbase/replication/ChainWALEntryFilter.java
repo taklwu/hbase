@@ -68,26 +68,17 @@ public class ChainWALEntryFilter implements WALEntryFilter {
 
   @Override
   public Entry filter(Entry entry) {
-    entry = filterEntry(entry);
-    if (entry == null) {
-      return null;
-    }
-
-    filterCells(entry);
-    return entry;
-  }
-
-  protected Entry filterEntry(Entry entry) {
     for (WALEntryFilter filter : filters) {
       if (entry == null) {
         return null;
       }
       entry = filter.filter(entry);
     }
+    filterCells(entry);
     return entry;
   }
 
-  protected void filterCells(Entry entry) {
+  private void filterCells(Entry entry) {
     if (entry == null || cellFilters.length == 0) {
       return;
     }

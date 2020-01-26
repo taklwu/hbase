@@ -19,12 +19,15 @@ package org.apache.hadoop.hbase.client;
 
 import static org.apache.hadoop.hbase.util.ConcurrentMapUtils.computeIfAbsent;
 
+import org.apache.hbase.thirdparty.com.google.common.annotations.VisibleForTesting;
+
 import java.util.concurrent.ConcurrentHashMap;
+
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hbase.HConstants;
 import org.apache.hadoop.hbase.ServerName;
-import org.apache.hadoop.hbase.client.backoff.ServerStatistics;
 import org.apache.yetus.audience.InterfaceAudience;
+import org.apache.hadoop.hbase.client.backoff.ServerStatistics;
 
 /**
  * Tracks the statistics for multiple regions
@@ -49,5 +52,10 @@ public class ServerStatisticTracker implements StatisticTrackable {
       return null;
     }
     return new ServerStatisticTracker();
+  }
+
+  @VisibleForTesting
+  ServerStatistics getServerStatsForTesting(ServerName server) {
+    return stats.get(server);
   }
 }

@@ -21,22 +21,23 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.regex.Pattern;
+
 import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.hbase.HConstants;
+import org.apache.hadoop.hbase.HTableDescriptor;
 import org.apache.hadoop.hbase.MasterNotRunningException;
 import org.apache.hadoop.hbase.NamespaceDescriptor;
 import org.apache.hadoop.hbase.TableName;
 import org.apache.hadoop.hbase.ZooKeeperConnectionException;
+import org.apache.yetus.audience.InterfaceAudience;
 import org.apache.hadoop.hbase.client.Admin;
 import org.apache.hadoop.hbase.client.Connection;
 import org.apache.hadoop.hbase.client.Table;
-import org.apache.hadoop.hbase.client.TableDescriptor;
 import org.apache.hadoop.hbase.client.security.SecurityCapability;
 import org.apache.hadoop.hbase.ipc.CoprocessorRpcChannel;
 import org.apache.hadoop.hbase.protobuf.generated.AccessControlProtos;
 import org.apache.hadoop.hbase.protobuf.generated.AccessControlProtos.AccessControlService.BlockingInterface;
 import org.apache.hadoop.hbase.util.Bytes;
-import org.apache.yetus.audience.InterfaceAudience;
 
 /**
  * Utility client for doing access control admin operations.
@@ -92,9 +93,10 @@ public class AccessControlClient {
   private static void grant(Connection connection, final TableName tableName,
       final String userName, final byte[] family, final byte[] qual, boolean mergeExistingPermissions,
       final Permission.Action... actions) throws Throwable {
-    connection.getAdmin().grant(new UserPermission(userName, Permission.newBuilder(tableName)
-        .withFamily(family).withQualifier(qual).withActions(actions).build()),
-      mergeExistingPermissions);
+    // TODO: Priority is not used.
+    UserPermission userPermission =
+        new UserPermission(userName, new TablePermission(tableName, family, qual, actions));
+    connection.getAdmin().grant(userPermission, mergeExistingPermissions);
   }
 
   /**
@@ -126,9 +128,9 @@ public class AccessControlClient {
    */
   private static void grant(Connection connection, final String namespace, final String userName,
       boolean mergeExistingPermissions, final Permission.Action... actions) throws Throwable {
-    connection.getAdmin().grant(
-      new UserPermission(userName, Permission.newBuilder(namespace).withActions(actions).build()),
-      mergeExistingPermissions);
+    UserPermission userPermission =
+        new UserPermission(userName, new NamespacePermission(namespace, actions));
+    connection.getAdmin().grant(userPermission, mergeExistingPermissions);
   }
 
   /**
@@ -158,9 +160,8 @@ public class AccessControlClient {
    */
   private static void grant(Connection connection, final String userName,
       boolean mergeExistingPermissions, final Permission.Action... actions) throws Throwable {
-    connection.getAdmin().grant(
-      new UserPermission(userName, Permission.newBuilder().withActions(actions).build()),
-      mergeExistingPermissions);
+    UserPermission userPermission = new UserPermission(userName, new GlobalPermission(actions));
+    connection.getAdmin().grant(userPermission, mergeExistingPermissions);
   }
 
   /**
@@ -197,8 +198,9 @@ public class AccessControlClient {
   public static void revoke(Connection connection, final TableName tableName,
       final String username, final byte[] family, final byte[] qualifier,
       final Permission.Action... actions) throws Throwable {
-    connection.getAdmin().revoke(new UserPermission(username, Permission.newBuilder(tableName)
-        .withFamily(family).withQualifier(qualifier).withActions(actions).build()));
+    UserPermission userPermission =
+        new UserPermission(username, new TablePermission(tableName, family, qualifier, actions));
+    connection.getAdmin().revoke(userPermission);
   }
 
   /**
@@ -211,8 +213,9 @@ public class AccessControlClient {
    */
   public static void revoke(Connection connection, final String namespace,
       final String userName, final Permission.Action... actions) throws Throwable {
-    connection.getAdmin().revoke(
-      new UserPermission(userName, Permission.newBuilder(namespace).withActions(actions).build()));
+    UserPermission userPermission =
+        new UserPermission(userName, new NamespacePermission(namespace, actions));
+    connection.getAdmin().revoke(userPermission);
   }
 
   /**
@@ -221,8 +224,8 @@ public class AccessControlClient {
    */
   public static void revoke(Connection connection, final String userName,
       final Permission.Action... actions) throws Throwable {
-    connection.getAdmin()
-        .revoke(new UserPermission(userName, Permission.newBuilder().withActions(actions).build()));
+    UserPermission userPermission = new UserPermission(userName, new GlobalPermission(actions));
+    connection.getAdmin().revoke(userPermission);
   }
 
   /**
@@ -249,26 +252,35 @@ public class AccessControlClient {
    */
   public static List<UserPermission> getUserPermissions(Connection connection, String tableRegex,
       String userName) throws Throwable {
+    /**
+     * TODO: Pass an rpcController HBaseRpcController controller = ((ClusterConnection)
+     * connection).getRpcControllerFactory().newController();
+     */
     List<UserPermission> permList = new ArrayList<>();
-    try (Admin admin = connection.getAdmin()) {
-      if (tableRegex == null || tableRegex.isEmpty()) {
-        permList = admin.getUserPermissions(
-          GetUserPermissionsRequest.newBuilder().withUserName(userName).build());
-      } else if (tableRegex.charAt(0) == '@') { // Namespaces
-        String namespaceRegex = tableRegex.substring(1);
-        for (NamespaceDescriptor nsds : admin.listNamespaceDescriptors()) { // Read out all
-                                                                            // namespaces
-          String namespace = nsds.getName();
-          if (namespace.matches(namespaceRegex)) { // Match the given namespace regex?
-            permList.addAll(admin.getUserPermissions(
-              GetUserPermissionsRequest.newBuilder(namespace).withUserName(userName).build()));
+    try (Table table = connection.getTable(ACL_TABLE_NAME)) {
+      try (Admin admin = connection.getAdmin()) {
+        CoprocessorRpcChannel service = table.coprocessorService(HConstants.EMPTY_START_ROW);
+        BlockingInterface protocol =
+            AccessControlProtos.AccessControlService.newBlockingStub(service);
+        HTableDescriptor[] htds = null;
+        if (tableRegex == null || tableRegex.isEmpty()) {
+          permList = AccessControlUtil.getUserPermissions(null, protocol, userName);
+        } else if (tableRegex.charAt(0) == '@') { // Namespaces
+          String namespaceRegex = tableRegex.substring(1);
+          for (NamespaceDescriptor nsds : admin.listNamespaceDescriptors()) { // Read out all
+                                                                              // namespaces
+            String namespace = nsds.getName();
+            if (namespace.matches(namespaceRegex)) { // Match the given namespace regex?
+              permList.addAll(AccessControlUtil.getUserPermissions(null, protocol,
+                Bytes.toBytes(namespace), userName));
+            }
           }
-        }
-      } else { // Tables
-        List<TableDescriptor> htds = admin.listTableDescriptors(Pattern.compile(tableRegex), true);
-        for (TableDescriptor htd : htds) {
-          permList.addAll(admin.getUserPermissions(GetUserPermissionsRequest
-              .newBuilder(htd.getTableName()).withUserName(userName).build()));
+        } else { // Tables
+          htds = admin.listTables(Pattern.compile(tableRegex), true);
+          for (HTableDescriptor htd : htds) {
+            permList.addAll(AccessControlUtil.getUserPermissions(null, protocol, htd.getTableName(),
+              null, null, userName));
+          }
         }
       }
     }
@@ -338,14 +350,22 @@ public class AccessControlClient {
     if (tableRegex == null || tableRegex.isEmpty() || tableRegex.charAt(0) == '@') {
       throw new IllegalArgumentException("Table name can't be null or empty or a namespace.");
     }
+    /**
+     * TODO: Pass an rpcController HBaseRpcController controller = ((ClusterConnection)
+     * connection).getRpcControllerFactory().newController();
+     */
     List<UserPermission> permList = new ArrayList<UserPermission>();
-    try (Admin admin = connection.getAdmin()) {
-      List<TableDescriptor> htds = admin.listTableDescriptors(Pattern.compile(tableRegex), true);
-      // Retrieve table permissions
-      for (TableDescriptor htd : htds) {
-        permList.addAll(admin.getUserPermissions(
-          GetUserPermissionsRequest.newBuilder(htd.getTableName()).withFamily(columnFamily)
-              .withQualifier(columnQualifier).withUserName(userName).build()));
+    try (Table table = connection.getTable(ACL_TABLE_NAME)) {
+      try (Admin admin = connection.getAdmin()) {
+        CoprocessorRpcChannel service = table.coprocessorService(HConstants.EMPTY_START_ROW);
+        BlockingInterface protocol =
+            AccessControlProtos.AccessControlService.newBlockingStub(service);
+        HTableDescriptor[] htds = admin.listTables(Pattern.compile(tableRegex), true);
+        // Retrieve table permissions
+        for (HTableDescriptor htd : htds) {
+          permList.addAll(AccessControlUtil.getUserPermissions(null, protocol, htd.getTableName(),
+            columnFamily, columnQualifier, userName));
+        }
       }
     }
     return permList;
@@ -392,9 +412,19 @@ public class AccessControlClient {
     if (StringUtils.isEmpty(tableName) || StringUtils.isEmpty(userName)) {
       throw new IllegalArgumentException("Table and user name can't be null or empty.");
     }
-    List<Permission> permissions = new ArrayList<>(1);
-    permissions.add(Permission.newBuilder(TableName.valueOf(tableName)).withFamily(columnFamily)
-        .withQualifier(columnQualifier).withActions(actions).build());
-    return connection.getAdmin().hasUserPermissions(userName, permissions).get(0);
+    boolean hasPermission = false;
+    /**
+     * todo: pass an rpccontroller hbaserpccontroller controller = ((clusterconnection)
+     * connection).getrpccontrollerfactory().newcontroller();
+     */
+    try (Table table = connection.getTable(ACL_TABLE_NAME)) {
+      CoprocessorRpcChannel service = table.coprocessorService(HConstants.EMPTY_START_ROW);
+      BlockingInterface protocol =
+          AccessControlProtos.AccessControlService.newBlockingStub(service);
+      // Check whether user has permission
+      hasPermission = AccessControlUtil.hasPermission(null, protocol, TableName.valueOf(tableName),
+        columnFamily, columnQualifier, userName, actions);
+    }
+    return hasPermission;
   }
 }

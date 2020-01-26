@@ -21,11 +21,11 @@ import java.io.IOException;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ThreadLocalRandom;
+import java.util.Random;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hbase.ServerName;
-import org.apache.hadoop.hbase.client.AsyncClusterConnection;
-import org.apache.hadoop.hbase.client.AsyncRegionServerAdmin;
+import org.apache.hadoop.hbase.client.ClusterConnection;
+import org.apache.hadoop.hbase.client.Connection;
 import org.apache.hadoop.hbase.replication.HBaseReplicationEndpoint;
 import org.apache.yetus.audience.InterfaceAudience;
 import org.slf4j.Logger;
@@ -34,6 +34,8 @@ import org.slf4j.LoggerFactory;
 import org.apache.hbase.thirdparty.com.google.common.annotations.VisibleForTesting;
 import org.apache.hbase.thirdparty.com.google.common.collect.Lists;
 import org.apache.hbase.thirdparty.com.google.common.collect.Maps;
+
+import org.apache.hadoop.hbase.shaded.protobuf.generated.AdminProtos.AdminService;
 
 /**
  * Maintains a collection of peers to replicate to, and randomly selects a
@@ -59,7 +61,9 @@ public class ReplicationSinkManager {
   static final float DEFAULT_REPLICATION_SOURCE_RATIO = 0.5f;
 
 
-  private final AsyncClusterConnection conn;
+  private final Connection conn;
+
+  private final String peerClusterId;
 
   private final HBaseReplicationEndpoint endpoint;
 
@@ -73,6 +77,8 @@ public class ReplicationSinkManager {
   // replication sinks is refreshed
   private final int badSinkThreshold;
 
+  private final Random random;
+
   // A timestamp of the last time the list of replication peers changed
   private long lastUpdateToPeers;
 
@@ -82,22 +88,26 @@ public class ReplicationSinkManager {
   /**
    * Instantiate for a single replication peer cluster.
    * @param conn connection to the peer cluster
+   * @param peerClusterId identifier of the peer cluster
    * @param endpoint replication endpoint for inter cluster replication
    * @param conf HBase configuration, used for determining replication source ratio and bad peer
    *          threshold
    */
-  public ReplicationSinkManager(AsyncClusterConnection conn, HBaseReplicationEndpoint endpoint,
-      Configuration conf) {
+  public ReplicationSinkManager(ClusterConnection conn, String peerClusterId,
+      HBaseReplicationEndpoint endpoint, Configuration conf) {
     this.conn = conn;
+    this.peerClusterId = peerClusterId;
     this.endpoint = endpoint;
     this.badReportCounts = Maps.newHashMap();
     this.ratio = conf.getFloat("replication.source.ratio", DEFAULT_REPLICATION_SOURCE_RATIO);
-    this.badSinkThreshold =
-      conf.getInt("replication.bad.sink.threshold", DEFAULT_BAD_SINK_THRESHOLD);
+    this.badSinkThreshold = conf.getInt("replication.bad.sink.threshold",
+                                        DEFAULT_BAD_SINK_THRESHOLD);
+    this.random = new Random();
   }
 
   /**
    * Get a randomly-chosen replication sink to replicate to.
+   *
    * @return a replication sink to replicate to
    */
   public synchronized SinkPeer getReplicationSink() throws IOException {
@@ -109,8 +119,8 @@ public class ReplicationSinkManager {
     if (sinks.isEmpty()) {
       throw new IOException("No replication sinks are available");
     }
-    ServerName serverName = sinks.get(ThreadLocalRandom.current().nextInt(sinks.size()));
-    return new SinkPeer(serverName, conn.getRegionServerAdmin(serverName));
+    ServerName serverName = sinks.get(random.nextInt(sinks.size()));
+    return new SinkPeer(serverName, ((ClusterConnection) conn).getAdmin(serverName));
   }
 
   /**
@@ -150,7 +160,7 @@ public class ReplicationSinkManager {
    */
   public synchronized void chooseSinks() {
     List<ServerName> slaveAddresses = endpoint.getRegionServers();
-    Collections.shuffle(slaveAddresses, ThreadLocalRandom.current());
+    Collections.shuffle(slaveAddresses, random);
     int numSinks = (int) Math.ceil(slaveAddresses.size() * ratio);
     sinks = slaveAddresses.subList(0, numSinks);
     lastUpdateToPeers = System.currentTimeMillis();
@@ -172,9 +182,9 @@ public class ReplicationSinkManager {
    */
   public static class SinkPeer {
     private ServerName serverName;
-    private AsyncRegionServerAdmin regionServer;
+    private AdminService.BlockingInterface regionServer;
 
-    public SinkPeer(ServerName serverName, AsyncRegionServerAdmin regionServer) {
+    public SinkPeer(ServerName serverName, AdminService.BlockingInterface regionServer) {
       this.serverName = serverName;
       this.regionServer = regionServer;
     }
@@ -183,8 +193,10 @@ public class ReplicationSinkManager {
       return serverName;
     }
 
-    public AsyncRegionServerAdmin getRegionServer() {
+    public AdminService.BlockingInterface getRegionServer() {
       return regionServer;
     }
+
   }
+
 }

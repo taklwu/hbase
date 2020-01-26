@@ -54,7 +54,7 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Pattern;
-import org.apache.commons.lang3.NotImplementedException;
+
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hbase.DoNotRetryIOException;
 import org.apache.hadoop.hbase.HRegionLocation;
@@ -69,7 +69,7 @@ import org.apache.hadoop.hbase.security.UserProvider;
 import org.apache.hadoop.hbase.thrift.HBaseServiceHandler;
 import org.apache.hadoop.hbase.thrift2.generated.TAppend;
 import org.apache.hadoop.hbase.thrift2.generated.TColumnFamilyDescriptor;
-import org.apache.hadoop.hbase.thrift2.generated.TCompareOperator;
+import org.apache.hadoop.hbase.thrift2.generated.TCompareOp;
 import org.apache.hadoop.hbase.thrift2.generated.TDelete;
 import org.apache.hadoop.hbase.thrift2.generated.TGet;
 import org.apache.hadoop.hbase.thrift2.generated.THBaseService;
@@ -84,7 +84,6 @@ import org.apache.hadoop.hbase.thrift2.generated.TRowMutations;
 import org.apache.hadoop.hbase.thrift2.generated.TScan;
 import org.apache.hadoop.hbase.thrift2.generated.TTableDescriptor;
 import org.apache.hadoop.hbase.thrift2.generated.TTableName;
-import org.apache.hadoop.hbase.thrift2.generated.TThriftServerType;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.thrift.TException;
 import org.apache.yetus.audience.InterfaceAudience;
@@ -228,7 +227,7 @@ public class ThriftHBaseServiceHandler extends HBaseServiceHandler implements TH
   public List<Boolean> existsAll(ByteBuffer table, List<TGet> gets) throws TIOError, TException {
     Table htable = getTable(table);
     try {
-      boolean[] exists = htable.exists(getsFromThrift(gets));
+      boolean[] exists = htable.existsAll(getsFromThrift(gets));
       List<Boolean> result = new ArrayList<>(exists.length);
       for (boolean exist : exists) {
         result.add(exist);
@@ -341,8 +340,7 @@ public class ThriftHBaseServiceHandler extends HBaseServiceHandler implements TH
   
   @Override
   public boolean checkAndMutate(ByteBuffer table, ByteBuffer row, ByteBuffer family,
-      ByteBuffer qualifier, TCompareOperator compareOp, ByteBuffer value,
-      TRowMutations rowMutations)
+      ByteBuffer qualifier, TCompareOp compareOp, ByteBuffer value, TRowMutations rowMutations)
           throws TIOError, TException {
     checkReadOnlyMode();
     try (final Table htable = getTable(table)) {
@@ -627,11 +625,7 @@ public class ThriftHBaseServiceHandler extends HBaseServiceHandler implements TH
     try {
       TableDescriptor descriptor = tableDescriptorFromThrift(desc);
       byte[][] split = splitKeyFromThrift(splitKeys);
-      if (split != null) {
-        connectionCache.getAdmin().createTable(descriptor, split);
-      } else {
-        connectionCache.getAdmin().createTable(descriptor);
-      }
+      connectionCache.getAdmin().createTable(descriptor, split);
     } catch (IOException e) {
       throw getTIOError(e);
     }
@@ -711,7 +705,13 @@ public class ThriftHBaseServiceHandler extends HBaseServiceHandler implements TH
   @Override
   public boolean isTableAvailableWithSplit(TTableName tableName, List<ByteBuffer> splitKeys)
       throws TIOError, TException {
-    throw new NotImplementedException("isTableAvailableWithSplit not supported");
+    try {
+      TableName table = tableNameFromThrift(tableName);
+      byte[][] split = splitKeyFromThrift(splitKeys);
+      return connectionCache.getAdmin().isTableAvailable(table, split);
+    } catch (IOException e) {
+      throw getTIOError(e);
+    }
   }
 
   @Override
@@ -796,25 +796,6 @@ public class ThriftHBaseServiceHandler extends HBaseServiceHandler implements TH
     } catch (IOException e) {
       throw getTIOError(e);
     }
-  }
-
-  @Override
-  public List<String> listNamespaces() throws TIOError, TException {
-    try {
-      String[] namespaces = connectionCache.getAdmin().listNamespaces();
-      List<String> result = new ArrayList<>(namespaces.length);
-      for (String ns: namespaces) {
-        result.add(ns);
-      }
-      return result;
-    } catch (IOException e) {
-      throw getTIOError(e);
-    }
-  }
-
-  @Override
-  public TThriftServerType getThriftServerType() {
-    return TThriftServerType.TWO;
   }
 
   @Override

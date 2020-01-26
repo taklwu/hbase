@@ -106,7 +106,7 @@ public class HColumnDescriptor implements ColumnFamilyDescriptor, Comparable<HCo
    * The other attributes are defaulted.
    *
    * @param familyName Column family name. Must be 'printable' -- digit or
-   *   letter -- and may not contain a <code>:</code>
+   * letter -- and may not contain a <code>:</code>
    * @deprecated As of release 2.0.0, this will be removed in HBase 3.0.0
    *             (<a href="https://issues.apache.org/jira/browse/HBASE-18433">HBASE-18433</a>).
    *             Use {@link ColumnFamilyDescriptorBuilder#of(String)}.
@@ -162,10 +162,7 @@ public class HColumnDescriptor implements ColumnFamilyDescriptor, Comparable<HCo
    * name: i.e. 'printable' and ends in a ':' (Null passes are allowed because
    * <code>b</code> can be null when deserializing).  Cannot start with a '.'
    * either. Also Family can not be an empty value or equal "recovered.edits".
-   * @deprecated since 2.0.0 and will be removed in 3.0.0. Use
-   *   {@link ColumnFamilyDescriptorBuilder#isLegalColumnFamilyName(byte[])} instead.
-   * @see ColumnFamilyDescriptorBuilder#isLegalColumnFamilyName(byte[])
-   * @see <a href="https://issues.apache.org/jira/browse/HBASE-18008">HBASE-18008</a>
+   * @deprecated Use {@link ColumnFamilyDescriptorBuilder#isLegalColumnFamilyName(byte[])}.
    */
   @Deprecated
   public static byte [] isLegalFamilyName(final byte [] b) {
@@ -321,7 +318,7 @@ public class HColumnDescriptor implements ColumnFamilyDescriptor, Comparable<HCo
   /**
    * Compression types supported in hbase.
    * LZO is not bundled as part of the hbase distribution.
-   * See <a href="http://hbase.apache.org/book.html#lzo.compression">LZO Compression</a>
+   * See <a href="http://wiki.apache.org/hadoop/UsingLzoCompression">LZO Compression</a>
    * for how to enable it.
    * @param value Compression type setting.
    * @return this (for chained invocation)
@@ -371,7 +368,7 @@ public class HColumnDescriptor implements ColumnFamilyDescriptor, Comparable<HCo
   /**
    * Compression types supported in hbase.
    * LZO is not bundled as part of the hbase distribution.
-   * See <a href="http://hbase.apache.org/book.html#lzo.compression">LZO Compression</a>
+   * See <a href="http://wiki.apache.org/hadoop/UsingLzoCompression">LZO Compression</a>
    * for how to enable it.
    * @param value Compression type setting.
    * @return this (for chained invocation)

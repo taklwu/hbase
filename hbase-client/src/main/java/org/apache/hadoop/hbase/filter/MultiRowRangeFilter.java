@@ -26,13 +26,12 @@ import org.apache.hadoop.hbase.Cell;
 import org.apache.hadoop.hbase.CellUtil;
 import org.apache.hadoop.hbase.HConstants;
 import org.apache.hadoop.hbase.PrivateCellUtil;
-import org.apache.hadoop.hbase.client.ClientUtil;
-import org.apache.hadoop.hbase.exceptions.DeserializationException;
-import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.yetus.audience.InterfaceAudience;
+import org.apache.hadoop.hbase.exceptions.DeserializationException;
 import org.apache.hbase.thirdparty.com.google.protobuf.InvalidProtocolBufferException;
 import org.apache.hbase.thirdparty.com.google.protobuf.UnsafeByteOperations;
 import org.apache.hadoop.hbase.shaded.protobuf.generated.FilterProtos;
+import org.apache.hadoop.hbase.util.Bytes;
 
 /**
  * Filter to support scan multiple row key ranges. It can construct the row key ranges from the
@@ -52,56 +51,21 @@ import org.apache.hadoop.hbase.shaded.protobuf.generated.FilterProtos;
 @InterfaceAudience.Public
 public class MultiRowRangeFilter extends FilterBase {
 
+  private List<RowRange> rangeList;
+
   private static final int ROW_BEFORE_FIRST_RANGE = -1;
-
-  private final List<RowRange> rangeList;
-  private final RangeIteration ranges;
-
+  private boolean EXCLUSIVE = false;
   private boolean done = false;
+  private boolean initialized = false;
   private int index;
-  private BasicRowRange range;
+  private RowRange range;
   private ReturnCode currentReturnCode;
 
   /**
    * @param list A list of <code>RowRange</code>
    */
   public MultiRowRangeFilter(List<RowRange> list) {
-    // We don't use rangeList anywhere else, but keeping it lets us pay a little
-    // memory to avoid touching the serialization logic.
-    this.rangeList = Collections.unmodifiableList(sortAndMerge(list));
-    this.ranges = new RangeIteration(rangeList);
-  }
-
-  /**
-   * Constructor for creating a <code>MultiRowRangeFilter</code> from multiple rowkey prefixes.
-   *
-   * As <code>MultiRowRangeFilter</code> javadoc says (See the solution 1 of the first statement),
-   * if you try to create a filter list that scans row keys corresponding to given prefixes (e.g.,
-   * <code>FilterList</code> composed of multiple <code>PrefixFilter</code>s), this constructor
-   * provides a way to avoid creating an inefficient one.
-   *
-   * @param rowKeyPrefixes the array of byte array
-   */
-  public MultiRowRangeFilter(byte[][] rowKeyPrefixes) {
-    this(createRangeListFromRowKeyPrefixes(rowKeyPrefixes));
-  }
-
-  private static List<RowRange> createRangeListFromRowKeyPrefixes(byte[][] rowKeyPrefixes) {
-    if (rowKeyPrefixes == null) {
-      throw new IllegalArgumentException("Invalid rowkey prefixes");
-    }
-
-    List<RowRange> list = new ArrayList<>();
-    for (byte[] rowKeyPrefix: rowKeyPrefixes) {
-      byte[] stopRow = ClientUtil.calculateTheClosestNextRowKeyForPrefix(rowKeyPrefix);
-      list.add(new RowRange(rowKeyPrefix, true, stopRow, false));
-    }
-    return list;
-  }
-
-  public List<RowRange> getRowRanges() {
-    // Used by hbase-rest
-    return this.rangeList;
+    this.rangeList = sortAndMerge(list);
   }
 
   @Override
@@ -109,17 +73,13 @@ public class MultiRowRangeFilter extends FilterBase {
     return done;
   }
 
+  public List<RowRange> getRowRanges() {
+    return this.rangeList;
+  }
+
   @Override
   public boolean filterRowKey(Cell firstRowCell) {
     if (filterAllRemaining()) return true;
-
-    // N.b. We can only do this after we're iterating over records. If we try to do
-    // it before, the Scan (and this filter) may not yet be fully initialized. This is a
-    // wart on Filter and something that'd be nice to clean up (like CP's in HBase2.0)
-    if (!ranges.isInitialized()) {
-      ranges.initialize(isReversed());
-    }
-
     // If it is the first time of running, calculate the current range index for
     // the row key. If index is out of bound which happens when the start row
     // user sets is after the largest stop row of the ranges, stop the scan.
@@ -127,31 +87,32 @@ public class MultiRowRangeFilter extends FilterBase {
     byte[] rowArr = firstRowCell.getRowArray();
     int length = firstRowCell.getRowLength();
     int offset = firstRowCell.getRowOffset();
-    if (!ranges.hasFoundFirstRange() || !range.contains(rowArr, offset, length)) {
+    if (!initialized
+        || !range.contains(rowArr, offset, length)) {
       byte[] rowkey = CellUtil.cloneRow(firstRowCell);
-      index = ranges.getNextRangeIndex(rowkey);
-      if (ranges.isIterationComplete(index)) {
+      index = getNextRangeIndex(rowkey);
+      if (index >= rangeList.size()) {
         done = true;
         currentReturnCode = ReturnCode.NEXT_ROW;
         return false;
       }
       if(index != ROW_BEFORE_FIRST_RANGE) {
-        range = ranges.get(index);
+        range = rangeList.get(index);
       } else {
-        range = ranges.get(0);
+        range = rangeList.get(0);
       }
-      if (ranges.isExclusive()) {
-        ranges.resetExclusive();
+      if (EXCLUSIVE) {
+        EXCLUSIVE = false;
         currentReturnCode = ReturnCode.NEXT_ROW;
         return false;
       }
-      if (!ranges.hasFoundFirstRange()) {
+      if (!initialized) {
         if(index != ROW_BEFORE_FIRST_RANGE) {
           currentReturnCode = ReturnCode.INCLUDE;
         } else {
           currentReturnCode = ReturnCode.SEEK_NEXT_USING_HINT;
         }
-        ranges.setFoundFirstRange();
+        initialized = true;
       } else {
         if (range.contains(rowArr, offset, length)) {
           currentReturnCode = ReturnCode.INCLUDE;
@@ -165,6 +126,12 @@ public class MultiRowRangeFilter extends FilterBase {
     return false;
   }
 
+  @Deprecated
+  @Override
+  public ReturnCode filterKeyValue(final Cell ignored) {
+    return filterCell(ignored);
+  }
+
   @Override
   public ReturnCode filterCell(final Cell ignored) {
     return currentReturnCode;
@@ -173,9 +140,8 @@ public class MultiRowRangeFilter extends FilterBase {
   @Override
   public Cell getNextCellHint(Cell currentKV) {
     // skip to the next range's start row
-    // #getComparisonData lets us avoid the `if (reversed)` branch
-    byte[] comparisonData = range.getComparisonData();
-    return PrivateCellUtil.createFirstOnRow(comparisonData, 0, (short) comparisonData.length);
+    return PrivateCellUtil.createFirstOnRow(range.startRow, 0,
+        (short) range.startRow.length);
   }
 
   /**
@@ -251,6 +217,37 @@ public class MultiRowRangeFilter extends FilterBase {
       }
     }
     return true;
+  }
+
+  /**
+   * calculate the position where the row key in the ranges list.
+   *
+   * @param rowKey the row key to calculate
+   * @return index the position of the row key
+   */
+  private int getNextRangeIndex(byte[] rowKey) {
+    RowRange temp = new RowRange(rowKey, true, null, true);
+    int index = Collections.binarySearch(rangeList, temp);
+    if (index < 0) {
+      int insertionPosition = -index - 1;
+      // check if the row key in the range before the insertion position
+      if (insertionPosition != 0 && rangeList.get(insertionPosition - 1).contains(rowKey)) {
+        return insertionPosition - 1;
+      }
+      // check if the row key is before the first range
+      if (insertionPosition == 0 && !rangeList.get(insertionPosition).contains(rowKey)) {
+        return ROW_BEFORE_FIRST_RANGE;
+      }
+      if (!initialized) {
+        initialized = true;
+      }
+      return insertionPosition;
+    }
+    // the row key equals one of the start keys, and the the range exclude the start key
+    if(rangeList.get(index).startRowInclusive == false) {
+      EXCLUSIVE = true;
+    }
+    return index;
   }
 
   /**
@@ -423,20 +420,21 @@ public class MultiRowRangeFilter extends FilterBase {
     throw new IllegalArgumentException(sb.toString());
   }
 
-  private static abstract class BasicRowRange implements Comparable<BasicRowRange> {
-    protected byte[] startRow;
-    protected boolean startRowInclusive = true;
-    protected byte[] stopRow;
-    protected boolean stopRowInclusive = false;
+  @InterfaceAudience.Public
+  public static class RowRange implements Comparable<RowRange> {
+    private byte[] startRow;
+    private boolean startRowInclusive = true;
+    private byte[] stopRow;
+    private boolean stopRowInclusive = false;
 
-    public BasicRowRange() {
+    public RowRange() {
     }
     /**
      * If the startRow is empty or null, set it to HConstants.EMPTY_BYTE_ARRAY, means begin at the
      * start row of the table. If the stopRow is empty or null, set it to
      * HConstants.EMPTY_BYTE_ARRAY, means end of the last row of table.
      */
-    public BasicRowRange(String startRow, boolean startRowInclusive, String stopRow,
+    public RowRange(String startRow, boolean startRowInclusive, String stopRow,
         boolean stopRowInclusive) {
       this((startRow == null || startRow.isEmpty()) ? HConstants.EMPTY_BYTE_ARRAY :
         Bytes.toBytes(startRow), startRowInclusive,
@@ -444,7 +442,7 @@ public class MultiRowRangeFilter extends FilterBase {
         Bytes.toBytes(stopRow), stopRowInclusive);
     }
 
-    public BasicRowRange(byte[] startRow,  boolean startRowInclusive, byte[] stopRow,
+    public RowRange(byte[] startRow,  boolean startRowInclusive, byte[] stopRow,
         boolean stopRowInclusive) {
       this.startRow = (startRow == null) ? HConstants.EMPTY_BYTE_ARRAY : startRow;
       this.startRowInclusive = startRowInclusive;
@@ -502,6 +500,13 @@ public class MultiRowRangeFilter extends FilterBase {
       }
     }
 
+    @Override
+    @edu.umd.cs.findbugs.annotations.SuppressWarnings(value="EQ_COMPARETO_USE_OBJECT_EQUALS",
+      justification="This compareTo is not of this Object, but of referenced RowRange")
+    public int compareTo(RowRange other) {
+      return Bytes.compareTo(this.startRow, other.startRow);
+    }
+
     public boolean isValid() {
       return Bytes.equals(startRow, HConstants.EMPTY_BYTE_ARRAY)
           || Bytes.equals(stopRow, HConstants.EMPTY_BYTE_ARRAY)
@@ -511,13 +516,13 @@ public class MultiRowRangeFilter extends FilterBase {
 
     @Override
     public boolean equals(Object obj){
-      if (!(obj instanceof BasicRowRange)) {
+      if (!(obj instanceof RowRange)) {
         return false;
       }
       if (this == obj) {
         return true;
       }
-      BasicRowRange rr = (BasicRowRange) obj;
+      RowRange rr = (RowRange) obj;
       return Bytes.equals(this.stopRow, rr.getStopRow()) &&
           Bytes.equals(this.startRow, this.getStartRow()) &&
           this.startRowInclusive == rr.isStartRowInclusive() &&
@@ -531,235 +536,6 @@ public class MultiRowRangeFilter extends FilterBase {
           this.startRowInclusive,
           this.stopRowInclusive);
     }
-
-    /**
-     * Returns the data to be used to compare {@code this} to another object.
-     */
-    public abstract byte[] getComparisonData();
-
-    /**
-     * Returns whether the bounding row used for binary-search is inclusive or not.
-     *
-     * For forward scans, we would check the starRow, but we would check the stopRow for
-     * the reverse scan case.
-     */
-    public abstract boolean isSearchRowInclusive();
-
-    @Override
-    public int compareTo(BasicRowRange other) {
-      byte[] left;
-      byte[] right;
-      if (isAscendingOrder()) {
-        left = this.getComparisonData();
-        right = other.getComparisonData();
-      } else {
-        left = other.getComparisonData();
-        right = this.getComparisonData();
-      }
-      return Bytes.compareTo(left, right);
-    }
-
-    public abstract boolean isAscendingOrder();
-  }
-
-  /**
-   * Internal RowRange that reverses the sort-order to handle reverse scans.
-   */
-  @InterfaceAudience.Private
-  private static class ReversedRowRange extends BasicRowRange {
-    public ReversedRowRange(byte[] startRow,  boolean startRowInclusive, byte[] stopRow,
-        boolean stopRowInclusive) {
-      super(startRow, startRowInclusive, stopRow, stopRowInclusive);
-    }
-
-    @Override
-    public byte[] getComparisonData() {
-      return this.stopRow;
-    }
-
-    @Override
-    public boolean isSearchRowInclusive() {
-      return this.stopRowInclusive;
-    }
-
-    @Override
-    public boolean isAscendingOrder() {
-      return false;
-    }
-  }
-
-  @InterfaceAudience.Public
-  public static class RowRange extends BasicRowRange {
-    public RowRange() {
-    }
-    /**
-     * If the startRow is empty or null, set it to HConstants.EMPTY_BYTE_ARRAY, means begin at the
-     * start row of the table. If the stopRow is empty or null, set it to
-     * HConstants.EMPTY_BYTE_ARRAY, means end of the last row of table.
-     */
-    public RowRange(String startRow, boolean startRowInclusive, String stopRow,
-        boolean stopRowInclusive) {
-      super(startRow, startRowInclusive, stopRow, stopRowInclusive);
-    }
-
-    public RowRange(byte[] startRow,  boolean startRowInclusive, byte[] stopRow,
-        boolean stopRowInclusive) {
-      super(startRow, startRowInclusive, stopRow, stopRowInclusive);
-    }
-
-    @Override
-    public byte[] getComparisonData() {
-      return startRow;
-    }
-
-    @Override
-    public boolean isSearchRowInclusive() {
-      return startRowInclusive;
-    }
-
-    @Override
-    public boolean isAscendingOrder() {
-      return true;
-    }
-  }
-
-  /**
-   * Abstraction over the ranges of rows to return from this filter, regardless of forward or
-   * reverse scans being used. This Filter can use this class, agnostic of iteration direction,
-   * as the same algorithm can be applied in both cases.
-   */
-  @InterfaceAudience.Private
-  private static class RangeIteration {
-    private boolean exclusive = false;
-    private boolean initialized = false;
-    private boolean foundFirstRange = false;
-    private boolean reversed = false;
-    private final List<RowRange> sortedAndMergedRanges;
-    private List<? extends BasicRowRange> ranges;
-
-    public RangeIteration(List<RowRange> sortedAndMergedRanges) {
-      this.sortedAndMergedRanges = sortedAndMergedRanges;
-    }
-
-    void initialize(boolean reversed) {
-      // Avoid double initialization
-      assert !this.initialized;
-      this.reversed = reversed;
-      if (reversed) {
-        // If we are doing a reverse scan, we can reverse the ranges (both the elements in
-        // the list as well as their start/stop key), and use the same algorithm.
-        this.ranges = flipAndReverseRanges(sortedAndMergedRanges);
-      } else {
-        this.ranges = sortedAndMergedRanges;
-      }
-      this.initialized = true;
-    }
-
-    /**
-     * Rebuilds the sorted ranges (by startKey) into an equivalent sorted list of ranges, only by
-     * stopKey instead. Descending order and the ReversedRowRange compareTo implementation make
-     * sure that we can use Collections.binarySearch().
-     */
-    static List<ReversedRowRange> flipAndReverseRanges(List<RowRange> ranges) {
-      List<ReversedRowRange> flippedRanges = new ArrayList<>(ranges.size());
-      for (int i = ranges.size() - 1; i >= 0; i--) {
-        RowRange origRange = ranges.get(i);
-        ReversedRowRange newRowRange = new ReversedRowRange(
-            origRange.startRow, origRange.startRowInclusive, origRange.stopRow,
-            origRange.isStopRowInclusive());
-        flippedRanges.add(newRowRange);
-      }
-      return flippedRanges;
-    }
-
-    /**
-     * Calculates the position where the given rowkey fits in the ranges list.
-     *
-     * @param rowKey the row key to calculate
-     * @return index the position of the row key
-     */
-    public int getNextRangeIndex(byte[] rowKey) {
-      BasicRowRange temp;
-      if (reversed) {
-        temp = new ReversedRowRange(null, true, rowKey, true);
-      } else {
-        temp = new RowRange(rowKey, true, null, true);
-      }
-      // Because we make sure that `ranges` has the correct natural ordering (given it containing
-      // RowRange or ReverseRowRange objects). This keeps us from having to have two different
-      // implementations below.
-      final int index = Collections.binarySearch(ranges, temp);
-      if (index < 0) {
-        int insertionPosition = -index - 1;
-        // check if the row key in the range before the insertion position
-        if (insertionPosition != 0 && ranges.get(insertionPosition - 1).contains(rowKey)) {
-          return insertionPosition - 1;
-        }
-        // check if the row key is before the first range
-        if (insertionPosition == 0 && !ranges.get(insertionPosition).contains(rowKey)) {
-          return ROW_BEFORE_FIRST_RANGE;
-        }
-        if (!foundFirstRange) {
-          foundFirstRange = true;
-        }
-        return insertionPosition;
-      }
-      // the row key equals one of the start keys, and the the range exclude the start key
-      if(ranges.get(index).isSearchRowInclusive() == false) {
-        exclusive = true;
-      }
-      return index;
-    }
-
-    /**
-     * Sets {@link #foundFirstRange} to {@code true}, indicating that we found a matching row range.
-     */
-    public void setFoundFirstRange() {
-      this.foundFirstRange = true;
-    }
-
-    /**
-     * Gets the RowRange at the given offset.
-     */
-    @SuppressWarnings("unchecked")
-    public <T extends BasicRowRange> T get(int i) {
-      return (T) ranges.get(i);
-    }
-
-    /**
-     * Returns true if the first matching row range was found.
-     */
-    public boolean hasFoundFirstRange() {
-      return foundFirstRange;
-    }
-
-    /**
-     * Returns true if the current range's key is exclusive
-     */
-    public boolean isExclusive() {
-      return exclusive;
-    }
-
-    /**
-     * Resets the exclusive flag.
-     */
-    public void resetExclusive() {
-      exclusive = false;
-    }
-
-    /**
-     * Returns true if this class has been initialized by calling {@link #initialize(boolean)}.
-     */
-    public boolean isInitialized() {
-      return initialized;
-    }
-
-    /**
-     * Returns true if we exhausted searching all row ranges.
-     */
-    public boolean isIterationComplete(int index) {
-      return index >= ranges.size();
-    }
   }
 
   @Override
@@ -769,6 +545,6 @@ public class MultiRowRangeFilter extends FilterBase {
 
   @Override
   public int hashCode() {
-    return Objects.hash(this.ranges);
+    return Objects.hash(this.rangeList);
   }
 }

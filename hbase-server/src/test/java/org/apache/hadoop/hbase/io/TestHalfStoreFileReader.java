@@ -39,10 +39,7 @@ import org.apache.hadoop.hbase.io.hfile.CacheConfig;
 import org.apache.hadoop.hbase.io.hfile.HFile;
 import org.apache.hadoop.hbase.io.hfile.HFileContext;
 import org.apache.hadoop.hbase.io.hfile.HFileContextBuilder;
-import org.apache.hadoop.hbase.io.hfile.HFileInfo;
 import org.apache.hadoop.hbase.io.hfile.HFileScanner;
-import org.apache.hadoop.hbase.io.hfile.ReaderContext;
-import org.apache.hadoop.hbase.io.hfile.ReaderContextBuilder;
 import org.apache.hadoop.hbase.testclassification.IOTests;
 import org.apache.hadoop.hbase.testclassification.SmallTests;
 import org.apache.hadoop.hbase.util.Bytes;
@@ -102,6 +99,7 @@ public class TestHalfStoreFileReader {
     w.close();
 
     HFile.Reader r = HFile.createReader(fs, p, cacheConf, true, conf);
+    r.loadFileInfo();
     Cell midKV = r.midKey().get();
     byte[] midkey = CellUtil.cloneRow(midKV);
 
@@ -118,11 +116,8 @@ public class TestHalfStoreFileReader {
 
   private void doTestOfScanAndReseek(Path p, FileSystem fs, Reference bottom, CacheConfig cacheConf)
       throws IOException {
-    ReaderContext context = new ReaderContextBuilder().withFileSystemAndPath(fs, p).build();
-    HFileInfo fileInfo = new HFileInfo(context, TEST_UTIL.getConfiguration());
-    final HalfStoreFileReader halfreader = new HalfStoreFileReader(context, fileInfo, cacheConf,
-        bottom, new AtomicInteger(0), TEST_UTIL.getConfiguration());
-    fileInfo.initMetaAndIndex(halfreader.getHFileReader());
+    final HalfStoreFileReader halfreader = new HalfStoreFileReader(fs, p, cacheConf, bottom, true,
+        new AtomicInteger(0), true, TEST_UTIL.getConfiguration());
     halfreader.loadFileInfo();
     final HFileScanner scanner = halfreader.getScanner(false, false);
 
@@ -163,6 +158,7 @@ public class TestHalfStoreFileReader {
     w.close();
 
     HFile.Reader r = HFile.createReader(fs, p, cacheConf, true, conf);
+    r.loadFileInfo();
     Cell midKV = r.midKey().get();
     byte[] midkey = CellUtil.cloneRow(midKV);
 
@@ -214,11 +210,8 @@ public class TestHalfStoreFileReader {
 
   private Cell doTestOfSeekBefore(Path p, FileSystem fs, Reference bottom, Cell seekBefore,
       CacheConfig cacheConfig) throws IOException {
-    ReaderContext context = new ReaderContextBuilder().withFileSystemAndPath(fs, p).build();
-    HFileInfo fileInfo = new HFileInfo(context, TEST_UTIL.getConfiguration());
-    final HalfStoreFileReader halfreader = new HalfStoreFileReader(context, fileInfo, cacheConfig,
-        bottom, new AtomicInteger(0), TEST_UTIL.getConfiguration());
-    fileInfo.initMetaAndIndex(halfreader.getHFileReader());
+    final HalfStoreFileReader halfreader = new HalfStoreFileReader(fs, p, cacheConfig, bottom, true,
+        new AtomicInteger(0), true, TEST_UTIL.getConfiguration());
     halfreader.loadFileInfo();
     final HFileScanner scanner = halfreader.getScanner(false, false);
     scanner.seekBefore(seekBefore);

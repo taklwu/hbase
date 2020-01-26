@@ -19,7 +19,6 @@ package org.apache.hadoop.hbase.zookeeper;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertNull;
 
 import java.io.IOException;
 import java.util.Properties;
@@ -42,6 +41,7 @@ import org.junit.experimental.categories.Category;
  */
 @Category({ ZKTests.class, MediumTests.class })
 public class TestHQuorumPeer {
+
   @ClassRule
   public static final HBaseClassTestRule CLASS_RULE =
       HBaseClassTestRule.forClass(TestHQuorumPeer.class);
@@ -75,7 +75,7 @@ public class TestHQuorumPeer {
     assertEquals(Integer.valueOf(PORT_NO),
       Integer.valueOf(properties.getProperty("clientPort")));
     assertEquals("localhost:2888:3888", properties.get("server.0"));
-    assertNull(properties.get("server.1"));
+    assertEquals(null, properties.get("server.1"));
 
     String oldValue = conf.get(HConstants.ZOOKEEPER_QUORUM);
     conf.set(HConstants.ZOOKEEPER_QUORUM, "a.foo.bar,b.foo.bar,c.foo.bar");
@@ -86,7 +86,7 @@ public class TestHQuorumPeer {
     assertEquals("a.foo.bar:2888:3888", properties.get("server.0"));
     assertEquals("b.foo.bar:2888:3888", properties.get("server.1"));
     assertEquals("c.foo.bar:2888:3888", properties.get("server.2"));
-    assertNull(properties.get("server.3"));
+    assertEquals(null, properties.get("server.3"));
     conf.set(HConstants.ZOOKEEPER_QUORUM, oldValue);
   }
 

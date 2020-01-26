@@ -25,7 +25,6 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
-import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.Matchers.any;
 import static org.mockito.Matchers.anyBoolean;
 import static org.mockito.Matchers.anyLong;
@@ -112,13 +111,6 @@ public class TestCompactor {
           return null;
         }
       }).when(writer).appendMetadata(anyLong(), anyBoolean());
-      doAnswer(new Answer<Void>() {
-        @Override
-        public Void answer(InvocationOnMock invocation) throws Throwable {
-          realWriter.hasMetadata = true;
-          return null;
-        }
-      }).when(writer).appendMetadata(anyLong(), anyBoolean(), anyCollection());
       doAnswer(new Answer<Path>() {
         @Override
         public Path answer(InvocationOnMock invocation) throws Throwable {

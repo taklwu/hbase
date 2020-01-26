@@ -42,7 +42,7 @@ import org.junit.Test;
 import org.junit.experimental.categories.Category;
 
 /**
- * Test the {@link org.apache.hadoop.hbase.regionserver.ChunkCreator.MemStoreChunkPool} class
+ * Test the {@link MemStoreChunkPool} class
  */
 @Category({RegionServerTests.class, SmallTests.class})
 public class TestMemStoreChunkPool {

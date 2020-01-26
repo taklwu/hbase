@@ -1,4 +1,4 @@
-/*
+/**
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -18,13 +18,11 @@
 package org.apache.hadoop.hbase.client;
 
 import static org.apache.hadoop.hbase.HConstants.META_REPLICAS_NUM;
-import static org.hamcrest.CoreMatchers.instanceOf;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNotSame;
-import static org.junit.Assert.assertThat;
-import static org.junit.Assert.fail;
+
 import java.io.IOException;
 import java.util.concurrent.ExecutionException;
 import java.util.stream.IntStream;
@@ -63,11 +61,7 @@ public class TestZKAsyncRegistry {
   public static void setUp() throws Exception {
     TEST_UTIL.getConfiguration().setInt(META_REPLICAS_NUM, 3);
     TEST_UTIL.startMiniCluster(3);
-    Configuration conf = new Configuration(TEST_UTIL.getConfiguration());
-    // make sure that we do not depend on this config when getting locations for meta replicas, see
-    // HBASE-21658.
-    conf.setInt(META_REPLICAS_NUM, 1);
-    REGISTRY = new ZKAsyncRegistry(conf);
+    REGISTRY = new ZKAsyncRegistry(TEST_UTIL.getConfiguration());
   }
 
   @AfterClass
@@ -83,10 +77,12 @@ public class TestZKAsyncRegistry {
     String expectedClusterId = TEST_UTIL.getHBaseCluster().getMaster().getClusterId();
     assertEquals("Expected " + expectedClusterId + ", found=" + clusterId, expectedClusterId,
       clusterId);
+    assertEquals(TEST_UTIL.getHBaseCluster().getClusterMetrics().getLiveServerMetrics().size(),
+      REGISTRY.getCurrentNrHRS().get().intValue());
     assertEquals(TEST_UTIL.getHBaseCluster().getMaster().getServerName(),
       REGISTRY.getMasterAddress().get());
-    RegionReplicaTestHelper
-      .waitUntilAllMetaReplicasHavingRegionLocation(TEST_UTIL.getConfiguration(), REGISTRY, 3);
+    assertEquals(-1, REGISTRY.getMasterInfoPort().get().intValue());
+    RegionReplicaTestHelper.waitUntilAllMetaReplicasHavingRegionLocation(REGISTRY, 3);
     RegionLocations locs = REGISTRY.getMetaRegionLocation().get();
     assertEquals(3, locs.getRegionLocations().length);
     IntStream.range(0, 3).forEach(i -> {
@@ -112,20 +108,6 @@ public class TestZKAsyncRegistry {
       }
     } finally {
       LOG.info("DONE!");
-    }
-  }
-
-  @Test
-  public void testNoMetaAvailable() throws InterruptedException {
-    Configuration conf = new Configuration(TEST_UTIL.getConfiguration());
-    conf.set("zookeeper.znode.metaserver", "whatever");
-    try (ZKAsyncRegistry registry = new ZKAsyncRegistry(conf)) {
-      try {
-        registry.getMetaRegionLocation().get();
-        fail("Should have failed since we set an incorrect meta znode prefix");
-      } catch (ExecutionException e) {
-        assertThat(e.getCause(), instanceOf(IOException.class));
-      }
     }
   }
 }

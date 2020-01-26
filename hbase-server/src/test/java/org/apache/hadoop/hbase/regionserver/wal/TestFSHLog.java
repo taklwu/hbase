@@ -89,7 +89,7 @@ public class TestFSHLog extends AbstractTestFSWAL {
         prefix, suffix) {
 
       @Override
-      protected void atHeadOfRingBufferEventHandlerAppend() {
+      void atHeadOfRingBufferEventHandlerAppend() {
         action.run();
         super.atHeadOfRingBufferEventHandlerAppend();
       }

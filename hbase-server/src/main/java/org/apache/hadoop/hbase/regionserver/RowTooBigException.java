@@ -25,9 +25,7 @@ import org.apache.yetus.audience.InterfaceAudience;
  * set and row size appears to exceed max configured size (configurable via
  * hbase.table.max.rowsize).
  *
- * @deprecated since 0.99.0. Use {@link org.apache.hadoop.hbase.client.RowTooBigException} instead.
- * @see org.apache.hadoop.hbase.client.RowTooBigException
- * @see <a href="https://issues.apache.org/jira/browse/HBASE-11893">HBASE-11893</a>
+ * @deprecated use {@link org.apache.hadoop.hbase.client.RowTooBigException} instead.
  */
 @InterfaceAudience.Public
 @Deprecated

@@ -31,13 +31,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.NavigableSet;
 import java.util.Set;
-
-import org.apache.hadoop.hbase.client.ColumnFamilyDescriptor;
-import org.apache.hadoop.hbase.client.ColumnFamilyDescriptorBuilder;
 import org.apache.hadoop.hbase.client.Get;
 import org.apache.hadoop.hbase.client.Scan;
-import org.apache.hadoop.hbase.client.TableDescriptor;
-import org.apache.hadoop.hbase.client.TableDescriptorBuilder;
 import org.apache.hadoop.hbase.filter.BinaryComparator;
 import org.apache.hadoop.hbase.filter.Filter;
 import org.apache.hadoop.hbase.filter.PrefixFilter;
@@ -178,16 +173,12 @@ public class TestSerialization {
   }
 
   private HRegionInfo createRandomRegion(final String name) {
-    TableDescriptorBuilder tableDescriptorBuilder =
-      TableDescriptorBuilder.newBuilder(TableName.valueOf(name));
-    String[] families = new String[]{"info", "anchor"};
+    HTableDescriptor htd = new HTableDescriptor(TableName.valueOf(name));
+    String [] families = new String [] {"info", "anchor"};
     for (int i = 0; i < families.length; i++) {
-      ColumnFamilyDescriptor columnFamilyDescriptor =
-        ColumnFamilyDescriptorBuilder.newBuilder(Bytes.toBytes(families[i])).build();
-      tableDescriptorBuilder.setColumnFamily(columnFamilyDescriptor);
+      htd.addFamily(new HColumnDescriptor(families[i]));
     }
-    TableDescriptor tableDescriptor = tableDescriptorBuilder.build();
-    return new HRegionInfo(tableDescriptor.getTableName(), HConstants.EMPTY_START_ROW,
+    return new HRegionInfo(htd.getTableName(), HConstants.EMPTY_START_ROW,
       HConstants.EMPTY_END_ROW);
   }
 
@@ -309,7 +300,7 @@ public class TestSerialization {
     Get get = new Get(row);
     get.addColumn(fam, qf1);
     get.setTimeRange(ts, ts+1);
-    get.readVersions(maxVersions);
+    get.setMaxVersions(maxVersions);
 
     ClientProtos.Get getProto = ProtobufUtil.toGet(get);
     Get desGet = ProtobufUtil.toGet(getProto);

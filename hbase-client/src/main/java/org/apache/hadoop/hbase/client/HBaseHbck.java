@@ -18,29 +18,18 @@
 package org.apache.hadoop.hbase.client;
 
 import java.io.IOException;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.Callable;
 import java.util.stream.Collectors;
 
 import org.apache.hadoop.conf.Configuration;
-
 import org.apache.hadoop.hbase.ipc.RpcControllerFactory;
-import org.apache.hadoop.hbase.master.RegionState;
-import org.apache.hadoop.hbase.ServerName;
 import org.apache.hadoop.hbase.shaded.protobuf.ProtobufUtil;
 import org.apache.hadoop.hbase.shaded.protobuf.RequestConverter;
+import org.apache.hadoop.hbase.shaded.protobuf.generated.HBaseProtos;
 import org.apache.hadoop.hbase.shaded.protobuf.generated.MasterProtos;
-import org.apache.hadoop.hbase.shaded.protobuf.generated.MasterProtos.AssignsResponse;
-import org.apache.hadoop.hbase.shaded.protobuf.generated.MasterProtos.BypassProcedureRequest;
-import org.apache.hadoop.hbase.shaded.protobuf.generated.MasterProtos.BypassProcedureResponse;
-import org.apache.hadoop.hbase.shaded.protobuf.generated.MasterProtos.FixMetaRequest;
 import org.apache.hadoop.hbase.shaded.protobuf.generated.MasterProtos.GetTableStateResponse;
 import org.apache.hadoop.hbase.shaded.protobuf.generated.MasterProtos.HbckService.BlockingInterface;
-import org.apache.hadoop.hbase.shaded.protobuf.generated.MasterProtos.RunHbckChoreRequest;
-import org.apache.hadoop.hbase.shaded.protobuf.generated.MasterProtos.RunHbckChoreResponse;
-import org.apache.hadoop.hbase.shaded.protobuf.generated.MasterProtos.ScheduleServerCrashProcedureResponse;
-import org.apache.hadoop.hbase.shaded.protobuf.generated.MasterProtos.UnassignsResponse;
 
 import org.apache.hbase.thirdparty.com.google.protobuf.ServiceException;
 
@@ -49,8 +38,9 @@ import org.apache.yetus.audience.InterfaceAudience;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+
 /**
- * Use {@link Connection#getHbck()} to obtain an instance of {@link Hbck} instead of
+ * Use {@link ClusterConnection#getHbck()} to obtain an instance of {@link Hbck} instead of
  * constructing an HBaseHbck directly.
  *
  * <p>Connection should be an <i>unmanaged</i> connection obtained via
@@ -65,6 +55,7 @@ import org.slf4j.LoggerFactory;
  * by each thread. Pooling or caching of the instance is not recommended.</p>
  *
  * @see ConnectionFactory
+ * @see ClusterConnection
  * @see Hbck
  */
 @InterfaceAudience.Private
@@ -102,8 +93,8 @@ public class HBaseHbck implements Hbck {
   public TableState setTableStateInMeta(TableState state) throws IOException {
     try {
       GetTableStateResponse response = hbck.setTableStateInMeta(
-        rpcControllerFactory.newController(),
-        RequestConverter.buildSetTableStateInMetaRequest(state));
+          rpcControllerFactory.newController(),
+          RequestConverter.buildSetTableStateInMetaRequest(state));
       return TableState.convert(state.getTableName(), response.getTableState());
     } catch (ServiceException se) {
       LOG.debug("table={}, state={}", state.getTableName(), state.getState(), se);
@@ -112,30 +103,12 @@ public class HBaseHbck implements Hbck {
   }
 
   @Override
-  public List<RegionState> setRegionStateInMeta(List<RegionState> states) throws IOException {
-    try {
-      if(LOG.isDebugEnabled()) {
-        states.forEach(s ->
-          LOG.debug("region={}, state={}", s.getRegion().getRegionName(), s.getState())
-        );
-      }
-      MasterProtos.GetRegionStateInMetaResponse response = hbck.setRegionStateInMeta(
-        rpcControllerFactory.newController(),
-        RequestConverter.buildSetRegionStateInMetaRequest(states));
-      final List<RegionState> result = new ArrayList<>();
-      response.getStatesList().forEach(s -> result.add(RegionState.convert(s)));
-      return result;
-    } catch (ServiceException se) {
-      throw new IOException(se);
-    }
-  }
-
-  @Override
   public List<Long> assigns(List<String> encodedRegionNames, boolean override)
       throws IOException {
     try {
-      AssignsResponse response = this.hbck.assigns(rpcControllerFactory.newController(),
-          RequestConverter.toAssignRegionsRequest(encodedRegionNames, override));
+      MasterProtos.AssignsResponse response =
+          this.hbck.assigns(rpcControllerFactory.newController(),
+              RequestConverter.toAssignRegionsRequest(encodedRegionNames, override));
       return response.getPidList();
     } catch (ServiceException se) {
       LOG.debug(toCommaDelimitedString(encodedRegionNames), se);
@@ -147,8 +120,9 @@ public class HBaseHbck implements Hbck {
   public List<Long> unassigns(List<String> encodedRegionNames, boolean override)
       throws IOException {
     try {
-      UnassignsResponse response = this.hbck.unassigns(rpcControllerFactory.newController(),
-          RequestConverter.toUnassignRegionsRequest(encodedRegionNames, override));
+      MasterProtos.UnassignsResponse response =
+          this.hbck.unassigns(rpcControllerFactory.newController(),
+              RequestConverter.toUnassignRegionsRequest(encodedRegionNames, override));
       return response.getPidList();
     } catch (ServiceException se) {
       LOG.debug(toCommaDelimitedString(encodedRegionNames), se);
@@ -164,13 +138,13 @@ public class HBaseHbck implements Hbck {
   public List<Boolean> bypassProcedure(List<Long> pids, long waitTime, boolean override,
       boolean recursive)
       throws IOException {
-    BypassProcedureResponse response = ProtobufUtil.call(
-        new Callable<BypassProcedureResponse>() {
+    MasterProtos.BypassProcedureResponse response = ProtobufUtil.call(
+        new Callable<MasterProtos.BypassProcedureResponse>() {
           @Override
-          public BypassProcedureResponse call() throws Exception {
+          public MasterProtos.BypassProcedureResponse call() throws Exception {
             try {
               return hbck.bypassProcedure(rpcControllerFactory.newController(),
-                  BypassProcedureRequest.newBuilder().addAllProcId(pids).
+                  MasterProtos.BypassProcedureRequest.newBuilder().addAllProcId(pids).
                       setWaitTime(waitTime).setOverride(override).setRecursive(recursive).build());
             } catch (Throwable t) {
               LOG.error(pids.stream().map(i -> i.toString()).
@@ -183,10 +157,10 @@ public class HBaseHbck implements Hbck {
   }
 
   @Override
-  public List<Long> scheduleServerCrashProcedures(List<ServerName> serverNames)
+  public List<Long> scheduleServerCrashProcedure(List<HBaseProtos.ServerName> serverNames)
       throws IOException {
     try {
-      ScheduleServerCrashProcedureResponse response =
+      MasterProtos.ScheduleServerCrashProcedureResponse response =
           this.hbck.scheduleServerCrashProcedure(rpcControllerFactory.newController(),
             RequestConverter.toScheduleServerCrashProcedureRequest(serverNames));
       return response.getPidList();
@@ -195,27 +169,6 @@ public class HBaseHbck implements Hbck {
         serverNames.stream().map(serverName -> ProtobufUtil.toServerName(serverName).toString())
             .collect(Collectors.toList())),
         se);
-      throw new IOException(se);
-    }
-  }
-
-  @Override
-  public boolean runHbckChore() throws IOException {
-    try {
-      RunHbckChoreResponse response = this.hbck.runHbckChore(rpcControllerFactory.newController(),
-          RunHbckChoreRequest.newBuilder().build());
-      return response.getRan();
-    } catch (ServiceException se) {
-      LOG.debug("Failed to run HBCK chore", se);
-      throw new IOException(se);
-    }
-  }
-
-  @Override
-  public void fixMeta() throws IOException {
-    try {
-      this.hbck.fixMeta(rpcControllerFactory.newController(), FixMetaRequest.newBuilder().build());
-    } catch (ServiceException se) {
       throw new IOException(se);
     }
   }

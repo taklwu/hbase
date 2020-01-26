@@ -23,6 +23,7 @@ import java.io.InterruptedIOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.NavigableSet;
+import java.util.OptionalInt;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.locks.ReentrantLock;
 
@@ -78,7 +79,8 @@ public class StoreScanner extends NonReversedNonLazyKeyValueScanner
   private int storeOffset = 0;
 
   // Used to indicate that the scanner has closed (see HBASE-1107)
-  private volatile boolean closing = false;
+  // Do not need to be volatile because it's always accessed via synchronized methods
+  private boolean closing = false;
   private final boolean get;
   private final boolean explicitColumnQuery;
   private final boolean useRowColBloom;
@@ -155,8 +157,6 @@ public class StoreScanner extends NonReversedNonLazyKeyValueScanner
   final List<KeyValueScanner> currentScanners = new ArrayList<>();
   // flush update lock
   private final ReentrantLock flushLock = new ReentrantLock();
-  // lock for closing.
-  private final ReentrantLock closeLock = new ReentrantLock();
 
   protected final long readPt;
   private boolean topChanged = false;
@@ -236,10 +236,9 @@ public class StoreScanner extends NonReversedNonLazyKeyValueScanner
 
     store.addChangedReaderObserver(this);
 
-    List<KeyValueScanner> scanners = null;
     try {
       // Pass columns to try to filter out unnecessary StoreFiles.
-      scanners = selectScannersFrom(store,
+      List<KeyValueScanner> scanners = selectScannersFrom(store,
         store.getScanners(cacheBlocks, scanUsePread, false, matcher, scan.getStartRow(),
           scan.includeStartRow(), scan.getStopRow(), scan.includeStopRow(), this.readPt));
 
@@ -259,7 +258,6 @@ public class StoreScanner extends NonReversedNonLazyKeyValueScanner
       // Combine all seeked scanners with a heap
       resetKVHeap(scanners, comparator);
     } catch (IOException e) {
-      clearAndClose(scanners);
       // remove us from the HStore#changedReaderObservers here or we'll have no chance to
       // and might cause memory leak
       store.deleteChangedReaderObserver(this);
@@ -352,11 +350,11 @@ public class StoreScanner extends NonReversedNonLazyKeyValueScanner
 
   // Used to instantiate a scanner for compaction in test
   @VisibleForTesting
-  StoreScanner(ScanInfo scanInfo, int maxVersions, ScanType scanType,
+  StoreScanner(ScanInfo scanInfo, OptionalInt maxVersions, ScanType scanType,
       List<? extends KeyValueScanner> scanners) throws IOException {
     // 0 is passed as readpoint because the test bypasses Store
-    this(null, maxVersions > 0 ? new Scan().readVersions(maxVersions)
-      : SCAN_FOR_COMPACTION, scanInfo, 0, 0L, false, scanType);
+    this(null, maxVersions.isPresent() ? new Scan().readVersions(maxVersions.getAsInt())
+        : SCAN_FOR_COMPACTION, scanInfo, 0, 0L, false, scanType);
     this.matcher = CompactionScanQueryMatcher.create(scanInfo, scanType, Long.MAX_VALUE,
       HConstants.OLDEST_TIMESTAMP, oldestUnexpiredTS, now, null, null, null);
     seekAllScanner(scanInfo, scanners);
@@ -475,38 +473,31 @@ public class StoreScanner extends NonReversedNonLazyKeyValueScanner
   }
 
   private void close(boolean withDelayedScannersClose) {
-    closeLock.lock();
-    // If the closeLock is acquired then any subsequent updateReaders()
-    // call is ignored.
-    try {
-      if (this.closing) {
-        return;
+    if (this.closing) {
+      return;
+    }
+    if (withDelayedScannersClose) {
+      this.closing = true;
+    }
+    // For mob compaction, we do not have a store.
+    if (this.store != null) {
+      this.store.deleteChangedReaderObserver(this);
+    }
+    if (withDelayedScannersClose) {
+      clearAndClose(scannersForDelayedClose);
+      clearAndClose(memStoreScannersAfterFlush);
+      clearAndClose(flushedstoreFileScanners);
+      if (this.heap != null) {
+        this.heap.close();
+        this.currentScanners.clear();
+        this.heap = null; // CLOSED!
       }
-      if (withDelayedScannersClose) {
-        this.closing = true;
+    } else {
+      if (this.heap != null) {
+        this.scannersForDelayedClose.add(this.heap);
+        this.currentScanners.clear();
+        this.heap = null;
       }
-      // For mob compaction, we do not have a store.
-      if (this.store != null) {
-        this.store.deleteChangedReaderObserver(this);
-      }
-      if (withDelayedScannersClose) {
-        clearAndClose(scannersForDelayedClose);
-        clearAndClose(memStoreScannersAfterFlush);
-        clearAndClose(flushedstoreFileScanners);
-        if (this.heap != null) {
-          this.heap.close();
-          this.currentScanners.clear();
-          this.heap = null; // CLOSED!
-        }
-      } else {
-        if (this.heap != null) {
-          this.scannersForDelayedClose.add(this.heap);
-          this.currentScanners.clear();
-          this.heap = null;
-        }
-      }
-    } finally {
-      closeLock.unlock();
     }
   }
 
@@ -872,9 +863,6 @@ public class StoreScanner extends NonReversedNonLazyKeyValueScanner
   }
 
   private static void clearAndClose(List<KeyValueScanner> scanners) {
-    if (scanners == null) {
-      return;
-    }
     for (KeyValueScanner s : scanners) {
       s.close();
     }
@@ -888,27 +876,8 @@ public class StoreScanner extends NonReversedNonLazyKeyValueScanner
     if (CollectionUtils.isEmpty(sfs) && CollectionUtils.isEmpty(memStoreScanners)) {
       return;
     }
-    boolean updateReaders = false;
     flushLock.lock();
     try {
-      if (!closeLock.tryLock()) {
-        // The reason for doing this is that when the current store scanner does not retrieve
-        // any new cells, then the scanner is considered to be done. The heap of this scanner
-        // is not closed till the shipped() call is completed. Hence in that case if at all
-        // the partial close (close (false)) has been called before updateReaders(), there is no
-        // need for the updateReaders() to happen.
-        LOG.debug("StoreScanner already has the close lock. There is no need to updateReaders");
-        // no lock acquired.
-        clearAndClose(memStoreScanners);
-        return;
-      }
-      // lock acquired
-      updateReaders = true;
-      if (this.closing) {
-        LOG.debug("StoreScanner already closing. There is no need to updateReaders");
-        clearAndClose(memStoreScanners);
-        return;
-      }
       flushed = true;
       final boolean isCompaction = false;
       boolean usePread = get || scanUsePread;
@@ -927,9 +896,6 @@ public class StoreScanner extends NonReversedNonLazyKeyValueScanner
       }
     } finally {
       flushLock.unlock();
-      if (updateReaders) {
-        closeLock.unlock();
-      }
     }
     // Let the next() call handle re-creating and seeking
   }
@@ -1009,8 +975,9 @@ public class StoreScanner extends NonReversedNonLazyKeyValueScanner
   protected void checkScanOrder(Cell prevKV, Cell kv,
       CellComparator comparator) throws IOException {
     // Check that the heap gives us KVs in an increasing order.
-    assert prevKV == null || comparator == null || comparator.compare(prevKV, kv) <= 0 : "Key "
-        + prevKV + " followed by a smaller key " + kv + " in cf " + store;
+    assert prevKV == null || comparator == null
+        || comparator.compare(prevKV, kv) <= 0 : "Key " + prevKV
+        + " followed by a " + "smaller key " + kv + " in cf " + store;
   }
 
   protected boolean seekToNextRow(Cell c) throws IOException {

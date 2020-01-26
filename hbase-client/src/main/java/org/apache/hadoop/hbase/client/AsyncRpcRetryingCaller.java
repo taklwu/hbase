@@ -31,7 +31,6 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
-import org.apache.hadoop.hbase.CallQueueTooBigException;
 import org.apache.hadoop.hbase.DoNotRetryIOException;
 import org.apache.hadoop.hbase.NotServingRegionException;
 import org.apache.hadoop.hbase.TableName;
@@ -60,8 +59,6 @@ public abstract class AsyncRpcRetryingCaller<T> {
 
   private final long pauseNs;
 
-  private final long pauseForCQTBENs;
-
   private int tries = 1;
 
   private final int maxAttempts;
@@ -81,13 +78,12 @@ public abstract class AsyncRpcRetryingCaller<T> {
   protected final HBaseRpcController controller;
 
   public AsyncRpcRetryingCaller(Timer retryTimer, AsyncConnectionImpl conn, int priority,
-      long pauseNs, long pauseForCQTBENs, int maxAttempts, long operationTimeoutNs,
-      long rpcTimeoutNs, int startLogErrorsCnt) {
+      long pauseNs, int maxAttempts, long operationTimeoutNs, long rpcTimeoutNs,
+      int startLogErrorsCnt) {
     this.retryTimer = retryTimer;
     this.conn = conn;
     this.priority = priority;
     this.pauseNs = pauseNs;
-    this.pauseForCQTBENs = pauseForCQTBENs;
     this.maxAttempts = maxAttempts;
     this.operationTimeoutNs = operationTimeoutNs;
     this.rpcTimeoutNs = rpcTimeoutNs;
@@ -126,8 +122,7 @@ public abstract class AsyncRpcRetryingCaller<T> {
     resetController(controller, callTimeoutNs, priority);
   }
 
-  private void tryScheduleRetry(Throwable error) {
-    long pauseNsToUse = error instanceof CallQueueTooBigException ? pauseForCQTBENs : pauseNs;
+  private void tryScheduleRetry(Throwable error, Consumer<Throwable> updateCachedLocation) {
     long delayNs;
     if (operationTimeoutNs > 0) {
       long maxDelayNs = remainingTimeNs() - SLEEP_DELTA_NS;
@@ -135,9 +130,9 @@ public abstract class AsyncRpcRetryingCaller<T> {
         completeExceptionally();
         return;
       }
-      delayNs = Math.min(maxDelayNs, getPauseTime(pauseNsToUse, tries - 1));
+      delayNs = Math.min(maxDelayNs, getPauseTime(pauseNs, tries - 1));
     } else {
-      delayNs = getPauseTime(pauseNsToUse, tries - 1);
+      delayNs = getPauseTime(pauseNs, tries - 1);
     }
     tries++;
     retryTimer.newTimeout(t -> doCall(), delayNs, TimeUnit.NANOSECONDS);
@@ -192,21 +187,19 @@ public abstract class AsyncRpcRetryingCaller<T> {
               future.completeExceptionally(e);
             } else {
               // failed to test whether the table is disabled, not a big deal, continue retrying
-              tryScheduleRetry(error);
+              tryScheduleRetry(error, updateCachedLocation);
             }
             return;
           }
           if (disabled) {
             future.completeExceptionally(new TableNotEnabledException(tableName.get()));
           } else {
-            tryScheduleRetry(error);
+            tryScheduleRetry(error, updateCachedLocation);
           }
         });
-      } else {
-        tryScheduleRetry(error);
       }
     } else {
-      tryScheduleRetry(error);
+      tryScheduleRetry(error, updateCachedLocation);
     }
   }
 

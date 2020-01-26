@@ -48,6 +48,7 @@ import org.slf4j.LoggerFactory;
  */
 @InterfaceAudience.Private
 public class ReplicationBarrierCleaner extends ScheduledChore {
+
   private static final Logger LOG = LoggerFactory.getLogger(ReplicationBarrierCleaner.class);
 
   private static final String REPLICATION_BARRIER_CLEANER_INTERVAL =
@@ -70,9 +71,7 @@ public class ReplicationBarrierCleaner extends ScheduledChore {
   }
 
   @Override
-  // Public so can be run out of MasterRpcServices. Synchronized so only one
-  // running instance at a time.
-  public synchronized void chore() {
+  protected void chore() {
     long totalRows = 0;
     long cleanedRows = 0;
     long deletedRows = 0;
@@ -100,22 +99,13 @@ public class ReplicationBarrierCleaner extends ScheduledChore {
           peerIds = peerManager.getSerialPeerIdsBelongsTo(tableName);
         }
         if (peerIds.isEmpty()) {
-          // no serial replication
-          // check if the region has already been removed, i.e, no catalog family
-          if (metaTable.exists(new Get(regionName).addFamily(HConstants.CATALOG_FAMILY))) {
-            // exists, then only keep the newest barrier
-            Cell cell = result.getColumnLatestCell(HConstants.REPLICATION_BARRIER_FAMILY,
-              HConstants.SEQNUM_QUALIFIER);
-            metaTable.delete(new Delete(regionName).addFamily(HConstants.REPLICATION_BARRIER_FAMILY,
-              cell.getTimestamp() - 1));
-            deletedBarriers += barriers.length - 1;
-          } else {
-            // not exists, delete all the barriers
-            metaTable
-              .delete(new Delete(regionName).addFamily(HConstants.REPLICATION_BARRIER_FAMILY));
-            deletedBarriers += barriers.length;
-          }
+          // no serial replication, only keep the newest barrier
+          Cell cell = result.getColumnLatestCell(HConstants.REPLICATION_BARRIER_FAMILY,
+            HConstants.SEQNUM_QUALIFIER);
+          metaTable.delete(new Delete(regionName).addFamily(HConstants.REPLICATION_BARRIER_FAMILY,
+            cell.getTimestamp() - 1));
           cleanedRows++;
+          deletedBarriers += barriers.length - 1;
           continue;
         }
         String encodedRegionName = RegionInfo.encodeRegionName(regionName);
@@ -169,9 +159,11 @@ public class ReplicationBarrierCleaner extends ScheduledChore {
       LOG.warn("Failed to clean up replication barrier", e);
     }
     if (totalRows > 0) {
-      LOG.info("TotalRows={}, cleanedRows={}, deletedRows={}, deletedBarriers={}, " +
-          "deletedLastPushedSeqIds={}", totalRows, cleanedRows, deletedRows,
-          deletedBarriers, deletedLastPushedSeqIds);
+      LOG.info(
+        "Cleanup replication barriers: totalRows {}, " +
+          "cleanedRows {}, deletedRows {}, deletedBarriers {}, deletedLastPushedSeqIds {}",
+        totalRows, cleanedRows, deletedRows, deletedBarriers, deletedLastPushedSeqIds);
     }
   }
+
 }

@@ -31,9 +31,10 @@ import org.apache.hadoop.hbase.ServerMetricsBuilder;
 import org.apache.hadoop.hbase.ServerName;
 import org.apache.hadoop.hbase.TableDescriptors;
 import org.apache.hadoop.hbase.TableName;
+import org.apache.hadoop.hbase.client.ClusterConnection;
 import org.apache.hadoop.hbase.client.ColumnFamilyDescriptorBuilder;
-import org.apache.hadoop.hbase.client.Connection;
 import org.apache.hadoop.hbase.client.HConnectionTestingUtility;
+import org.apache.hadoop.hbase.client.RegionInfoBuilder;
 import org.apache.hadoop.hbase.client.TableDescriptor;
 import org.apache.hadoop.hbase.client.TableDescriptorBuilder;
 import org.apache.hadoop.hbase.client.TableState;
@@ -64,6 +65,7 @@ import org.mockito.stubbing.Answer;
 import org.apache.hbase.thirdparty.com.google.protobuf.ServiceException;
 
 import org.apache.hadoop.hbase.shaded.protobuf.ProtobufUtil;
+import org.apache.hadoop.hbase.shaded.protobuf.generated.AdminProtos;
 import org.apache.hadoop.hbase.shaded.protobuf.generated.ClientProtos;
 import org.apache.hadoop.hbase.shaded.protobuf.generated.ClientProtos.MultiRequest;
 import org.apache.hadoop.hbase.shaded.protobuf.generated.ClientProtos.MultiResponse;
@@ -85,7 +87,7 @@ public class MockMasterServices extends MockNoopMasterServices {
   private MasterProcedureEnv procedureEnv;
   private ProcedureExecutor<MasterProcedureEnv> procedureExecutor;
   private ProcedureStore procedureStore;
-  private final Connection connection;
+  private final ClusterConnection connection;
   private final LoadBalancer balancer;
   private final ServerManager serverManager;
 
@@ -139,10 +141,17 @@ public class MockMasterServices extends MockNoopMasterServices {
     } catch (ServiceException se) {
       throw ProtobufUtil.getRemoteException(se);
     }
-    this.connection = HConnectionTestingUtility.getMockedConnection(getConfiguration());
+    // Mock n ClusterConnection and an AdminProtocol implementation. Have the
+    // ClusterConnection return the HRI.  Have the HRI return a few mocked up responses
+    // to make our test work.
+    this.connection =
+        HConnectionTestingUtility.getMockedConnectionAndDecorate(getConfiguration(),
+          Mockito.mock(AdminProtos.AdminService.BlockingInterface.class), ri, MOCK_MASTER_SERVERNAME,
+          RegionInfoBuilder.FIRST_META_REGIONINFO);
     // Set hbase.rootdir into test dir.
     Path rootdir = FSUtils.getRootDir(getConfiguration());
     FSUtils.setRootDir(getConfiguration(), rootdir);
+    Mockito.mock(AdminProtos.AdminService.BlockingInterface.class);
   }
 
   public void start(final int numServes, final RSProcedureDispatcher remoteDispatcher)
@@ -275,7 +284,7 @@ public class MockMasterServices extends MockNoopMasterServices {
   }
 
   @Override
-  public Connection getConnection() {
+  public ClusterConnection getConnection() {
     return this.connection;
   }
 
@@ -327,7 +336,7 @@ public class MockMasterServices extends MockNoopMasterServices {
       }
 
       @Override
-      public void update(TableDescriptor htd) throws IOException {
+      public void add(TableDescriptor htd) throws IOException {
         // noop
       }
 

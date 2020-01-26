@@ -36,14 +36,13 @@ import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.fs.permission.FsPermission;
 import org.apache.hadoop.hbase.HBaseClassTestRule;
 import org.apache.hadoop.hbase.HBaseTestingUtility;
+import org.apache.hadoop.hbase.HColumnDescriptor;
 import org.apache.hadoop.hbase.TableName;
 import org.apache.hadoop.hbase.client.Admin;
-import org.apache.hadoop.hbase.client.ColumnFamilyDescriptorBuilder;
-import org.apache.hadoop.hbase.client.Connection;
+import org.apache.hadoop.hbase.client.HTable;
 import org.apache.hadoop.hbase.client.Put;
 import org.apache.hadoop.hbase.client.RegionInfo;
 import org.apache.hadoop.hbase.client.RegionInfoBuilder;
-import org.apache.hadoop.hbase.client.Table;
 import org.apache.hadoop.hbase.fs.HFileSystem;
 import org.apache.hadoop.hbase.testclassification.MediumTests;
 import org.apache.hadoop.hbase.testclassification.RegionServerTests;
@@ -82,9 +81,9 @@ public class TestHRegionFileSystem {
     TEST_UTIL = new HBaseTestingUtility();
     Configuration conf = TEST_UTIL.getConfiguration();
     TEST_UTIL.startMiniCluster();
-    Table table = TEST_UTIL.createTable(TABLE_NAME, FAMILIES);
+    HTable table = (HTable) TEST_UTIL.createTable(TABLE_NAME, FAMILIES);
     assertEquals("Should start with empty table", 0, TEST_UTIL.countRows(table));
-    HRegionFileSystem regionFs = getHRegionFS(TEST_UTIL.getConnection(), table, conf);
+    HRegionFileSystem regionFs = getHRegionFS(table, conf);
     // the original block storage policy would be HOT
     String spA = regionFs.getStoragePolicyName(Bytes.toString(FAMILIES[0]));
     String spB = regionFs.getStoragePolicyName(Bytes.toString(FAMILIES[1]));
@@ -97,8 +96,8 @@ public class TestHRegionFileSystem {
     TEST_UTIL.shutdownMiniCluster();
     TEST_UTIL.getConfiguration().set(HStore.BLOCK_STORAGE_POLICY_KEY, "WARM");
     TEST_UTIL.startMiniCluster();
-    table = TEST_UTIL.createTable(TABLE_NAME, FAMILIES);
-    regionFs = getHRegionFS(TEST_UTIL.getConnection(), table, conf);
+    table = (HTable) TEST_UTIL.createTable(TABLE_NAME, FAMILIES);
+    regionFs = getHRegionFS(table, conf);
 
     try (Admin admin = TEST_UTIL.getConnection().getAdmin()) {
       spA = regionFs.getStoragePolicyName(Bytes.toString(FAMILIES[0]));
@@ -110,21 +109,19 @@ public class TestHRegionFileSystem {
 
       // alter table cf schema to change storage policies
       // and make sure it could override settings in conf
-      ColumnFamilyDescriptorBuilder cfdA =
-        ColumnFamilyDescriptorBuilder.newBuilder(FAMILIES[0]);
+      HColumnDescriptor hcdA = new HColumnDescriptor(Bytes.toString(FAMILIES[0]));
       // alter through setting HStore#BLOCK_STORAGE_POLICY_KEY in HColumnDescriptor
-      cfdA.setValue(HStore.BLOCK_STORAGE_POLICY_KEY, "ONE_SSD");
-      admin.modifyColumnFamily(TABLE_NAME, cfdA.build());
+      hcdA.setValue(HStore.BLOCK_STORAGE_POLICY_KEY, "ONE_SSD");
+      admin.modifyColumnFamily(TABLE_NAME, hcdA);
       while (TEST_UTIL.getMiniHBaseCluster().getMaster().getAssignmentManager().
           getRegionStates().hasRegionsInTransition()) {
         Thread.sleep(200);
         LOG.debug("Waiting on table to finish schema altering");
       }
       // alter through HColumnDescriptor#setStoragePolicy
-      ColumnFamilyDescriptorBuilder cfdB =
-        ColumnFamilyDescriptorBuilder.newBuilder(FAMILIES[1]);
-      cfdB.setStoragePolicy("ALL_SSD");
-      admin.modifyColumnFamily(TABLE_NAME, cfdB.build());
+      HColumnDescriptor hcdB = new HColumnDescriptor(Bytes.toString(FAMILIES[1]));
+      hcdB.setStoragePolicy("ALL_SSD");
+      admin.modifyColumnFamily(TABLE_NAME, hcdB);
       while (TEST_UTIL.getMiniHBaseCluster().getMaster().getAssignmentManager().getRegionStates()
           .hasRegionsInTransition()) {
         Thread.sleep(200);
@@ -183,16 +180,14 @@ public class TestHRegionFileSystem {
     }
   }
 
-  private HRegionFileSystem getHRegionFS(Connection conn, Table table, Configuration conf)
-      throws IOException {
+  private HRegionFileSystem getHRegionFS(HTable table, Configuration conf) throws IOException {
     FileSystem fs = TEST_UTIL.getDFSCluster().getFileSystem();
     Path tableDir = FSUtils.getTableDir(TEST_UTIL.getDefaultRootDirPath(), table.getName());
     List<Path> regionDirs = FSUtils.getRegionDirs(fs, tableDir);
     assertEquals(1, regionDirs.size());
     List<Path> familyDirs = FSUtils.getFamilyDirs(fs, regionDirs.get(0));
     assertEquals(2, familyDirs.size());
-    RegionInfo hri =
-      conn.getRegionLocator(table.getName()).getAllRegionLocations().get(0).getRegion();
+    RegionInfo hri = table.getRegionLocator().getAllRegionLocations().get(0).getRegionInfo();
     HRegionFileSystem regionFs = new HRegionFileSystem(conf, new HFileSystem(fs), tableDir, hri);
     return regionFs;
   }

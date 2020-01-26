@@ -239,8 +239,9 @@ public class TestWALObserver {
     // it's where WAL write cp should occur.
     long now = EnvironmentEdgeManager.currentTime();
     // we use HLogKey here instead of WALKeyImpl directly to support legacy coprocessors.
-    long txid = log.appendData(hri, new WALKeyImpl(hri.getEncodedNameAsBytes(), hri.getTable(), now,
-      new MultiVersionConcurrencyControl(), scopes), edit);
+    long txid = log.append(hri, new WALKeyImpl(hri.getEncodedNameAsBytes(), hri.getTable(), now,
+        new MultiVersionConcurrencyControl(), scopes),
+      edit, true);
     log.sync(txid);
 
     // the edit shall have been change now by the coprocessor.
@@ -290,9 +291,9 @@ public class TestWALObserver {
       assertFalse(cp.isPostWALWriteCalled());
 
       final long now = EnvironmentEdgeManager.currentTime();
-      long txid = log.appendData(hri,
-        new WALKeyImpl(hri.getEncodedNameAsBytes(), hri.getTable(), now, mvcc, scopes),
-        new WALEdit());
+      long txid = log.append(hri,
+          new WALKeyImpl(hri.getEncodedNameAsBytes(), hri.getTable(), now, mvcc, scopes),
+          new WALEdit(), true);
       log.sync(txid);
 
       assertFalse("Empty WALEdit should skip coprocessor evaluation.", cp.isPreWALWriteCalled());
@@ -339,8 +340,8 @@ public class TestWALObserver {
       addWALEdits(tableName, hri, TEST_ROW, fam, countPerFamily,
         EnvironmentEdgeManager.getDelegate(), wal, scopes, mvcc);
     }
-    wal.appendData(hri, new WALKeyImpl(hri.getEncodedNameAsBytes(), tableName, now, mvcc, scopes),
-      edit);
+    wal.append(hri, new WALKeyImpl(hri.getEncodedNameAsBytes(), tableName, now, mvcc, scopes), edit,
+      true);
     // sync to fs.
     wal.sync();
 
@@ -455,8 +456,8 @@ public class TestWALObserver {
       edit.add(new KeyValue(rowName, family, qualifierBytes, ee.currentTime(), columnBytes));
       // uses WALKeyImpl instead of HLogKey on purpose. will only work for tests where we don't care
       // about legacy coprocessors
-      txid = wal.appendData(hri,
-        new WALKeyImpl(hri.getEncodedNameAsBytes(), tableName, ee.currentTime(), mvcc), edit);
+      txid = wal.append(hri,
+        new WALKeyImpl(hri.getEncodedNameAsBytes(), tableName, ee.currentTime(), mvcc), edit, true);
     }
     if (-1 != txid) {
       wal.sync(txid);

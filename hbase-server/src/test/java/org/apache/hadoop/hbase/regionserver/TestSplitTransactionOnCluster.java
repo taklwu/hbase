@@ -1,4 +1,4 @@
-/*
+/**
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -31,9 +31,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileSystem;
@@ -55,6 +53,7 @@ import org.apache.hadoop.hbase.UnknownRegionException;
 import org.apache.hadoop.hbase.ZooKeeperConnectionException;
 import org.apache.hadoop.hbase.client.Admin;
 import org.apache.hadoop.hbase.client.ColumnFamilyDescriptorBuilder;
+import org.apache.hadoop.hbase.client.CompactionState;
 import org.apache.hadoop.hbase.client.Consistency;
 import org.apache.hadoop.hbase.client.Delete;
 import org.apache.hadoop.hbase.client.DoNotRetryRegionException;
@@ -84,16 +83,15 @@ import org.apache.hadoop.hbase.master.assignment.RegionStateNode;
 import org.apache.hadoop.hbase.master.assignment.RegionStates;
 import org.apache.hadoop.hbase.procedure2.ProcedureTestingUtility;
 import org.apache.hadoop.hbase.regionserver.compactions.CompactionContext;
-import org.apache.hadoop.hbase.regionserver.compactions.CompactionProgress;
 import org.apache.hadoop.hbase.regionserver.throttle.NoLimitThroughputController;
 import org.apache.hadoop.hbase.testclassification.LargeTests;
 import org.apache.hadoop.hbase.testclassification.RegionServerTests;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.hbase.util.EnvironmentEdgeManager;
 import org.apache.hadoop.hbase.util.FSUtils;
-import org.apache.hadoop.hbase.util.FutureUtils;
 import org.apache.hadoop.hbase.util.HBaseFsck;
 import org.apache.hadoop.hbase.util.JVMClusterUtil.RegionServerThread;
+import org.apache.hadoop.hbase.util.RetryCounter;
 import org.apache.hadoop.hbase.util.Threads;
 import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.KeeperException.NodeExistsException;
@@ -300,7 +298,7 @@ public class TestSplitTransactionOnCluster {
   }
 
   @Test
-  public void testSplitRollbackOnRegionClosing() throws Exception {
+  public void testSplitRollbackOnRegionClosing() throws IOException, InterruptedException {
     final TableName tableName = TableName.valueOf(name.getMethodName());
 
     // Create table then get the single region for our new table.
@@ -330,7 +328,7 @@ public class TestSplitTransactionOnCluster {
       // We don't roll back here anymore. Instead we fail-fast on construction of the
       // split transaction. Catch the exception instead.
       try {
-        FutureUtils.get(this.admin.splitRegionAsync(hri.getRegionName()));
+        this.admin.splitRegionAsync(hri.getRegionName(), null);
         fail();
       } catch (DoNotRetryRegionException e) {
         // Expected
@@ -342,7 +340,7 @@ public class TestSplitTransactionOnCluster {
       }
       regionStates.updateRegionState(hri, State.OPEN);
       // Now try splitting and it should work.
-      admin.splitRegionAsync(hri.getRegionName()).get(2, TimeUnit.MINUTES);
+      split(hri, server, regionCount);
       // Get daughters
       checkAndGetDaughters(tableName);
       // OK, so split happened after we cleared the blocking node.
@@ -354,16 +352,20 @@ public class TestSplitTransactionOnCluster {
   }
 
   /**
-   * Test that if daughter split on us, we won't do the shutdown handler fixup just because we can't
-   * find the immediate daughter of an offlined parent.
+   * Test that if daughter split on us, we won't do the shutdown handler fixup
+   * just because we can't find the immediate daughter of an offlined parent.
+   * @throws IOException
+   * @throws InterruptedException
    */
   @Test
-  public void testShutdownFixupWhenDaughterHasSplit() throws Exception {
+  public void testShutdownFixupWhenDaughterHasSplit()throws IOException, InterruptedException {
     final TableName tableName = TableName.valueOf(name.getMethodName());
 
     // Create table then get the single region for our new table.
-    Table t = createTableAndWait(tableName, HConstants.CATALOG_FAMILY); List<HRegion> regions =
-      cluster.getRegions(tableName); RegionInfo hri = getAndCheckSingleTableRegion(regions);
+    Table t = createTableAndWait(tableName, HConstants.CATALOG_FAMILY);
+    List<HRegion> regions = cluster.getRegions(tableName);
+    RegionInfo hri = getAndCheckSingleTableRegion(regions);
+
     int tableRegionIndex = ensureTableRegionNotOnSameServerAsMeta(admin, hri);
 
     // Turn off balancer so it doesn't cut in and mess up our placements.
@@ -376,38 +378,42 @@ public class TestSplitTransactionOnCluster {
       // Get region pre-split.
       HRegionServer server = cluster.getRegionServer(tableRegionIndex);
       printOutRegions(server, "Initial regions: ");
+      int regionCount = cluster.getRegions(hri.getTable()).size();
       // Now split.
-      admin.splitRegionAsync(hri.getRegionName()).get(2, TimeUnit.MINUTES);
+      split(hri, server, regionCount);
       // Get daughters
       List<HRegion> daughters = checkAndGetDaughters(tableName);
       // Now split one of the daughters.
-      HRegion daughterRegion = daughters.get(0);
-      RegionInfo daughter = daughterRegion.getRegionInfo();
+      regionCount = cluster.getRegions(hri.getTable()).size();
+      RegionInfo daughter = daughters.get(0).getRegionInfo();
       LOG.info("Daughter we are going to split: " + daughter);
-      // Compact first to ensure we have cleaned up references -- else the split will fail.
-      // May be a compaction going already so compact will return immediately; if so, wait until
-      // compaction completes.
-      daughterRegion.compact(true);
-      HStore store = daughterRegion.getStores().get(0);
-      CompactionProgress progress = store.getCompactionProgress();
-      if (progress != null) {
-        while (progress.getProgressPct() < 1) {
-          LOG.info("Waiting {}", progress);
-          Threads.sleep(1000);
-        }
+      // Compact first to ensure we have cleaned up references -- else the split
+      // will fail.
+      this.admin.compactRegion(daughter.getRegionName());
+      RetryCounter retrier = new RetryCounter(30, 1, TimeUnit.SECONDS);
+      while (CompactionState.NONE != admin.getCompactionStateForRegion(daughter.getRegionName())
+          && retrier.shouldRetry()) {
+        retrier.sleepUntilNextRetry();
       }
-      store.closeAndArchiveCompactedFiles();
-      for (int i = 0; i < 100; i++) {
-        if (!daughterRegion.hasReferences()) {
-          LOG.info("Break -- no references in {}", daughterRegion);
+      daughters = cluster.getRegions(tableName);
+      HRegion daughterRegion = null;
+      for (HRegion r : daughters) {
+        if (RegionInfo.COMPARATOR.compare(r.getRegionInfo(), daughter) == 0) {
+          daughterRegion = r;
+          // Archiving the compacted references file
+          r.getStores().get(0).closeAndArchiveCompactedFiles();
+          LOG.info("Found matching HRI: " + daughterRegion);
           break;
         }
+      }
+      assertTrue(daughterRegion != null);
+      for (int i = 0; i < 100; i++) {
+        if (!daughterRegion.hasReferences()) break;
         Threads.sleep(100);
       }
-      LOG.info("Finished {} references={}", daughterRegion, daughterRegion.hasReferences());
       assertFalse("Waiting for reference to be compacted", daughterRegion.hasReferences());
       LOG.info("Daughter hri before split (has been compacted): " + daughter);
-      admin.splitRegionAsync(daughter.getRegionName()).get(2, TimeUnit.MINUTES);
+      split(daughter, server, regionCount);
       // Get list of daughters
       daughters = cluster.getRegions(tableName);
       for (HRegion d: daughters) {
@@ -504,32 +510,38 @@ public class TestSplitTransactionOnCluster {
   }
 
   /**
-   * Verifies HBASE-5806. Here the case is that splitting is completed but before the CJ could
-   * remove the parent region the master is killed and restarted.
+   * Verifies HBASE-5806.  Here the case is that splitting is completed but before the
+   * CJ could remove the parent region the master is killed and restarted.
+   * @throws IOException
+   * @throws InterruptedException
+   * @throws NodeExistsException
+   * @throws KeeperException
    */
   @Test
   public void testMasterRestartAtRegionSplitPendingCatalogJanitor()
-      throws IOException, InterruptedException, NodeExistsException, KeeperException,
-      ServiceException, ExecutionException, TimeoutException {
+      throws IOException, InterruptedException, NodeExistsException,
+      KeeperException, ServiceException {
     final TableName tableName = TableName.valueOf(name.getMethodName());
+
     // Create table then get the single region for our new table.
-    try (Table t = createTableAndWait(tableName, HConstants.CATALOG_FAMILY)) {
-      List<HRegion> regions = cluster.getRegions(tableName);
-      RegionInfo hri = getAndCheckSingleTableRegion(regions);
+    Table t = createTableAndWait(tableName, HConstants.CATALOG_FAMILY);
+    List<HRegion> regions = cluster.getRegions(tableName);
+    RegionInfo hri = getAndCheckSingleTableRegion(regions);
 
-      int tableRegionIndex = ensureTableRegionNotOnSameServerAsMeta(admin, hri);
+    int tableRegionIndex = ensureTableRegionNotOnSameServerAsMeta(admin, hri);
 
-      // Turn off balancer so it doesn't cut in and mess up our placements.
-      this.admin.balancerSwitch(false, true);
-      // Turn off the meta scanner so it don't remove parent on us.
-      cluster.getMaster().setCatalogJanitorEnabled(false);
+    // Turn off balancer so it doesn't cut in and mess up our placements.
+    this.admin.balancerSwitch(false, true);
+    // Turn off the meta scanner so it don't remove parent on us.
+    cluster.getMaster().setCatalogJanitorEnabled(false);
+    try {
       // Add a bit of load up into the table so splittable.
       TESTING_UTIL.loadTable(t, HConstants.CATALOG_FAMILY, false);
       // Get region pre-split.
       HRegionServer server = cluster.getRegionServer(tableRegionIndex);
       printOutRegions(server, "Initial regions: ");
       // Call split.
-      this.admin.splitRegionAsync(hri.getRegionName()).get(2, TimeUnit.MINUTES);
+      this.admin.splitRegionAsync(hri.getRegionName(), null);
       List<HRegion> daughters = checkAndGetDaughters(tableName);
 
       // Before cleanup, get a new master.
@@ -537,6 +549,12 @@ public class TestSplitTransactionOnCluster {
       // Now call compact on the daughters and clean up any references.
       for (HRegion daughter : daughters) {
         daughter.compact(true);
+        RetryCounter retrier = new RetryCounter(30, 1, TimeUnit.SECONDS);
+        while (CompactionState.NONE != admin
+            .getCompactionStateForRegion(daughter.getRegionInfo().getRegionName())
+            && retrier.shouldRetry()) {
+          retrier.sleepUntilNextRetry();
+        }
         daughter.getStores().get(0).closeAndArchiveCompactedFiles();
         assertFalse(daughter.hasReferences());
       }
@@ -545,13 +563,12 @@ public class TestSplitTransactionOnCluster {
       // is reading from. Compacted-away files are picked up later by the compacted
       // file discharger process. It runs infrequently. Make it run so CatalogJanitor
       // doens't find any references.
-      for (RegionServerThread rst : cluster.getRegionServerThreads()) {
+      for (RegionServerThread rst: cluster.getRegionServerThreads()) {
         boolean oldSetting = rst.getRegionServer().compactedFileDischarger.setUseExecutor(false);
         rst.getRegionServer().compactedFileDischarger.run();
         rst.getRegionServer().compactedFileDischarger.setUseExecutor(oldSetting);
       }
       cluster.getMaster().setCatalogJanitorEnabled(true);
-      ProcedureTestingUtility.waitAllProcedures(cluster.getMaster().getMasterProcedureExecutor());
       LOG.info("Starting run of CatalogJanitor");
       cluster.getMaster().getCatalogJanitor().run();
       ProcedureTestingUtility.waitAllProcedures(cluster.getMaster().getMasterProcedureExecutor());
@@ -561,6 +578,7 @@ public class TestSplitTransactionOnCluster {
     } finally {
       TESTING_UTIL.getAdmin().balancerSwitch(true, false);
       cluster.getMaster().setCatalogJanitorEnabled(true);
+      t.close();
     }
   }
 
@@ -792,29 +810,40 @@ public class TestSplitTransactionOnCluster {
       }
       Thread.sleep(100);
     }
-    return null;
+    return(null);
   }
 
-  private List<HRegion> checkAndGetDaughters(TableName tableName) throws InterruptedException {
+  private List<HRegion> checkAndGetDaughters(TableName tableName)
+      throws InterruptedException {
     List<HRegion> daughters = null;
     // try up to 10s
-    for (int i = 0; i < 100; i++) {
+    for (int i=0; i<100; i++) {
       daughters = cluster.getRegions(tableName);
-      if (daughters.size() >= 2) {
-        break;
-      }
+      if (daughters.size() >= 2) break;
       Thread.sleep(100);
     }
     assertTrue(daughters.size() >= 2);
     return daughters;
   }
 
-  private HMaster abortAndWaitForMaster() throws IOException, InterruptedException {
+  private HMaster abortAndWaitForMaster()
+  throws IOException, InterruptedException {
     cluster.abortMaster(0);
     cluster.waitOnMaster(0);
     HMaster master = cluster.startMaster().getMaster();
     cluster.waitForActiveAndReadyMaster();
     return master;
+  }
+
+  private void split(final RegionInfo hri, final HRegionServer server, final int regionCount)
+      throws IOException, InterruptedException {
+    admin.splitRegionAsync(hri.getRegionName(), null);
+    for (int i = 0; cluster.getRegions(hri.getTable()).size() <= regionCount && i < 60; i++) {
+      LOG.debug("Waiting on region " + hri.getRegionNameAsString() + " to split");
+      Thread.sleep(2000);
+    }
+    assertFalse("Waited too long for split",
+        cluster.getRegions(hri.getTable()).size() <= regionCount);
   }
 
   /**
@@ -856,7 +885,7 @@ public class TestSplitTransactionOnCluster {
       LOG.info("Moving " + hri.getRegionNameAsString() + " from " +
         metaRegionServer.getServerName() + " to " +
         hrs.getServerName() + "; metaServerIndex=" + metaServerIndex);
-      admin.move(hri.getEncodedNameAsBytes(), hrs.getServerName());
+      admin.move(hri.getEncodedNameAsBytes(), Bytes.toBytes(hrs.getServerName().toString()));
     }
     // Wait till table region is up on the server that is NOT carrying hbase:meta.
     for (int i = 0; i < 100; i++) {

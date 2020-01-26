@@ -119,7 +119,8 @@ public class TestRegionMove {
     // Offline the region and then try to move it. Should fail.
     admin.unassign(regionToMove.getRegionName(), true);
     try {
-      admin.move(regionToMove.getEncodedNameAsBytes(), rs2.getServerName());
+      admin.move(regionToMove.getEncodedNameAsBytes(),
+          Bytes.toBytes(rs2.getServerName().toString()));
       fail();
     } catch (DoNotRetryRegionException e) {
       // We got expected exception
@@ -132,7 +133,8 @@ public class TestRegionMove {
 
     try {
       // Move the region to the other RS -- should fail
-      admin.move(regionToMove.getEncodedNameAsBytes(), rs2.getServerName());
+      admin.move(regionToMove.getEncodedNameAsBytes(),
+        Bytes.toBytes(rs2.getServerName().toString()));
       fail();
     } catch (DoNotRetryIOException e) {
       // We got expected exception

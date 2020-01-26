@@ -42,7 +42,6 @@ import org.apache.hadoop.hbase.security.access.AccessControlClient;
 import org.apache.hadoop.hbase.security.access.AccessController;
 import org.apache.hadoop.hbase.security.access.Permission.Action;
 import org.apache.hadoop.hbase.testclassification.MediumTests;
-import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.security.UserGroupInformation;
 import org.junit.AfterClass;
 import org.junit.Before;
@@ -126,6 +125,10 @@ public class TestSuperUserQuotaPermissions {
         try (Connection conn = getConnection()) {
           Admin admin = conn.getAdmin();
           final TableName tn = helper.createTableWithRegions(admin, 5);
+          final long sizeLimit = 2L * SpaceQuotaHelperForTests.ONE_MEGABYTE;
+          QuotaSettings settings = QuotaSettingsFactory.limitTableSpace(
+              tn, sizeLimit, SpaceViolationPolicy.NO_WRITES_COMPACTIONS);
+          admin.setQuota(settings);
           // Grant the normal user permissions
           try {
             AccessControlClient.grant(
@@ -146,22 +149,11 @@ public class TestSuperUserQuotaPermissions {
       @Override
       public Void call() throws Exception {
         try (Connection conn = getConnection()) {
-          // Write way more data so that we have HFiles > numRegions after flushes
-          // helper.writeData flushes itself, so no need to flush explicitly
-          helper.writeData(tn, 2L * SpaceQuotaHelperForTests.ONE_MEGABYTE);
-          helper.writeData(tn, 2L * SpaceQuotaHelperForTests.ONE_MEGABYTE);
+          helper.writeData(tn, 3L * SpaceQuotaHelperForTests.ONE_MEGABYTE);
           return null;
         }
       }
     });
-
-    final long sizeLimit = 2L * SpaceQuotaHelperForTests.ONE_MEGABYTE;
-    QuotaSettings settings = QuotaSettingsFactory.limitTableSpace(
-        tn, sizeLimit, SpaceViolationPolicy.NO_WRITES_COMPACTIONS);
-
-    try (Connection conn = getConnection()) {
-      conn.getAdmin().setQuota(settings);
-    }
 
     waitForTableToEnterQuotaViolation(tn);
 
@@ -178,29 +170,19 @@ public class TestSuperUserQuotaPermissions {
       });
       fail("Expected an exception trying to compact a table with a quota violation");
     } catch (DoNotRetryIOException e) {
-      // Expected Exception.
-      LOG.debug("message", e);
+      // Expected
     }
 
-    try{
-      // Should not throw an exception (superuser can do anything)
-      doAsSuperUser(new Callable<Void>() {
-        @Override
-        public Void call() throws Exception {
-          try (Connection conn = getConnection()) {
-            conn.getAdmin().majorCompact(tn);
-            return null;
-          }
+    // Should not throw an exception (superuser can do anything)
+    doAsSuperUser(new Callable<Void>() {
+      @Override
+      public Void call() throws Exception {
+        try (Connection conn = getConnection()) {
+          conn.getAdmin().majorCompact(tn);
+          return null;
         }
-      });
-    } catch (Exception e) {
-      // Unexpected Exception.
-      LOG.debug("message", e);
-      fail("Did not expect an exception to be thrown while a super user tries "
-          + "to compact a table with a quota violation");
-    }
-    int numberOfRegions = TEST_UTIL.getAdmin().getRegions(tn).size();
-    waitForHFilesCountLessorEqual(tn, Bytes.toBytes("f1"), numberOfRegions);
+      }
+    });
   }
 
   @Test
@@ -314,15 +296,6 @@ public class TestSuperUserQuotaPermissions {
         }
         LOG.info("Found snapshot " + snapshot);
         return snapshot.getQuotaStatus().isInViolation();
-      }
-    });
-  }
-
-  private void waitForHFilesCountLessorEqual(TableName tn, byte[] cf, int count) throws Exception {
-    Waiter.waitFor(TEST_UTIL.getConfiguration(), 30 * 1000, 1000, new Predicate<Exception>() {
-      @Override
-      public boolean evaluate() throws Exception {
-        return TEST_UTIL.getNumHFiles(tn, cf) <= count;
       }
     });
   }

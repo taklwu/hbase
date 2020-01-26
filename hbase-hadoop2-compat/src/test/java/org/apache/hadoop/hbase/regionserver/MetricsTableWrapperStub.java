@@ -106,7 +106,5 @@ public class MetricsTableWrapperStub implements MetricsTableWrapperAggregate {
   }
 
   @Override
-  public long getCpRequestsCount(String table) {
-    return 99;
-  }
+  public long getCpRequestsCount(String table) {return 99;}
 }

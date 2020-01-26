@@ -25,9 +25,8 @@ import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
-import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.ExecutionException;
 import java.util.regex.Pattern;
 import org.apache.hadoop.hbase.AsyncMetaTableAccessor;
@@ -110,22 +109,6 @@ public class TestAsyncTableAdminApi3 extends TestAsyncAdminBase {
       }
       assertTrue("Not found: " + tables[i], found);
     }
-
-    tableNames = new ArrayList<TableName>(tables.length + 1);
-    tableDescs = admin.listTableDescriptors(tableNames).get();
-    size = tableDescs.size();
-    assertEquals(0, size);
-
-    Collections.addAll(tableNames, tables);
-    tableNames.add(TableName.META_TABLE_NAME);
-    tableDescs = admin.listTableDescriptors(tableNames).get();
-    size = tableDescs.size();
-    assertEquals(tables.length + 1, size);
-    for (int i = 0, j = 0; i < tables.length && j < size; i++, j++) {
-      assertTrue("tableName should be equal in order",
-          tableDescs.get(j).getTableName().equals(tables[i]));
-    }
-    assertTrue(tableDescs.get(size - 1).getTableName().equals(TableName.META_TABLE_NAME));
 
     for (int i = 0; i < tables.length; i++) {
       admin.disableTable(tables[i]).join();
@@ -283,8 +266,8 @@ public class TestAsyncTableAdminApi3 extends TestAsyncAdminBase {
     createTableWithDefaultConf(tableName, splitKeys);
 
     AsyncTable<AdvancedScanResultConsumer> metaTable = ASYNC_CONN.getTable(META_TABLE_NAME);
-    List<HRegionLocation> regions = AsyncMetaTableAccessor
-      .getTableHRegionLocations(metaTable, tableName).get();
+    List<HRegionLocation> regions =
+      AsyncMetaTableAccessor.getTableHRegionLocations(metaTable, Optional.of(tableName)).get();
     assertEquals(
       "Tried to create " + expectedRegions + " regions " + "but only found " + regions.size(),
       expectedRegions, regions.size());
@@ -294,8 +277,8 @@ public class TestAsyncTableAdminApi3 extends TestAsyncAdminBase {
     // Enable table, use retain assignment to assign regions.
     admin.enableTable(tableName).join();
 
-    List<HRegionLocation> regions2 = AsyncMetaTableAccessor
-      .getTableHRegionLocations(metaTable, tableName).get();
+    List<HRegionLocation> regions2 =
+      AsyncMetaTableAccessor.getTableHRegionLocations(metaTable, Optional.of(tableName)).get();
     // Check the assignment.
     assertEquals(regions.size(), regions2.size());
     assertTrue(regions2.containsAll(regions));

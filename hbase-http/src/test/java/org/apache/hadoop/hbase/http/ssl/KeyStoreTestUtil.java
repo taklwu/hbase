@@ -49,9 +49,7 @@ import org.apache.hadoop.security.ssl.FileBasedKeyStoresFactory;
 import org.apache.hadoop.security.ssl.SSLFactory;
 import org.bouncycastle.x509.X509V1CertificateGenerator;
 
-public final class KeyStoreTestUtil {
-  private KeyStoreTestUtil() {
-  }
+public class KeyStoreTestUtil {
 
   public static String getClasspathDir(Class<?> klass) throws Exception {
     String file = klass.getName();
@@ -71,12 +69,11 @@ public final class KeyStoreTestUtil {
    * @param algorithm the signing algorithm, eg "SHA1withRSA"
    * @return the self-signed certificate
    */
-  public static X509Certificate generateCertificate(String dn, KeyPair pair, int days,
-      String algorithm) throws CertificateEncodingException, InvalidKeyException,
-          IllegalStateException, NoSuchProviderException, NoSuchAlgorithmException,
-          SignatureException {
+  public static X509Certificate generateCertificate(String dn, KeyPair pair, int days, String algorithm)
+      throws CertificateEncodingException, InvalidKeyException, IllegalStateException,
+      NoSuchProviderException, NoSuchAlgorithmException, SignatureException {
     Date from = new Date();
-    Date to = new Date(from.getTime() + days * 86400000L);
+    Date to = new Date(from.getTime() + days * 86400000l);
     BigInteger sn = new BigInteger(64, new SecureRandom());
     KeyPair keyPair = pair;
     X509V1CertificateGenerator certGen = new X509V1CertificateGenerator();

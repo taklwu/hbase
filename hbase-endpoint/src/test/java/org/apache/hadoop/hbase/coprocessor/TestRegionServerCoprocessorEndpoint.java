@@ -34,6 +34,7 @@ import org.apache.hadoop.hbase.coprocessor.protobuf.generated.DummyRegionServerE
 import org.apache.hadoop.hbase.coprocessor.protobuf.generated.DummyRegionServerEndpointProtos.DummyResponse;
 import org.apache.hadoop.hbase.coprocessor.protobuf.generated.DummyRegionServerEndpointProtos.DummyService;
 import org.apache.hadoop.hbase.ipc.CoprocessorRpcUtils;
+import org.apache.hadoop.hbase.ipc.RemoteWithExtrasException;
 import org.apache.hadoop.hbase.ipc.ServerRpcController;
 import org.apache.hadoop.hbase.protobuf.ProtobufUtil;
 import org.apache.hadoop.hbase.testclassification.CoprocessorTests;
@@ -100,7 +101,8 @@ public class TestRegionServerCoprocessorEndpoint {
         DummyRegionServerEndpointProtos.DummyRequest.getDefaultInstance(), rpcCallback);
     assertEquals(null, rpcCallback.get());
     assertTrue(controller.failedOnException());
-    assertEquals(WHAT_TO_THROW.getClass(), controller.getFailedOn().getCause().getClass());
+    assertEquals(WHAT_TO_THROW.getClass().getName().trim(),
+        ((RemoteWithExtrasException) controller.getFailedOn().getCause()).getClassName().trim());
   }
 
   public static class DummyRegionServerEndpoint extends DummyService

@@ -46,6 +46,7 @@ import org.junit.experimental.categories.Category;
 
 @Category({RestTests.class, MediumTests.class})
 public class TestGetAndPutResource extends RowResourceBase {
+
   @ClassRule
   public static final HBaseClassTestRule CLASS_RULE =
       HBaseClassTestRule.forClass(TestGetAndPutResource.class);
@@ -133,7 +134,7 @@ public class TestGetAndPutResource extends RowResourceBase {
   }
 
   @Test
-  public void testMultipleCellCheckPutPB() throws IOException {
+  public void testMultipleCellCheckPutPB() throws IOException, JAXBException {
     Response response = getValuePB(TABLE, ROW_1, COLUMN_1);
     assertEquals(404, response.getCode());
 
@@ -199,7 +200,7 @@ public class TestGetAndPutResource extends RowResourceBase {
   }
 
   @Test
-  public void testMultipleCellCheckDeletePB() throws IOException {
+  public void testMultipleCellCheckDeletePB() throws IOException, JAXBException {
     Response response = getValuePB(TABLE, ROW_1, COLUMN_1);
     assertEquals(404, response.getCode());
 
@@ -251,7 +252,6 @@ public class TestGetAndPutResource extends RowResourceBase {
     response = deleteRow(TABLE, ROW_1);
     assertEquals(200, response.getCode());
   }
-
   @Test
   public void testSingleCellGetPutBinary() throws IOException {
     final String path = "/" + TABLE + "/" + ROW_3 + "/" + COLUMN_1;
@@ -278,7 +278,7 @@ public class TestGetAndPutResource extends RowResourceBase {
   }
 
   @Test
-  public void testSingleCellGetJSON() throws IOException {
+  public void testSingleCellGetJSON() throws IOException, JAXBException {
     final String path = "/" + TABLE + "/" + ROW_4 + "/" + COLUMN_1;
     Response response = client.put(path, Constants.MIMETYPE_BINARY,
       Bytes.toBytes(VALUE_4));
@@ -292,7 +292,7 @@ public class TestGetAndPutResource extends RowResourceBase {
   }
 
   @Test
-  public void testLatestCellGetJSON() throws IOException {
+  public void testLatestCellGetJSON() throws IOException, JAXBException {
     final String path = "/" + TABLE + "/" + ROW_4 + "/" + COLUMN_1;
     CellSetModel cellSetModel = new CellSetModel();
     RowModel rowModel = new RowModel(ROW_4);
@@ -339,7 +339,7 @@ public class TestGetAndPutResource extends RowResourceBase {
   }
 
   @Test
-  public void testNoSuchCF() throws IOException {
+  public void testNoSuchCF() throws IOException, JAXBException {
     final String goodPath = "/" + TABLE + "/" + ROW_1 + "/" + CFA+":";
     final String badPath = "/" + TABLE + "/" + ROW_1 + "/" + "BAD";
     Response response = client.post(goodPath, Constants.MIMETYPE_BINARY,
@@ -529,7 +529,7 @@ public class TestGetAndPutResource extends RowResourceBase {
   }
 
   @Test
-  public void testMetrics() throws IOException {
+  public void testMetrics() throws IOException, JAXBException {
     final String path = "/" + TABLE + "/" + ROW_4 + "/" + COLUMN_1;
     Response response = client.put(path, Constants.MIMETYPE_BINARY,
         Bytes.toBytes(VALUE_4));
@@ -542,16 +542,16 @@ public class TestGetAndPutResource extends RowResourceBase {
     assertEquals(200, response.getCode());
 
     UserProvider userProvider = UserProvider.instantiate(conf);
-    METRICS_ASSERT.assertCounterGt("requests", 2L,
+    METRICS_ASSERT.assertCounterGt("requests", 2l,
       RESTServlet.getInstance(conf, userProvider).getMetrics().getSource());
 
-    METRICS_ASSERT.assertCounterGt("successfulGet", 0L,
+    METRICS_ASSERT.assertCounterGt("successfulGet", 0l,
       RESTServlet.getInstance(conf, userProvider).getMetrics().getSource());
 
-    METRICS_ASSERT.assertCounterGt("successfulPut", 0L,
+    METRICS_ASSERT.assertCounterGt("successfulPut", 0l,
       RESTServlet.getInstance(conf, userProvider).getMetrics().getSource());
 
-    METRICS_ASSERT.assertCounterGt("successfulDelete", 0L,
+    METRICS_ASSERT.assertCounterGt("successfulDelete", 0l,
       RESTServlet.getInstance(conf, userProvider).getMetrics().getSource());
   }
 
@@ -806,3 +806,4 @@ public class TestGetAndPutResource extends RowResourceBase {
     assertEquals(200, response.getCode());
   }
 }
+

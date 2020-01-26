@@ -17,7 +17,6 @@
  */
 package org.apache.hadoop.hbase.regionserver;
 
-import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hbase.CompatibilityFactory;
 import org.apache.hadoop.hbase.HBaseClassTestRule;
 import org.apache.hadoop.hbase.test.MetricsAssertHelper;
@@ -39,7 +38,7 @@ public class TestMetricsRegion {
 
   @Test
   public void testRegionWrapperMetrics() {
-    MetricsRegion mr = new MetricsRegion(new MetricsRegionWrapperStub(), new Configuration());
+    MetricsRegion mr = new MetricsRegion(new MetricsRegionWrapperStub());
     MetricsRegionAggregateSource agg = mr.getSource().getAggregateSource();
 
     HELPER.assertGauge(
@@ -76,7 +75,7 @@ public class TestMetricsRegion {
     mr.close();
 
     // test region with replica id > 0
-    mr = new MetricsRegion(new MetricsRegionWrapperStub(1), new Configuration());
+    mr = new MetricsRegion(new MetricsRegionWrapperStub(1));
     agg = mr.getSource().getAggregateSource();
     HELPER.assertGauge(
       "namespace_TestNS_table_MetricsRegionWrapperStub_region_DEADBEEF001_metric_storeCount",

@@ -20,10 +20,8 @@ package org.apache.hadoop.hbase.regionserver;
 import static org.mockito.Mockito.when;
 
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.hbase.*;
 import org.apache.hadoop.hbase.HBaseClassTestRule;
-import org.apache.hadoop.hbase.HBaseConfiguration;
-import org.apache.hadoop.hbase.HConstants;
-import org.apache.hadoop.hbase.QosTestHelper;
 import org.apache.hadoop.hbase.testclassification.MediumTests;
 import org.apache.hadoop.hbase.testclassification.RegionServerTests;
 import org.junit.Before;
@@ -40,6 +38,7 @@ import org.apache.hadoop.hbase.shaded.protobuf.generated.ClientProtos.MultiReque
  */
 @Category({RegionServerTests.class, MediumTests.class})
 public class TestQosFunction extends QosTestHelper {
+
   @ClassRule
   public static final HBaseClassTestRule CLASS_RULE =
       HBaseClassTestRule.forClass(TestQosFunction.class);
@@ -47,6 +46,7 @@ public class TestQosFunction extends QosTestHelper {
   private Configuration conf;
   private RSRpcServices rpcServices;
   private AnnotationReadingPriorityFunction qosFunction;
+
 
   @Before
   public void setUp() {
@@ -65,7 +65,9 @@ public class TestQosFunction extends QosTestHelper {
     // Check multi works.
     checkMethod(conf, "Multi", HConstants.NORMAL_QOS, qosFunction,
         MultiRequest.getDefaultInstance());
+
   }
+
 
   @Test
   public void testAnnotations() {

@@ -166,7 +166,7 @@ public class TestHMobStore {
     final WALFactory wals = new WALFactory(walConf, methodName);
     region = new HRegion(tableDir, wals.getWAL(info), fs, conf, info, td, null);
     region.setMobFileCache(new MobFileCache(conf));
-    store = new HMobStore(region, cfd, conf, false);
+    store = new HMobStore(region, cfd, conf);
     if (testStore) {
       init(conf, cfd);
     }
@@ -448,14 +448,17 @@ public class TestHMobStore {
     String targetPathName = MobUtils.formatDate(currentDate);
     Path targetPath = new Path(store.getPath(), targetPathName);
     store.commitFile(mobFilePath, targetPath);
-    // resolve
-    Cell resultCell1 = store.resolve(seekKey1, false).getCell();
-    Cell resultCell2 = store.resolve(seekKey2, false).getCell();
-    Cell resultCell3 = store.resolve(seekKey3, false).getCell();
-    // compare
-    Assert.assertEquals(Bytes.toString(value), Bytes.toString(CellUtil.cloneValue(resultCell1)));
-    Assert.assertEquals(Bytes.toString(value), Bytes.toString(CellUtil.cloneValue(resultCell2)));
-    Assert.assertEquals(Bytes.toString(value2), Bytes.toString(CellUtil.cloneValue(resultCell3)));
+    //resolve
+    Cell resultCell1 = store.resolve(seekKey1, false);
+    Cell resultCell2 = store.resolve(seekKey2, false);
+    Cell resultCell3 = store.resolve(seekKey3, false);
+    //compare
+    Assert.assertEquals(Bytes.toString(value),
+        Bytes.toString(CellUtil.cloneValue(resultCell1)));
+    Assert.assertEquals(Bytes.toString(value),
+        Bytes.toString(CellUtil.cloneValue(resultCell2)));
+    Assert.assertEquals(Bytes.toString(value2),
+        Bytes.toString(CellUtil.cloneValue(resultCell3)));
   }
 
   /**

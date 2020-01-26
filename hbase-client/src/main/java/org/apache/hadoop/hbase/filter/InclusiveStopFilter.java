@@ -51,6 +51,12 @@ public class InclusiveStopFilter extends FilterBase {
     return this.stopRowKey;
   }
 
+  @Deprecated
+  @Override
+  public ReturnCode filterKeyValue(final Cell c) {
+    return filterCell(c);
+  }
+
   @Override
   public ReturnCode filterCell(final Cell c) {
     if (done) return ReturnCode.NEXT_ROW;

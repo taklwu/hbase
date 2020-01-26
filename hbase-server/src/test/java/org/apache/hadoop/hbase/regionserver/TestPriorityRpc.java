@@ -18,6 +18,7 @@
 package org.apache.hadoop.hbase.regionserver;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
 
 import java.io.IOException;
 import org.apache.hadoop.conf.Configuration;
@@ -59,13 +60,12 @@ public class TestPriorityRpc {
   public static final HBaseClassTestRule CLASS_RULE =
       HBaseClassTestRule.forClass(TestPriorityRpc.class);
 
-  private Configuration conf;
   private HRegionServer regionServer = null;
   private PriorityFunction priority = null;
 
   @Before
   public void setup() {
-    conf = HBaseConfiguration.create();
+    Configuration conf = HBaseConfiguration.create();
     conf.setBoolean("hbase.testing.nocluster", true); // No need to do ZK
     final HBaseTestingUtility TEST_UTIL = new HBaseTestingUtility(conf);
     TEST_UTIL.getDataTestDir(this.getClass().getName());
@@ -106,8 +106,8 @@ public class TestPriorityRpc {
         .thenReturn(RegionInfoBuilder.FIRST_META_REGIONINFO.getTable());
     // Presume type.
     ((AnnotationReadingPriorityFunction)priority).setRegionServer(mockRS);
-    assertEquals(
-        HConstants.SYSTEMTABLE_QOS, priority.getPriority(header, getRequest, createSomeUser()));
+    assertEquals(HConstants.SYSTEMTABLE_QOS, priority.getPriority(header, getRequest,
+      User.createUserForTesting(regionServer.conf, "someuser", new String[]{"somegroup"})));
   }
 
   @Test
@@ -120,7 +120,8 @@ public class TestPriorityRpc {
     headerBuilder.setMethodName("foo");
     RequestHeader header = headerBuilder.build();
     PriorityFunction qosFunc = regionServer.rpcServices.getPriority();
-    assertEquals(HConstants.NORMAL_QOS, qosFunc.getPriority(header, null, createSomeUser()));
+    assertEquals(HConstants.NORMAL_QOS, qosFunc.getPriority(header, null,
+      User.createUserForTesting(regionServer.conf, "someuser", new String[]{"somegroup"})));
   }
 
   @Test
@@ -140,12 +141,12 @@ public class TestPriorityRpc {
     Mockito.when(mockRpc.getRegion(Mockito.any())).thenReturn(mockRegion);
     Mockito.when(mockRegion.getRegionInfo()).thenReturn(mockRegionInfo);
     // make isSystemTable return false
-    Mockito.when(mockRegionInfo.getTable())
-        .thenReturn(TableName.valueOf("testQosFunctionForScanMethod"));
+    Mockito.when(mockRegionInfo.getTable()).thenReturn(TableName.valueOf("testQosFunctionForScanMethod"));
     // Presume type.
     ((AnnotationReadingPriorityFunction)priority).setRegionServer(mockRS);
-    final int qos = priority.getPriority(header, scanRequest, createSomeUser());
-    assertEquals(Integer.toString(qos), qos, HConstants.NORMAL_QOS);
+    int qos = priority.getPriority(header, scanRequest,
+      User.createUserForTesting(regionServer.conf, "someuser", new String[]{"somegroup"}));
+    assertTrue ("" + qos, qos == HConstants.NORMAL_QOS);
 
     //build a scan request with scannerID
     scanBuilder = ScanRequest.newBuilder();
@@ -157,26 +158,18 @@ public class TestPriorityRpc {
     Mockito.when(mockRegionScanner.getRegionInfo()).thenReturn(mockRegionInfo);
     Mockito.when(mockRpc.getRegion((RegionSpecifier)Mockito.any())).thenReturn(mockRegion);
     Mockito.when(mockRegion.getRegionInfo()).thenReturn(mockRegionInfo);
-    Mockito.when(mockRegionInfo.getTable())
-        .thenReturn(RegionInfoBuilder.FIRST_META_REGIONINFO.getTable());
+    Mockito.when(mockRegionInfo.getTable()).thenReturn(RegionInfoBuilder.FIRST_META_REGIONINFO.getTable());
 
     // Presume type.
     ((AnnotationReadingPriorityFunction)priority).setRegionServer(mockRS);
 
-    assertEquals(
-        HConstants.SYSTEMTABLE_QOS,
-        priority.getPriority(header, scanRequest, createSomeUser()));
+    assertEquals(HConstants.SYSTEMTABLE_QOS, priority.getPriority(header, scanRequest,
+      User.createUserForTesting(regionServer.conf, "someuser", new String[]{"somegroup"})));
 
     //the same as above but with non-meta region
     // make isSystemTable return false
-    Mockito.when(mockRegionInfo.getTable())
-        .thenReturn(TableName.valueOf("testQosFunctionForScanMethod"));
-    assertEquals(
-        HConstants.NORMAL_QOS,
-        priority.getPriority(header, scanRequest, createSomeUser()));
-  }
-
-  private User createSomeUser() {
-    return User.createUserForTesting(conf, "someuser", new String[] { "somegroup" });
+    Mockito.when(mockRegionInfo.getTable()).thenReturn(TableName.valueOf("testQosFunctionForScanMethod"));
+    assertEquals(HConstants.NORMAL_QOS, priority.getPriority(header, scanRequest,
+      User.createUserForTesting(regionServer.conf, "someuser", new String[]{"somegroup"})));
   }
 }

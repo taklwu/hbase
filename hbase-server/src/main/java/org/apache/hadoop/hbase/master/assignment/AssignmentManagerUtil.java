@@ -28,16 +28,19 @@ import java.util.stream.Stream;
 import org.apache.commons.lang3.ArrayUtils;
 import org.apache.hadoop.hbase.HBaseIOException;
 import org.apache.hadoop.hbase.ServerName;
-import org.apache.hadoop.hbase.client.AsyncRegionServerAdmin;
 import org.apache.hadoop.hbase.client.RegionInfo;
 import org.apache.hadoop.hbase.client.RegionReplicaUtil;
 import org.apache.hadoop.hbase.favored.FavoredNodesManager;
+import org.apache.hadoop.hbase.ipc.HBaseRpcController;
 import org.apache.hadoop.hbase.master.procedure.MasterProcedureEnv;
-import org.apache.hadoop.hbase.util.FutureUtils;
-import org.apache.hadoop.hbase.wal.WALSplitUtil;
+import org.apache.hadoop.hbase.wal.WALSplitter;
 import org.apache.yetus.audience.InterfaceAudience;
 
+import org.apache.hbase.thirdparty.com.google.protobuf.ServiceException;
+
+import org.apache.hadoop.hbase.shaded.protobuf.ProtobufUtil;
 import org.apache.hadoop.hbase.shaded.protobuf.RequestConverter;
+import org.apache.hadoop.hbase.shaded.protobuf.generated.AdminProtos.AdminService;
 import org.apache.hadoop.hbase.shaded.protobuf.generated.AdminProtos.GetRegionInfoRequest;
 import org.apache.hadoop.hbase.shaded.protobuf.generated.AdminProtos.GetRegionInfoResponse;
 
@@ -63,15 +66,22 @@ final class AssignmentManagerUtil {
   static GetRegionInfoResponse getRegionInfoResponse(final MasterProcedureEnv env,
       final ServerName regionLocation, final RegionInfo hri, boolean includeBestSplitRow)
       throws IOException {
-    AsyncRegionServerAdmin admin =
-      env.getMasterServices().getAsyncClusterConnection().getRegionServerAdmin(regionLocation);
+    // TODO: There is no timeout on this controller. Set one!
+    HBaseRpcController controller =
+      env.getMasterServices().getClusterConnection().getRpcControllerFactory().newController();
+    final AdminService.BlockingInterface admin =
+      env.getMasterServices().getClusterConnection().getAdmin(regionLocation);
     GetRegionInfoRequest request = null;
     if (includeBestSplitRow) {
       request = RequestConverter.buildGetRegionInfoRequest(hri.getRegionName(), false, true);
     } else {
       request = RequestConverter.buildGetRegionInfoRequest(hri.getRegionName());
     }
-    return FutureUtils.get(admin.getRegionInfo(request));
+    try {
+      return admin.getRegionInfo(controller, request);
+    } catch (ServiceException e) {
+      throw ProtobufUtil.handleRemoteException(e);
+    }
   }
 
   private static void lock(List<RegionStateNode> regionNodes) {
@@ -219,7 +229,8 @@ final class AssignmentManagerUtil {
   }
 
   static void checkClosedRegion(MasterProcedureEnv env, RegionInfo regionInfo) throws IOException {
-    if (WALSplitUtil.hasRecoveredEdits(env.getMasterConfiguration(), regionInfo)) {
+    if (WALSplitter.hasRecoveredEdits(env.getMasterServices().getFileSystem(),
+      env.getMasterConfiguration(), regionInfo)) {
       throw new IOException("Recovered.edits are found in Region: " + regionInfo +
         ", abort split/merge to prevent data loss");
     }

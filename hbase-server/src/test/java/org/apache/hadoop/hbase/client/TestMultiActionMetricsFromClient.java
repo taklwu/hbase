@@ -49,7 +49,7 @@ public class TestMultiActionMetricsFromClient {
   public static void setUpBeforeClass() throws Exception {
     TEST_UTIL.startMiniCluster(1);
     TEST_UTIL.getHBaseCluster().waitForActiveAndReadyMaster();
-    TEST_UTIL.waitUntilAllRegionsAssigned(TableName.META_TABLE_NAME);
+    TEST_UTIL.waitUntilAllRegionsAssigned(TABLE_NAME.META_TABLE_NAME);
     TEST_UTIL.createTable(TABLE_NAME, FAMILY);
   }
 
@@ -62,9 +62,12 @@ public class TestMultiActionMetricsFromClient {
   public void testMultiMetrics() throws Exception {
     Configuration conf = new Configuration(TEST_UTIL.getConfiguration());
     conf.set(MetricsConnection.CLIENT_SIDE_METRICS_ENABLED_KEY, "true");
-    try (Connection conn = ConnectionFactory.createConnection(conf)) {
+    ConnectionImplementation conn =
+      (ConnectionImplementation) ConnectionFactory.createConnection(conf);
+
+    try {
       BufferedMutator mutator = conn.getBufferedMutator(TABLE_NAME);
-      byte[][] keys = { Bytes.toBytes("aaa"), Bytes.toBytes("mmm"), Bytes.toBytes("zzz") };
+      byte[][] keys = {Bytes.toBytes("aaa"), Bytes.toBytes("mmm"), Bytes.toBytes("zzz")};
       for (byte[] key : keys) {
         Put p = new Put(key);
         p.addColumn(FAMILY, QUALIFIER, Bytes.toBytes(10));
@@ -74,11 +77,12 @@ public class TestMultiActionMetricsFromClient {
       mutator.flush();
       mutator.close();
 
-      MetricsConnection metrics =
-        ((AsyncConnectionImpl) conn.toAsyncConnection()).getConnectionMetrics().get();
+      MetricsConnection metrics = conn.getConnectionMetrics();
       assertEquals(1, metrics.multiTracker.reqHist.getCount());
       assertEquals(3, metrics.numActionsPerServerHist.getSnapshot().getMean(), 1e-15);
       assertEquals(1, metrics.numActionsPerServerHist.getCount());
+    } finally {
+      conn.close();
     }
   }
 }

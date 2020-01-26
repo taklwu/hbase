@@ -17,19 +17,15 @@
  */
 package org.apache.hadoop.hbase.chaos.actions;
 
-import java.io.IOException;
-import java.util.concurrent.ThreadLocalRandom;
-
 import org.apache.hadoop.hbase.HBaseTestingUtility;
 import org.apache.hadoop.hbase.TableName;
 import org.apache.hadoop.hbase.client.Admin;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+
+import java.io.IOException;
+import java.util.concurrent.ThreadLocalRandom;
 
 
 public class SplitAllRegionOfTableAction extends Action {
-  private static final Logger LOG =
-      LoggerFactory.getLogger(SplitAllRegionOfTableAction.class);
   private static final int DEFAULT_MAX_SPLITS = 3;
   private static final String MAX_SPLIT_KEY = "hbase.chaosmonkey.action.maxFullTableSplits";
 

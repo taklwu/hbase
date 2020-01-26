@@ -42,7 +42,6 @@ import org.apache.hadoop.hbase.KeepDeletedCells;
 import org.apache.hadoop.hbase.KeyValue;
 import org.apache.hadoop.hbase.KeyValueTestUtil;
 import org.apache.hadoop.hbase.KeyValueUtil;
-import org.apache.hadoop.hbase.TableDescriptors;
 import org.apache.hadoop.hbase.TableName;
 import org.apache.hadoop.hbase.client.ColumnFamilyDescriptorBuilder;
 import org.apache.hadoop.hbase.client.Put;
@@ -949,9 +948,8 @@ public class TestDefaultMemStore {
     EnvironmentEdgeManager.injectEdge(edge);
     edge.setCurrentTimeMillis(1234);
     WALFactory wFactory = new WALFactory(conf, "1234");
-    TableDescriptors tds = new FSTableDescriptors(conf);
     HRegion meta = HRegion.createHRegion(RegionInfoBuilder.FIRST_META_REGIONINFO, testDir,
-        conf, tds.get(TableName.META_TABLE_NAME),
+        conf, FSTableDescriptors.createMetaTableDescriptor(conf),
         wFactory.getWAL(RegionInfoBuilder.FIRST_META_REGIONINFO));
     // parameterized tests add [#] suffix get rid of [ and ].
     TableDescriptor desc = TableDescriptorBuilder

@@ -118,7 +118,8 @@ public class TestRSGroupsOfflineMode {
     if (master.getAssignmentManager().getRegionStates().getRegionAssignments()
       .containsValue(failoverRS.getServerName())) {
       for (RegionInfo regionInfo : hbaseAdmin.getRegions(failoverRS.getServerName())) {
-        hbaseAdmin.move(regionInfo.getEncodedNameAsBytes(), failoverRS.getServerName());
+        hbaseAdmin.move(regionInfo.getEncodedNameAsBytes(),
+          Bytes.toBytes(failoverRS.getServerName().getServerName()));
       }
       LOG.info("Waiting for region unassignments on failover RS...");
       TEST_UTIL.waitFor(WAIT_TIMEOUT, new Waiter.Predicate<Exception>() {

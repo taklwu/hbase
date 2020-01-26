@@ -30,6 +30,7 @@ import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hbase.Cell;
 import org.apache.hadoop.hbase.CellComparatorImpl;
+import org.apache.hadoop.hbase.CellUtil;
 import org.apache.hadoop.hbase.HBaseClassTestRule;
 import org.apache.hadoop.hbase.HBaseTestingUtility;
 import org.apache.hadoop.hbase.HConstants;
@@ -51,7 +52,7 @@ import org.apache.hadoop.hbase.wal.WAL;
 import org.apache.hadoop.hbase.wal.WALEdit;
 import org.apache.hadoop.hbase.wal.WALFactory;
 import org.apache.hadoop.hbase.wal.WALKey;
-import org.apache.hadoop.hbase.wal.WALSplitUtil;
+import org.apache.hadoop.hbase.wal.WALSplitter;
 import org.junit.BeforeClass;
 import org.junit.ClassRule;
 import org.junit.Rule;
@@ -147,8 +148,8 @@ public class TestRecoveredEdits {
     // There should be no store files.
     assertTrue(storeFiles.isEmpty());
     region.close();
-    Path regionDir = FSUtils.getRegionDirFromRootDir(hbaseRootDir, hri);
-    Path recoveredEditsDir = WALSplitUtil.getRegionDirRecoveredEditsDir(regionDir);
+    Path regionDir = region.getRegionDir(hbaseRootDir, hri);
+    Path recoveredEditsDir = WALSplitter.getRegionDirRecoveredEditsDir(regionDir);
     // This is a little fragile getting this path to a file of 10M of edits.
     Path recoveredEditsFile = new Path(
       System.getProperty("test.build.classes", "target/test-classes"),
@@ -194,18 +195,15 @@ public class TestRecoveredEdits {
         WALEdit val = entry.getEdit();
         count++;
         // Check this edit is for this region.
-        if (!Bytes.equals(key.getEncodedRegionName(),
-            region.getRegionInfo().getEncodedNameAsBytes())) {
+        if (!Bytes
+            .equals(key.getEncodedRegionName(), region.getRegionInfo().getEncodedNameAsBytes())) {
           continue;
         }
         Cell previous = null;
         for (Cell cell : val.getCells()) {
-          if (WALEdit.isMetaEditFamily(cell)) {
+          if (CellUtil.matchingFamily(cell, WALEdit.METAFAMILY)) continue;
+          if (previous != null && CellComparatorImpl.COMPARATOR.compareRows(previous, cell) == 0)
             continue;
-          }
-          if (previous != null && CellComparatorImpl.COMPARATOR.compareRows(previous, cell) == 0) {
-            continue;
-          }
           previous = cell;
           walCells.add(cell);
         }

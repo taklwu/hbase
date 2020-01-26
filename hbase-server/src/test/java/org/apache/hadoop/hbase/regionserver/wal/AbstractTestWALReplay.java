@@ -96,7 +96,6 @@ import org.apache.hadoop.hbase.wal.WAL;
 import org.apache.hadoop.hbase.wal.WALEdit;
 import org.apache.hadoop.hbase.wal.WALFactory;
 import org.apache.hadoop.hbase.wal.WALKeyImpl;
-import org.apache.hadoop.hbase.wal.WALSplitUtil;
 import org.apache.hadoop.hbase.wal.WALSplitter;
 import org.apache.hadoop.hdfs.DFSInputStream;
 import org.junit.After;
@@ -642,7 +641,7 @@ public abstract class AbstractTestWALReplay {
   // Only throws exception if throwExceptionWhenFlushing is set true.
   public static class CustomStoreFlusher extends DefaultStoreFlusher {
     // Switch between throw and not throw exception in flush
-    public static final AtomicBoolean throwExceptionWhenFlushing = new AtomicBoolean(false);
+    static final AtomicBoolean throwExceptionWhenFlushing = new AtomicBoolean(false);
 
     public CustomStoreFlusher(Configuration conf, HStore store) {
       super(conf, store);
@@ -801,15 +800,15 @@ public abstract class AbstractTestWALReplay {
     long now = ee.currentTime();
     edit.add(new KeyValue(rowName, Bytes.toBytes("another family"), rowName,
       now, rowName));
-    wal.appendData(hri, new WALKeyImpl(hri.getEncodedNameAsBytes(), tableName, now, mvcc, scopes),
-      edit);
+    wal.append(hri, new WALKeyImpl(hri.getEncodedNameAsBytes(), tableName, now, mvcc, scopes), edit,
+        true);
 
     // Delete the c family to verify deletes make it over.
     edit = new WALEdit();
     now = ee.currentTime();
     edit.add(new KeyValue(rowName, Bytes.toBytes("c"), null, now, KeyValue.Type.DeleteFamily));
-    wal.appendData(hri, new WALKeyImpl(hri.getEncodedNameAsBytes(), tableName, now, mvcc, scopes),
-      edit);
+    wal.append(hri, new WALKeyImpl(hri.getEncodedNameAsBytes(), tableName, now, mvcc, scopes), edit,
+        true);
 
     // Sync.
     wal.sync();
@@ -903,12 +902,15 @@ public abstract class AbstractTestWALReplay {
     assertTrue(listStatus.length > 0);
     WALSplitter.splitLogFile(hbaseRootDir, listStatus[0],
         this.fs, this.conf, null, null, null, wals);
-    FileStatus[] listStatus1 = this.fs.listStatus(new Path(FSUtils.getWALTableDir(conf, tableName),
-        new Path(hri.getEncodedName(), "recovered.edits")),
-      new PathFilter() {
+    FileStatus[] listStatus1 = this.fs.listStatus(
+      new Path(FSUtils.getWALTableDir(conf, tableName), new Path(hri.getEncodedName(),
+          "recovered.edits")), new PathFilter() {
         @Override
         public boolean accept(Path p) {
-          return !WALSplitUtil.isSequenceIdFile(p);
+          if (WALSplitter.isSequenceIdFile(p)) {
+            return false;
+          }
+          return true;
         }
       });
     int editCount = 0;
@@ -954,7 +956,7 @@ public abstract class AbstractTestWALReplay {
     runWALSplit(this.conf);
 
     // here we let the DFSInputStream throw an IOException just after the WALHeader.
-    Path editFile = WALSplitUtil.getSplitEditFilesSorted(this.fs, regionDir).first();
+    Path editFile = WALSplitter.getSplitEditFilesSorted(this.fs, regionDir).first();
     FSDataInputStream stream = fs.open(editFile);
     stream.seek(ProtobufLogReader.PB_WAL_MAGIC.length);
     Class<? extends AbstractFSWALProvider.Reader> logReaderClass =
@@ -1154,10 +1156,11 @@ public abstract class AbstractTestWALReplay {
   }
 
   private FSWALEntry createFSWALEntry(HTableDescriptor htd, HRegionInfo hri, long sequence,
-    byte[] rowName, byte[] family, EnvironmentEdge ee, MultiVersionConcurrencyControl mvcc,
-    int index, NavigableMap<byte[], Integer> scopes) throws IOException {
-    FSWALEntry entry = new FSWALEntry(sequence, createWALKey(htd.getTableName(), hri, mvcc, scopes),
-      createWALEdit(rowName, family, ee, index), hri, true, null);
+      byte[] rowName, byte[] family, EnvironmentEdge ee, MultiVersionConcurrencyControl mvcc,
+      int index, NavigableMap<byte[], Integer> scopes) throws IOException {
+    FSWALEntry entry =
+        new FSWALEntry(sequence, createWALKey(htd.getTableName(), hri, mvcc, scopes), createWALEdit(
+          rowName, family, ee, index), hri, true);
     entry.stampRegionSequenceId(mvcc.begin());
     return entry;
   }
@@ -1167,13 +1170,13 @@ public abstract class AbstractTestWALReplay {
       final HTableDescriptor htd, final MultiVersionConcurrencyControl mvcc,
       NavigableMap<byte[], Integer> scopes) throws IOException {
     for (int j = 0; j < count; j++) {
-      wal.appendData(hri, createWALKey(tableName, hri, mvcc, scopes),
-        createWALEdit(rowName, family, ee, j));
+      wal.append(hri, createWALKey(tableName, hri, mvcc, scopes),
+        createWALEdit(rowName, family, ee, j), true);
     }
     wal.sync();
   }
 
-  public static List<Put> addRegionEdits(final byte[] rowName, final byte[] family, final int count,
+  static List<Put> addRegionEdits(final byte[] rowName, final byte[] family, final int count,
       EnvironmentEdge ee, final Region r, final String qualifierPrefix) throws IOException {
     List<Put> puts = new ArrayList<>();
     for (int j = 0; j < count; j++) {

@@ -17,16 +17,11 @@
  */
 package org.apache.hadoop.hbase.io.hfile;
 
-import static org.apache.hadoop.hbase.HConstants.BUCKET_CACHE_IOENGINE_KEY;
-import static org.apache.hadoop.hbase.HConstants.BUCKET_CACHE_SIZE_KEY;
 import static org.junit.Assert.assertEquals;
 
-import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hbase.HBaseClassTestRule;
-import org.apache.hadoop.hbase.HBaseTestingUtility;
 import org.apache.hadoop.hbase.io.hfile.CombinedBlockCache.CombinedCacheStats;
 import org.apache.hadoop.hbase.testclassification.SmallTests;
-import org.junit.Assert;
 import org.junit.ClassRule;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
@@ -37,8 +32,6 @@ public class TestCombinedBlockCache {
   @ClassRule
   public static final HBaseClassTestRule CLASS_RULE =
       HBaseClassTestRule.forClass(TestCombinedBlockCache.class);
-
-  private static final HBaseTestingUtility UTIL = new HBaseTestingUtility();
 
   @Test
   public void testCombinedCacheStats() {
@@ -108,15 +101,5 @@ public class TestCombinedBlockCache {
     assertEquals(5, stats.getSumRequestCachingCountsPastNPeriods());
     assertEquals(0.75, stats.getHitRatioPastNPeriods(), delta);
     assertEquals(0.8, stats.getHitCachingRatioPastNPeriods(), delta);
-  }
-
-  @Test
-  public void testMultiThreadGetAndEvictBlock() throws Exception {
-    Configuration conf = UTIL.getConfiguration();
-    conf.set(BUCKET_CACHE_IOENGINE_KEY, "offheap");
-    conf.setInt(BUCKET_CACHE_SIZE_KEY, 32);
-    BlockCache blockCache = BlockCacheFactory.createBlockCache(conf);
-    Assert.assertTrue(blockCache instanceof CombinedBlockCache);
-    TestLruBlockCache.testMultiThreadGetAndEvictBlockInternal(blockCache);
   }
 }

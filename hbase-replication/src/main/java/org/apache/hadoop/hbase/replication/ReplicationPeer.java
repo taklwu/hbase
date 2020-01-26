@@ -107,10 +107,7 @@ public interface ReplicationPeer {
   void registerPeerConfigListener(ReplicationPeerConfigListener listener);
 
   /**
-   * @deprecated since 2.1.0 and will be removed in 4.0.0. Use
-   *   {@link #registerPeerConfigListener(ReplicationPeerConfigListener)} instead.
-   * @see #registerPeerConfigListener(ReplicationPeerConfigListener)
-   * @see <a href="https://issues.apache.org/jira/browse/HBASE-10573">HBASE-19573</a>
+   * @deprecated Use {@link #registerPeerConfigListener(ReplicationPeerConfigListener)} instead.
    */
   @Deprecated
   default void trackPeerConfigChanges(ReplicationPeerConfigListener listener) {

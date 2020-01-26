@@ -37,7 +37,6 @@ import org.apache.hadoop.hbase.net.Address;
 import org.apache.hadoop.hbase.quotas.GlobalQuotaSettings;
 import org.apache.hadoop.hbase.replication.ReplicationPeerConfig;
 import org.apache.hadoop.hbase.replication.SyncReplicationState;
-import org.apache.hadoop.hbase.security.access.Permission;
 import org.apache.hadoop.hbase.security.access.UserPermission;
 import org.apache.yetus.audience.InterfaceAudience;
 import org.apache.yetus.audience.InterfaceStability;
@@ -751,16 +750,6 @@ public interface MasterObserver {
       throws IOException {}
 
   /**
-   * Called after the snapshot operation has been completed.
-   * @param ctx the environment to interact with the framework and master
-   * @param snapshot the SnapshotDescriptor for the snapshot
-   * @param tableDescriptor the TableDescriptor of the table to snapshot
-   */
-  default void postCompletedSnapshotAction(ObserverContext<MasterCoprocessorEnvironment> ctx,
-      SnapshotDescription snapshot, TableDescriptor tableDescriptor) throws IOException {
-  }
-
-  /**
    * Called before listSnapshots request has been processed.
    * @param ctx the environment to interact with the framework and master
    * @param snapshot the SnapshotDescriptor of the snapshot to list
@@ -972,24 +961,6 @@ public interface MasterObserver {
    */
   default void postGetNamespaceDescriptor(ObserverContext<MasterCoprocessorEnvironment> ctx,
       NamespaceDescriptor ns) throws IOException {}
-
-  /**
-   * Called before a listNamespaces request has been processed.
-   * @param ctx the environment to interact with the framework and master
-   * @param namespaces an empty list, can be filled with what to return if bypassing
-   * @throws IOException if something went wrong
-   */
-  default void preListNamespaces(ObserverContext<MasterCoprocessorEnvironment> ctx,
-      List<String> namespaces) throws IOException {}
-
-  /**
-   * Called after a listNamespaces request has been processed.
-   * @param ctx the environment to interact with the framework and master
-   * @param namespaces the list of namespaces about to be returned
-   * @throws IOException if something went wrong
-   */
-  default void postListNamespaces(ObserverContext<MasterCoprocessorEnvironment> ctx,
-      List<String> namespaces)  throws IOException {};
 
   /**
    * Called before a listNamespaceDescriptors request has been processed.
@@ -1660,55 +1631,5 @@ public interface MasterObserver {
    */
   default void postRevoke(ObserverContext<MasterCoprocessorEnvironment> ctx,
       UserPermission userPermission) throws IOException {
-  }
-
-  /**
-   * Called before getting user permissions.
-   * @param ctx the coprocessor instance's environment
-   * @param userName the user name, null if get all user permissions
-   * @param namespace the namespace, null if don't get namespace permission
-   * @param tableName the table name, null if don't get table permission
-   * @param family the table column family, null if don't get table family permission
-   * @param qualifier the table column qualifier, null if don't get table qualifier permission
-   * @throws IOException if something went wrong
-   */
-  default void preGetUserPermissions(ObserverContext<MasterCoprocessorEnvironment> ctx,
-      String userName, String namespace, TableName tableName, byte[] family, byte[] qualifier)
-      throws IOException {
-  }
-
-  /**
-   * Called after getting user permissions.
-   * @param ctx the coprocessor instance's environment
-   * @param userName the user name, null if get all user permissions
-   * @param namespace the namespace, null if don't get namespace permission
-   * @param tableName the table name, null if don't get table permission
-   * @param family the table column family, null if don't get table family permission
-   * @param qualifier the table column qualifier, null if don't get table qualifier permission
-   * @throws IOException if something went wrong
-   */
-  default void postGetUserPermissions(ObserverContext<MasterCoprocessorEnvironment> ctx,
-      String userName, String namespace, TableName tableName, byte[] family, byte[] qualifier)
-      throws IOException {
-  }
-
-  /*
-   * Called before checking if user has permissions.
-   * @param ctx the coprocessor instance's environment
-   * @param userName the user name
-   * @param permissions the permission list
-   */
-  default void preHasUserPermissions(ObserverContext<MasterCoprocessorEnvironment> ctx,
-      String userName, List<Permission> permissions) throws IOException {
-  }
-
-  /**
-   * Called after checking if user has permissions.
-   * @param ctx the coprocessor instance's environment
-   * @param userName the user name
-   * @param permissions the permission list
-   */
-  default void postHasUserPermissions(ObserverContext<MasterCoprocessorEnvironment> ctx,
-      String userName, List<Permission> permissions) throws IOException {
   }
 }

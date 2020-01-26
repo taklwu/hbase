@@ -25,7 +25,6 @@ import org.apache.hadoop.hbase.procedure2.ProcedureUtil;
 import org.apache.hadoop.hbase.procedure2.ProcedureYieldException;
 import org.apache.hadoop.hbase.procedure2.StateMachineProcedure;
 import org.apache.hadoop.hbase.quotas.RpcThrottleStorage;
-import org.apache.hadoop.hbase.util.RetryCounter;
 import org.apache.yetus.audience.InterfaceAudience;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -44,11 +43,11 @@ public class SwitchRpcThrottleProcedure
 
   private static Logger LOG = LoggerFactory.getLogger(SwitchRpcThrottleProcedure.class);
 
-  private RpcThrottleStorage rpcThrottleStorage;
-  private boolean rpcThrottleEnabled;
-  private ProcedurePrepareLatch syncLatch;
-  private ServerName serverName;
-  private RetryCounter retryCounter;
+  RpcThrottleStorage rpcThrottleStorage;
+  boolean rpcThrottleEnabled;
+  ProcedurePrepareLatch syncLatch;
+  ServerName serverName;
+  int attempts;
 
   public SwitchRpcThrottleProcedure() {
   }
@@ -69,10 +68,7 @@ public class SwitchRpcThrottleProcedure
         try {
           switchThrottleState(env, rpcThrottleEnabled);
         } catch (IOException e) {
-          if (retryCounter == null) {
-            retryCounter = ProcedureUtil.createRetryCounter(env.getMasterConfiguration());
-          }
-          long backoff = retryCounter.getBackoffTimeAndIncrementAttempts();
+          long backoff = ProcedureUtil.getBackoffTimeMs(this.attempts++);
           LOG.warn("Failed to store rpc throttle value {}, sleep {} secs and retry",
             rpcThrottleEnabled, backoff / 1000, e);
           setTimeout(Math.toIntExact(backoff));

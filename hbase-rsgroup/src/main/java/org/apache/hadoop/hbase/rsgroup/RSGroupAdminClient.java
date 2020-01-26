@@ -55,7 +55,7 @@ import org.apache.hbase.thirdparty.com.google.common.collect.Sets;
  * Client used for managing region server group information.
  */
 @InterfaceAudience.Private
-public class RSGroupAdminClient implements RSGroupAdmin {
+class RSGroupAdminClient implements RSGroupAdmin {
   private RSGroupAdminService.BlockingInterface stub;
   private Admin admin;
 

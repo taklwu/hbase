@@ -140,8 +140,8 @@ public class AsyncProtobufLogWriter extends AbstractProtobufLogWriter
   }
 
   @Override
-  public CompletableFuture<Long> sync(boolean forceSync) {
-    return output.flush(forceSync);
+  public CompletableFuture<Long> sync() {
+    return output.flush(false);
   }
 
   @Override

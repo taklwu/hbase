@@ -35,7 +35,11 @@ public class MutableTimeHistogram extends MutableRangeHistogram {
   }
 
   public MutableTimeHistogram(String name, String description) {
-    super(name, description);
+    this(name, description, RANGES[RANGES.length - 2]);
+  }
+
+  public MutableTimeHistogram(String name, String description, long expectedMax) {
+    super(name, description, expectedMax);
   }
 
   @Override

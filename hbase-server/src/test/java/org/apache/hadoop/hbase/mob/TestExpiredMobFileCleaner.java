@@ -24,14 +24,10 @@ import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hbase.HBaseClassTestRule;
 import org.apache.hadoop.hbase.HBaseTestingUtility;
+import org.apache.hadoop.hbase.HColumnDescriptor;
+import org.apache.hadoop.hbase.HTableDescriptor;
 import org.apache.hadoop.hbase.TableName;
-import org.apache.hadoop.hbase.client.Admin;
-import org.apache.hadoop.hbase.client.BufferedMutator;
-import org.apache.hadoop.hbase.client.ColumnFamilyDescriptor;
-import org.apache.hadoop.hbase.client.ColumnFamilyDescriptorBuilder;
-import org.apache.hadoop.hbase.client.ConnectionFactory;
-import org.apache.hadoop.hbase.client.Put;
-import org.apache.hadoop.hbase.client.TableDescriptorBuilder;
+import org.apache.hadoop.hbase.client.*;
 import org.apache.hadoop.hbase.testclassification.MediumTests;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.util.ToolRunner;
@@ -85,34 +81,28 @@ public class TestExpiredMobFileCleaner {
   }
 
   private void init() throws Exception {
-    TableDescriptorBuilder tableDescriptorBuilder =
-      TableDescriptorBuilder.newBuilder(tableName);
-    ColumnFamilyDescriptor columnFamilyDescriptor =
-      ColumnFamilyDescriptorBuilder
-        .newBuilder(Bytes.toBytes(family))
-        .setMobEnabled(true)
-        .setMobThreshold(3L)
-        .setMaxVersions(4)
-        .build();
-    tableDescriptorBuilder.setColumnFamily(columnFamilyDescriptor);
+    HTableDescriptor desc = new HTableDescriptor(tableName);
+    HColumnDescriptor hcd = new HColumnDescriptor(family);
+    hcd.setMobEnabled(true);
+    hcd.setMobThreshold(3L);
+    hcd.setMaxVersions(4);
+    desc.addFamily(hcd);
 
     admin = TEST_UTIL.getAdmin();
-    admin.createTable(tableDescriptorBuilder.build());
+    admin.createTable(desc);
     table = ConnectionFactory.createConnection(TEST_UTIL.getConfiguration())
             .getBufferedMutator(tableName);
   }
 
   private void modifyColumnExpiryDays(int expireDays) throws Exception {
-    ColumnFamilyDescriptorBuilder columnFamilyDescriptorBuilder =
-      ColumnFamilyDescriptorBuilder
-        .newBuilder(Bytes.toBytes(family))
-        .setMobEnabled(true)
-        .setMobThreshold(3L);
+    HColumnDescriptor hcd = new HColumnDescriptor(family);
+    hcd.setMobEnabled(true);
+    hcd.setMobThreshold(3L);
     // change ttl as expire days to make some row expired
     int timeToLive = expireDays * secondsOfDay();
-    columnFamilyDescriptorBuilder.setTimeToLive(timeToLive);
+    hcd.setTimeToLive(timeToLive);
 
-    admin.modifyColumnFamily(tableName, columnFamilyDescriptorBuilder.build());
+    admin.modifyColumnFamily(tableName, hcd);
   }
 
   private void putKVAndFlush(BufferedMutator table, byte[] row, byte[] value, long ts)

@@ -43,15 +43,17 @@ import org.junit.experimental.categories.Category;
 
 @Category({ ZKTests.class, MediumTests.class })
 public class TestRecoverableZooKeeper {
+
   @ClassRule
   public static final HBaseClassTestRule CLASS_RULE =
       HBaseClassTestRule.forClass(TestRecoverableZooKeeper.class);
 
   private final static HBaseZKTestingUtility TEST_UTIL = new HBaseZKTestingUtility();
 
-  private Abortable abortable = new Abortable() {
+  Abortable abortable = new Abortable() {
     @Override
     public void abort(String why, Throwable e) {
+
     }
 
     @Override
@@ -92,15 +94,16 @@ public class TestRecoverableZooKeeper {
     assertTrue(Bytes.equals(opened, data));
   }
 
-  static class ZookeeperStub extends ZooKeeper {
+  class ZookeeperStub extends ZooKeeper {
+
     private int throwExceptionInNumOperations;
 
-    ZookeeperStub(String connectString, int sessionTimeout, Watcher watcher)
+    public ZookeeperStub(String connectString, int sessionTimeout, Watcher watcher)
         throws IOException {
       super(connectString, sessionTimeout, watcher);
     }
 
-    void setThrowExceptionInNumOperations(int throwExceptionInNumOperations) {
+    public void setThrowExceptionInNumOperations(int throwExceptionInNumOperations) {
       this.throwExceptionInNumOperations = throwExceptionInNumOperations;
     }
 

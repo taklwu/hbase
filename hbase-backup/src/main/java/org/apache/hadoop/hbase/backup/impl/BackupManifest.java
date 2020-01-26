@@ -434,13 +434,10 @@ public class BackupManifest {
       for (FileStatus subFile : subFiles) {
         if (subFile.getPath().getName().equals(MANIFEST_FILE_NAME)) {
           // load and set manifest field from file content
+          FSDataInputStream in = fs.open(subFile.getPath());
           long len = subFile.getLen();
           byte[] pbBytes = new byte[(int) len];
-          try (FSDataInputStream in = fs.open(subFile.getPath())) {
-            in.readFully(pbBytes);
-          } catch (IOException e) {
-            throw new BackupException(e.getMessage());
-          }
+          in.readFully(pbBytes);
           BackupProtos.BackupImage proto = null;
           try {
             proto = BackupProtos.BackupImage.parseFrom(pbBytes);

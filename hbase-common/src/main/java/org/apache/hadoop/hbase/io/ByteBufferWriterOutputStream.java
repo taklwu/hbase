@@ -20,7 +20,6 @@ package org.apache.hadoop.hbase.io;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.ByteBuffer;
-import java.util.Objects;
 
 import org.apache.hadoop.hbase.io.util.StreamUtils;
 import org.apache.hadoop.hbase.util.ByteBufferUtils;
@@ -59,21 +58,22 @@ public class ByteBufferWriterOutputStream extends OutputStream
   }
 
   /**
-   * Writes len bytes from the specified ByteBuffer starting at offset off to this OutputStream. If
-   * off is negative or larger than the ByteBuffer then an ArrayIndexOutOfBoundsException is thrown.
-   * If len is greater than the length of the ByteBuffer, then an ArrayIndexOutOfBoundsException is
-   * thrown. This method does not change the position of the ByteBuffer.
-   * @param b the ByteBuffer
-   * @param off the start offset in the data
-   * @param len the number of bytes to write
-   * @throws IOException if an I/O error occurs. In particular, an IOException is thrown if the
-   *           output stream is closed.
-   * @throws NullPointerException if {@code b} is {@code null}
+   * Writes len bytes from the specified ByteBuffer starting at offset off to
+   * this OutputStream. If b is null, a NullPointerException is thrown. If off
+   * is negative or larger than the ByteBuffer then an ArrayIndexOutOfBoundsException
+   * is thrown. If len is greater than the length of the ByteBuffer, then an
+   * ArrayIndexOutOfBoundsException is thrown. This method does not change the
+   * position of the ByteBuffer.
+   *
+   * @param b    the ByteBuffer
+   * @param off  the start offset in the data
+   * @param len  the number of bytes to write
+   * @throws IOException
+   *             if an I/O error occurs. In particular, an IOException is thrown
+   *             if the output stream is closed.
    */
   @Override
   public void write(ByteBuffer b, int off, int len) throws IOException {
-    Objects.requireNonNull(b);
-
     // Lazily load in the event that this version of 'write' is not invoked
     if (this.buf == null) {
       this.buf = new byte[this.bufSize];

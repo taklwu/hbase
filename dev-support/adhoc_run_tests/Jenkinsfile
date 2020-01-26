@@ -81,11 +81,11 @@ pipeline {
       }
       post {
         always {
-          archiveArtifacts artifacts: 'output/*'
-          archiveArtifacts artifacts: 'output/**/*'
+          archive 'output/*'
+          archive 'output/**/*'
         }
         failure {
-          archiveArtifacts artifacts: 'component/**/target/surefire-reports/*'
+          archive 'component/**/target/surefire-reports/*'
         }
       }
     }

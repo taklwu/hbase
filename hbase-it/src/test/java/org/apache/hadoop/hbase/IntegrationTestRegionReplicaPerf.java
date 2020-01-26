@@ -18,21 +18,9 @@
  */
 package org.apache.hadoop.hbase;
 
-import static java.lang.String.format;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertTrue;
-
+import org.apache.hbase.thirdparty.com.google.common.base.MoreObjects;
+import org.apache.hbase.thirdparty.com.google.common.collect.Sets;
 import com.codahale.metrics.Histogram;
-
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.LinkedList;
-import java.util.List;
-import java.util.Queue;
-import java.util.Set;
-import java.util.concurrent.Callable;
-
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hbase.chaos.actions.MoveRandomRegionOfTableAction;
 import org.apache.hadoop.hbase.chaos.actions.RestartRandomRsExceptMetaAction;
@@ -43,6 +31,7 @@ import org.apache.hadoop.hbase.client.Admin;
 import org.apache.hadoop.hbase.ipc.RpcClient;
 import org.apache.hadoop.hbase.regionserver.DisabledRegionSplitPolicy;
 import org.apache.hadoop.hbase.testclassification.IntegrationTests;
+import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.hbase.util.YammerHistogramUtils;
 import org.apache.hadoop.mapreduce.Counters;
 import org.apache.hadoop.mapreduce.Job;
@@ -51,9 +40,15 @@ import org.junit.experimental.categories.Category;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import org.apache.hbase.thirdparty.com.google.common.base.MoreObjects;
-import org.apache.hbase.thirdparty.com.google.common.collect.Sets;
 import org.apache.hbase.thirdparty.org.apache.commons.cli.CommandLine;
+
+import java.util.*;
+import java.util.concurrent.Callable;
+
+import static java.lang.String.format;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertTrue;
 
 /**
  * Test for comparing the performance impact of region replicas. Uses
@@ -283,7 +278,7 @@ public class IntegrationTestRegionReplicaPerf extends IntegrationTestBase {
     // one last sanity check, then send in the clowns!
     assertEquals("Table must be created with DisabledRegionSplitPolicy. Broken test.",
         DisabledRegionSplitPolicy.class.getName(),
-        util.getAdmin().getDescriptor(tableName).getRegionSplitPolicyClassName());
+        util.getAdmin().getTableDescriptor(tableName).getRegionSplitPolicyClassName());
     startMonkey();
 
     // collect a baseline without region replicas.

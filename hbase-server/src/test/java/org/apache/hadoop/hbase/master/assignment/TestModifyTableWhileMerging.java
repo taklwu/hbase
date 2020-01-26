@@ -67,7 +67,7 @@ public class TestModifyTableWhileMerging {
     //Set procedure executor thread to 1, making reproducing this issue of HBASE-20921 easier
     UTIL.getConfiguration().setInt(MasterProcedureConstants.MASTER_PROCEDURE_THREADS, 1);
     UTIL.startMiniCluster(1);
-    admin = UTIL.getAdmin();
+    admin = UTIL.getHBaseAdmin();
     byte[][] splitKeys = new byte[1][];
     splitKeys[0] = SPLITKEY;
     client = UTIL.createTable(TABLE_NAME, CF, splitKeys);
@@ -92,7 +92,7 @@ public class TestModifyTableWhileMerging {
     List<RegionInfo> regionInfos = admin.getRegions(TABLE_NAME);
     MergeTableRegionsProcedure mergeTableRegionsProcedure = new MergeTableRegionsProcedure(
       UTIL.getMiniHBaseCluster().getMaster().getMasterProcedureExecutor()
-        .getEnvironment(), new RegionInfo [] {regionInfos.get(0), regionInfos.get(1)}, false);
+        .getEnvironment(), regionInfos.get(0), regionInfos.get(1));
     ModifyTableProcedure modifyTableProcedure = new ModifyTableProcedure(env, tableDescriptor);
     long procModify = executor.submitProcedure(modifyTableProcedure);
     UTIL.waitFor(30000, () -> executor.getProcedures().stream()

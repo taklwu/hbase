@@ -20,6 +20,7 @@ package org.apache.hadoop.hbase.coprocessor;
 
 import java.io.IOException;
 
+import org.apache.hadoop.hbase.Coprocessor;
 import org.apache.hadoop.hbase.HBaseInterfaceAudience;
 import org.apache.hadoop.hbase.replication.ReplicationEndpoint;
 import org.apache.yetus.audience.InterfaceAudience;

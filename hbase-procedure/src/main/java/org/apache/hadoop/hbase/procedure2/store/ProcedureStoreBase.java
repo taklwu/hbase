@@ -26,8 +26,7 @@ import org.apache.yetus.audience.InterfaceAudience;
  */
 @InterfaceAudience.Private
 public abstract class ProcedureStoreBase implements ProcedureStore {
-  private final CopyOnWriteArrayList<ProcedureStoreListener> listeners =
-          new CopyOnWriteArrayList<>();
+  private final CopyOnWriteArrayList<ProcedureStoreListener> listeners = new CopyOnWriteArrayList<>();
 
   private final AtomicBoolean running = new AtomicBoolean(false);
 

@@ -1,8 +1,7 @@
 <?xml version="1.0"?>
-<!DOCTYPE module PUBLIC
-  "-//Checkstyle//DTD Checkstyle Configuration 1.3//EN"
-  "https://checkstyle.org/dtds/configuration_1_3.dtd" >
-<!--
+<!DOCTYPE module PUBLIC "-//Puppy Crawl//DTD Check Configuration 1.3//EN"
+    "http://www.puppycrawl.com/dtds/configuration_1_3.dtd">
+  <!--
 /**
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
@@ -31,10 +30,6 @@
 
 -->
 <module name="Checker">
-  <!-- Filter out Checkstyle warnings that have been suppressed with the @SuppressWarnings
-  annotation -->
-  <module name="SuppressWarningsFilter"/>
-
   <module name="FileTabCharacter"/>
   <module name="TreeWalker">
 
@@ -122,21 +117,17 @@
       <property name="lineWrappingIndentation" value="2"/>
     </module>
 
+    <!-- Size Violation Checks
+    http://checkstyle.sourceforge.net/config_sizes.html -->
+    <module name="LineLength">
+      <property name="max" value="100"/>
+      <property name="ignorePattern" value="^package.*|^import.*|a href|href|http://|https://|ftp://|org.apache.thrift.|com.google.protobuf.|hbase.protobuf.generated"/>
+    </module>
     <module name="MethodLength"/>
 
     <!-- Whitespace Checks
     http://checkstyle.sourceforge.net/config_whitespace.html -->
     <module name="MethodParamPad"/>
     <module name="ParenPad"/>
-
-    <!-- Make the @SuppressWarnings annotations available to Checkstyle -->
-    <module name="SuppressWarningsHolder"/>
-  </module>
-
-  <!-- Size Violation Checks
-  http://checkstyle.sourceforge.net/config_sizes.html -->
-  <module name="LineLength">
-    <property name="max" value="100"/>
-    <property name="ignorePattern" value="^package.*|^import.*|a href|href|http://|https://|ftp://|org.apache.thrift.|com.google.protobuf.|hbase.protobuf.generated"/>
   </module>
 </module>

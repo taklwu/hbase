@@ -23,7 +23,6 @@ import java.net.HttpURLConnection;
 import java.net.URI;
 import java.net.URL;
 import java.util.Arrays;
-import java.util.Collections;
 import java.util.Enumeration;
 import java.util.HashMap;
 import java.util.List;
@@ -71,6 +70,7 @@ import org.slf4j.LoggerFactory;
 
 @Category({MiscTests.class, SmallTests.class})
 public class TestHttpServer extends HttpServerFunctionalTest {
+
   @ClassRule
   public static final HBaseClassTestRule CLASS_RULE =
       HBaseClassTestRule.forClass(TestHttpServer.class);
@@ -84,7 +84,9 @@ public class TestHttpServer extends HttpServerFunctionalTest {
   @SuppressWarnings("serial")
   public static class EchoMapServlet extends HttpServlet {
     @Override
-    public void doGet(HttpServletRequest request, HttpServletResponse response) throws IOException {
+    public void doGet(HttpServletRequest request,
+                      HttpServletResponse response
+                      ) throws ServletException, IOException {
       PrintWriter out = response.getWriter();
       Map<String, String[]> params = request.getParameterMap();
       SortedSet<String> keys = new TreeSet<>(params.keySet());
@@ -108,8 +110,9 @@ public class TestHttpServer extends HttpServerFunctionalTest {
   @SuppressWarnings("serial")
   public static class EchoServlet extends HttpServlet {
     @Override
-    public void doGet(HttpServletRequest request, HttpServletResponse response)
-            throws IOException {
+    public void doGet(HttpServletRequest request,
+                      HttpServletResponse response
+                      ) throws ServletException, IOException {
       PrintWriter out = response.getWriter();
       SortedSet<String> sortedKeys = new TreeSet<>();
       Enumeration<String> keys = request.getParameterNames();
@@ -129,7 +132,9 @@ public class TestHttpServer extends HttpServerFunctionalTest {
   @SuppressWarnings("serial")
   public static class LongHeaderServlet extends HttpServlet {
     @Override
-    public void doGet(HttpServletRequest request, HttpServletResponse response) {
+    public void doGet(HttpServletRequest request,
+                      HttpServletResponse response
+    ) throws ServletException, IOException {
       Assert.assertEquals(63 * 1024, request.getHeader("longheader").length());
       response.setStatus(HttpServletResponse.SC_OK);
     }
@@ -138,7 +143,9 @@ public class TestHttpServer extends HttpServerFunctionalTest {
   @SuppressWarnings("serial")
   public static class HtmlContentServlet extends HttpServlet {
     @Override
-    public void doGet(HttpServletRequest request, HttpServletResponse response) throws IOException {
+    public void doGet(HttpServletRequest request,
+                      HttpServletResponse response
+                      ) throws ServletException, IOException {
       response.setContentType("text/html");
       PrintWriter out = response.getWriter();
       out.print("hello world");
@@ -165,30 +172,30 @@ public class TestHttpServer extends HttpServerFunctionalTest {
     server.stop();
   }
 
-  /**
-   * Test the maximum number of threads cannot be exceeded.
-   */
-  @Test
-  public void testMaxThreads() throws Exception {
+  /** Test the maximum number of threads cannot be exceeded. */
+  @Test public void testMaxThreads() throws Exception {
     int clientThreads = MAX_THREADS * 10;
     Executor executor = Executors.newFixedThreadPool(clientThreads);
     // Run many clients to make server reach its maximum number of threads
     final CountDownLatch ready = new CountDownLatch(clientThreads);
     final CountDownLatch start = new CountDownLatch(1);
     for (int i = 0; i < clientThreads; i++) {
-      executor.execute(() -> {
-        ready.countDown();
-        try {
-          start.await();
-          assertEquals("a:b\nc:d\n",
-                       readOutput(new URL(baseUrl, "/echo?a=b&c=d")));
-          int serverThreads = server.webServer.getThreadPool().getThreads();
-          assertTrue("More threads are started than expected, Server Threads count: "
-                  + serverThreads, serverThreads <= MAX_THREADS);
-          LOG.info("Number of threads = " + serverThreads +
-              " which is less or equal than the max = " + MAX_THREADS);
-        } catch (Exception e) {
-          // do nothing
+      executor.execute(new Runnable() {
+        @Override
+        public void run() {
+          ready.countDown();
+          try {
+            start.await();
+            assertEquals("a:b\nc:d\n",
+                         readOutput(new URL(baseUrl, "/echo?a=b&c=d")));
+            int serverThreads = server.webServer.getThreadPool().getThreads();
+            assertTrue("More threads are started than expected, Server Threads count: "
+                    + serverThreads, serverThreads <= MAX_THREADS);
+            System.out.println("Number of threads = " + serverThreads +
+                " which is less or equal than the max = " + MAX_THREADS);
+          } catch (Exception e) {
+            // do nothing
+          }
         }
       });
     }
@@ -293,7 +300,7 @@ public class TestHttpServer extends HttpServerFunctionalTest {
     }
 
     @Override
-    public void init(FilterConfig arg0) { }
+    public void init(FilterConfig arg0) throws ServletException { }
   }
 
   /**
@@ -320,7 +327,8 @@ public class TestHttpServer extends HttpServerFunctionalTest {
    * @return The HTTP response code
    * @throws IOException if there is a problem communicating with the server
    */
-  private static int getHttpStatusCode(String urlstring, String userName) throws IOException {
+  static int getHttpStatusCode(String urlstring, String userName)
+      throws IOException {
     URL url = new URL(urlstring + "?user.name=" + userName);
     System.out.println("Accessing " + url + " as user " + userName);
     HttpURLConnection connection = (HttpURLConnection)url.openConnection();
@@ -339,7 +347,7 @@ public class TestHttpServer extends HttpServerFunctionalTest {
     }
 
     @Override
-    public List<String> getGroups(String user) {
+    public List<String> getGroups(String user) throws IOException {
       return mapping.get(user);
     }
   }
@@ -348,10 +356,12 @@ public class TestHttpServer extends HttpServerFunctionalTest {
    * Verify the access for /logs, /stacks, /conf, /logLevel and /metrics
    * servlets, when authentication filters are set, but authorization is not
    * enabled.
+   * @throws Exception
    */
   @Test
   @Ignore
   public void testDisabledAuthorizationOfDefaultServlets() throws Exception {
+
     Configuration conf = new Configuration();
 
     // Authorization is disabled by default
@@ -361,15 +371,16 @@ public class TestHttpServer extends HttpServerFunctionalTest {
         MyGroupsProvider.class.getName());
     Groups.getUserToGroupsMappingService(conf);
     MyGroupsProvider.clearMapping();
-    MyGroupsProvider.mapping.put("userA", Collections.singletonList("groupA"));
-    MyGroupsProvider.mapping.put("userB", Collections.singletonList("groupB"));
+    MyGroupsProvider.mapping.put("userA", Arrays.asList("groupA"));
+    MyGroupsProvider.mapping.put("userB", Arrays.asList("groupB"));
 
     HttpServer myServer = new HttpServer.Builder().setName("test")
         .addEndpoint(new URI("http://localhost:0")).setFindPort(true).build();
     myServer.setAttribute(HttpServer.CONF_CONTEXT_ATTRIBUTE, conf);
     myServer.start();
     String serverURL = "http://" + NetUtils.getHostPortString(myServer.getConnectorAddress(0)) + "/";
-    for (String servlet : new String[] { "conf", "logs", "stacks", "logLevel", "metrics" }) {
+    for (String servlet : new String[] { "conf", "logs", "stacks",
+        "logLevel", "metrics" }) {
       for (String user : new String[] { "userA", "userB" }) {
         assertEquals(HttpURLConnection.HTTP_OK, getHttpStatusCode(serverURL
             + servlet, user));
@@ -381,6 +392,8 @@ public class TestHttpServer extends HttpServerFunctionalTest {
   /**
    * Verify the administrator access for /logs, /stacks, /conf, /logLevel and
    * /metrics servlets.
+   *
+   * @throws Exception
    */
   @Test
   @Ignore
@@ -397,11 +410,11 @@ public class TestHttpServer extends HttpServerFunctionalTest {
         MyGroupsProvider.class.getName());
     Groups.getUserToGroupsMappingService(conf);
     MyGroupsProvider.clearMapping();
-    MyGroupsProvider.mapping.put("userA", Collections.singletonList("groupA"));
-    MyGroupsProvider.mapping.put("userB", Collections.singletonList("groupB"));
-    MyGroupsProvider.mapping.put("userC", Collections.singletonList("groupC"));
-    MyGroupsProvider.mapping.put("userD", Collections.singletonList("groupD"));
-    MyGroupsProvider.mapping.put("userE", Collections.singletonList("groupE"));
+    MyGroupsProvider.mapping.put("userA", Arrays.asList("groupA"));
+    MyGroupsProvider.mapping.put("userB", Arrays.asList("groupB"));
+    MyGroupsProvider.mapping.put("userC", Arrays.asList("groupC"));
+    MyGroupsProvider.mapping.put("userD", Arrays.asList("groupD"));
+    MyGroupsProvider.mapping.put("userE", Arrays.asList("groupE"));
 
     HttpServer myServer = new HttpServer.Builder().setName("test")
         .addEndpoint(new URI("http://localhost:0")).setFindPort(true).setConf(conf)
@@ -411,7 +424,8 @@ public class TestHttpServer extends HttpServerFunctionalTest {
 
     String serverURL = "http://"
         + NetUtils.getHostPortString(myServer.getConnectorAddress(0)) + "/";
-    for (String servlet : new String[] { "conf", "logs", "stacks", "logLevel", "metrics" }) {
+    for (String servlet : new String[] { "conf", "logs", "stacks",
+        "logLevel", "metrics" }) {
       for (String user : new String[] { "userA", "userB", "userC", "userD" }) {
         assertEquals(HttpURLConnection.HTTP_OK, getHttpStatusCode(serverURL
             + servlet, user));
@@ -423,17 +437,17 @@ public class TestHttpServer extends HttpServerFunctionalTest {
   }
 
   @Test
-  public void testRequestQuoterWithNull() {
+  public void testRequestQuoterWithNull() throws Exception {
     HttpServletRequest request = Mockito.mock(HttpServletRequest.class);
     Mockito.doReturn(null).when(request).getParameterValues("dummy");
     RequestQuoter requestQuoter = new RequestQuoter(request);
     String[] parameterValues = requestQuoter.getParameterValues("dummy");
-    Assert.assertNull("It should return null "
-            + "when there are no values for the parameter", parameterValues);
+    Assert.assertEquals("It should return null "
+        + "when there are no values for the parameter", null, parameterValues);
   }
 
   @Test
-  public void testRequestQuoterWithNotNull() {
+  public void testRequestQuoterWithNotNull() throws Exception {
     HttpServletRequest request = Mockito.mock(HttpServletRequest.class);
     String[] values = new String[] { "abc", "def" };
     Mockito.doReturn(values).when(request).getParameterValues("dummy");
@@ -476,8 +490,7 @@ public class TestHttpServer extends HttpServerFunctionalTest {
     response = Mockito.mock(HttpServletResponse.class);
     conf.setBoolean(CommonConfigurationKeys.HADOOP_SECURITY_AUTHORIZATION, true);
     Assert.assertFalse(HttpServer.hasAdministratorAccess(context, request, response));
-    Mockito.verify(response).sendError(Mockito.eq(HttpServletResponse.SC_UNAUTHORIZED),
-            Mockito.anyString());
+    Mockito.verify(response).sendError(Mockito.eq(HttpServletResponse.SC_UNAUTHORIZED), Mockito.anyString());
 
     //authorization ON & user NOT NULL & ACLs NULL
     response = Mockito.mock(HttpServletResponse.class);
@@ -490,8 +503,7 @@ public class TestHttpServer extends HttpServerFunctionalTest {
     Mockito.when(acls.isUserAllowed(Mockito.<UserGroupInformation>any())).thenReturn(false);
     Mockito.when(context.getAttribute(HttpServer.ADMINS_ACL)).thenReturn(acls);
     Assert.assertFalse(HttpServer.hasAdministratorAccess(context, request, response));
-    Mockito.verify(response).sendError(Mockito.eq(HttpServletResponse.SC_UNAUTHORIZED),
-            Mockito.anyString());
+    Mockito.verify(response).sendError(Mockito.eq(HttpServletResponse.SC_UNAUTHORIZED), Mockito.anyString());
 
     //authorization ON & user NOT NULL & ACLs NOT NULL & user in in ACLs
     response = Mockito.mock(HttpServletResponse.class);
@@ -521,8 +533,7 @@ public class TestHttpServer extends HttpServerFunctionalTest {
     Assert.assertFalse(HttpServer.isInstrumentationAccessAllowed(context, request, response));
   }
 
-  @Test
-  public void testBindAddress() throws Exception {
+  @Test public void testBindAddress() throws Exception {
     checkBindAddress("localhost", 0, false).stop();
     // hang onto this one for a bit more testing
     HttpServer myServer = checkBindAddress("localhost", 0, false);

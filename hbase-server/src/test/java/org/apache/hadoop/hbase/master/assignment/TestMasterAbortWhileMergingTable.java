@@ -68,7 +68,7 @@ public class TestMasterAbortWhileMergingTable {
     UTIL.getConfiguration().set(CoprocessorHost.MASTER_COPROCESSOR_CONF_KEY,
         MergeRegionObserver.class.getName());
     UTIL.startMiniCluster(3);
-    admin = UTIL.getAdmin();
+    admin = UTIL.getHBaseAdmin();
     byte[][] splitKeys = new byte[1][];
     splitKeys[0] = SPLITKEY;
     UTIL.createTable(TABLE_NAME, CF, splitKeys);
@@ -89,7 +89,7 @@ public class TestMasterAbortWhileMergingTable {
     List<RegionInfo> regionInfos = admin.getRegions(TABLE_NAME);
     MergeTableRegionsProcedure mergeTableRegionsProcedure = new MergeTableRegionsProcedure(
         UTIL.getMiniHBaseCluster().getMaster().getMasterProcedureExecutor()
-            .getEnvironment(), new RegionInfo [] {regionInfos.get(0), regionInfos.get(1)}, false);
+            .getEnvironment(), regionInfos.get(0), regionInfos.get(1));
     long procID = UTIL.getMiniHBaseCluster().getMaster().getMasterProcedureExecutor()
         .submitProcedure(mergeTableRegionsProcedure);
     mergeCommitArrive.await();

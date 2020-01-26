@@ -19,34 +19,30 @@ package org.apache.hadoop.hbase.client;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.fail;
 
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Optional;
-import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hbase.HBaseTestingUtility;
 import org.apache.hadoop.hbase.HRegionLocation;
 import org.apache.hadoop.hbase.NotServingRegionException;
 import org.apache.hadoop.hbase.RegionLocations;
 import org.apache.hadoop.hbase.ServerName;
 import org.apache.hadoop.hbase.TableName;
-import org.apache.hadoop.hbase.Waiter;
 import org.apache.hadoop.hbase.Waiter.ExplainingPredicate;
-import org.apache.hadoop.hbase.regionserver.Region;
-import org.apache.hadoop.hbase.util.JVMClusterUtil;
+import org.apache.hadoop.hbase.util.Bytes;
 
-public final class RegionReplicaTestHelper {
+final class RegionReplicaTestHelper {
 
   private RegionReplicaTestHelper() {
   }
 
   // waits for all replicas to have region location
-  static void waitUntilAllMetaReplicasHavingRegionLocation(Configuration conf,
-      AsyncRegistry registry, int regionReplication) throws IOException {
-    Waiter.waitFor(conf, conf.getLong("hbase.client.sync.wait.timeout.msec", 60000), 200, true,
-      new ExplainingPredicate<IOException>() {
+  static void waitUntilAllMetaReplicasHavingRegionLocation(AsyncRegistry registry,
+      int regionReplication) throws IOException {
+    TestZKAsyncRegistry.TEST_UTIL.waitFor(
+      TestZKAsyncRegistry.TEST_UTIL.getConfiguration()
+        .getLong("hbase.client.sync.wait.timeout.msec", 60000),
+      200, true, new ExplainingPredicate<IOException>() {
         @Override
         public String explainFailure() throws IOException {
           return "Not all meta replicas get assigned";
@@ -93,7 +89,8 @@ public final class RegionReplicaTestHelper {
     ServerName newServerName = util.getHBaseCluster().getRegionServerThreads().stream()
       .map(t -> t.getRegionServer().getServerName()).filter(sn -> !sn.equals(serverName)).findAny()
       .get();
-    util.getAdmin().move(regionInfo.getEncodedNameAsBytes(), newServerName);
+    util.getAdmin().move(regionInfo.getEncodedNameAsBytes(),
+      Bytes.toBytes(newServerName.getServerName()));
     util.waitFor(30000, new ExplainingPredicate<Exception>() {
 
       @Override
@@ -160,33 +157,5 @@ public final class RegionReplicaTestHelper {
     // for replica 2
     assertEquals(newServerName2,
       locator.getRegionLocations(tableName, 2, false).getRegionLocation(2).getServerName());
-  }
-
-  public static void assertReplicaDistributed(HBaseTestingUtility util, Table t)
-    throws IOException {
-    if (t.getDescriptor().getRegionReplication() <= 1) {
-      return;
-    }
-    List<RegionInfo> regionInfos = new ArrayList<>();
-    for (JVMClusterUtil.RegionServerThread rs : util.getMiniHBaseCluster()
-      .getRegionServerThreads()) {
-      regionInfos.clear();
-      for (Region r : rs.getRegionServer().getRegions(t.getName())) {
-        if (contains(regionInfos, r.getRegionInfo())) {
-          fail("Replica regions should be assigned to different region servers");
-        } else {
-          regionInfos.add(r.getRegionInfo());
-        }
-      }
-    }
-  }
-
-  private static boolean contains(List<RegionInfo> regionInfos, RegionInfo regionInfo) {
-    for (RegionInfo info : regionInfos) {
-      if (RegionReplicaUtil.isReplicasForSameRegion(info, regionInfo)) {
-        return true;
-      }
-    }
-    return false;
   }
 }

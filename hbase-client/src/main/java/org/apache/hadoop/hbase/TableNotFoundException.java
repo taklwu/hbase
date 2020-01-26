@@ -18,37 +18,28 @@
  */
 package org.apache.hadoop.hbase;
 
-import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.yetus.audience.InterfaceAudience;
+import org.apache.hadoop.hbase.util.Bytes;
 
-/**
- * Thrown when a table cannot be located.
- */
+/** Thrown when a table can not be located */
 @InterfaceAudience.Public
 public class TableNotFoundException extends DoNotRetryIOException {
   private static final long serialVersionUID = 993179627856392526L;
 
+  /** default constructor */
   public TableNotFoundException() {
     super();
   }
 
-  /**
-   * @param tableName the name of the table which was not found
-   */
-  public TableNotFoundException(String tableName) {
-    super(tableName);
+  /** @param s message */
+  public TableNotFoundException(String s) {
+    super(s);
   }
 
-  /**
-   * @param tableName the name of the table which was not found
-   */
   public TableNotFoundException(byte[] tableName) {
     super(Bytes.toString(tableName));
   }
 
-  /**
-   * @param tableName the name of the table which was not found
-   */
   public TableNotFoundException(TableName tableName) {
     super(tableName.getNameAsString());
   }

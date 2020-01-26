@@ -17,24 +17,11 @@
  */
 package org.apache.hadoop.hbase.util.compaction;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertTrue;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.ArgumentMatchers.isA;
-import static org.mockito.Matchers.anyString;
-import static org.mockito.Mockito.doReturn;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.spy;
-import static org.mockito.Mockito.when;
-
 import java.io.IOException;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
-
 import org.apache.commons.lang3.RandomStringUtils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileStatus;
@@ -52,13 +39,24 @@ import org.apache.hadoop.hbase.regionserver.HRegionFileSystem;
 import org.apache.hadoop.hbase.regionserver.StoreFileInfo;
 import org.apache.hadoop.hbase.testclassification.SmallTests;
 import org.apache.hadoop.hbase.util.Bytes;
+import org.apache.hbase.thirdparty.com.google.common.collect.Iterables;
+import org.apache.hbase.thirdparty.com.google.common.collect.Lists;
+import org.apache.hbase.thirdparty.com.google.common.collect.Sets;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
 import org.junit.Before;
 import org.junit.ClassRule;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
-import org.apache.hbase.thirdparty.com.google.common.collect.Iterables;
-import org.apache.hbase.thirdparty.com.google.common.collect.Lists;
-import org.apache.hbase.thirdparty.com.google.common.collect.Sets;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isA;
+import static org.mockito.Matchers.anyString;
+import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.when;
 
 @Category({SmallTests.class})
 public class TestMajorCompactionRequest {
@@ -66,10 +64,10 @@ public class TestMajorCompactionRequest {
   public static final HBaseClassTestRule CLASS_RULE =
       HBaseClassTestRule.forClass(TestMajorCompactionRequest.class);
 
-  protected static final HBaseTestingUtility UTILITY = new HBaseTestingUtility();
-  protected static final String FAMILY = "a";
-  protected Path rootRegionDir;
-  protected Path regionStoreDir;
+  private static final HBaseTestingUtility UTILITY = new HBaseTestingUtility();
+  private static final String FAMILY = "a";
+  private Path rootRegionDir;
+  private Path regionStoreDir;
 
   @Before public void setUp() throws Exception {
     rootRegionDir = UTILITY.getDataTestDirOnTestFS("TestMajorCompactionRequest");
@@ -79,15 +77,15 @@ public class TestMajorCompactionRequest {
   @Test public void testStoresNeedingCompaction() throws Exception {
     // store files older than timestamp
     List<StoreFileInfo> storeFiles = mockStoreFiles(regionStoreDir, 5, 10);
-    MajorCompactionRequest request = makeMockRequest(storeFiles, false);
+    MajorCompactionRequest request = makeMockRequest(100, storeFiles, false);
     Optional<MajorCompactionRequest> result =
-        request.createRequest(mock(Configuration.class), Sets.newHashSet(FAMILY), 100);
+        request.createRequest(mock(Configuration.class), Sets.newHashSet(FAMILY));
     assertTrue(result.isPresent());
 
     // store files newer than timestamp
     storeFiles = mockStoreFiles(regionStoreDir, 5, 101);
-    request = makeMockRequest(storeFiles, false);
-    result = request.createRequest(mock(Configuration.class), Sets.newHashSet(FAMILY), 100);
+    request = makeMockRequest(100, storeFiles, false);
+    result = request.createRequest(mock(Configuration.class), Sets.newHashSet(FAMILY));
     assertFalse(result.isPresent());
   }
 
@@ -108,17 +106,16 @@ public class TestMajorCompactionRequest {
     HRegionFileSystem fileSystem =
         mockFileSystem(region.getRegionInfo(), true, storeFiles, 50);
     MajorCompactionRequest majorCompactionRequest = spy(new MajorCompactionRequest(configuration,
-        region.getRegionInfo(), Sets.newHashSet(FAMILY)));
+        region.getRegionInfo(), Sets.newHashSet(FAMILY), 100));
     doReturn(mock(Connection.class)).when(majorCompactionRequest).getConnection(eq(configuration));
     doReturn(paths).when(majorCompactionRequest).getReferenceFilePaths(any(FileSystem.class),
         any(Path.class));
     doReturn(fileSystem).when(majorCompactionRequest).getFileSystem(any(Connection.class));
-    Set<String> result =
-        majorCompactionRequest.getStoresRequiringCompaction(Sets.newHashSet("a"), 100);
+    Set<String> result = majorCompactionRequest.getStoresRequiringCompaction(Sets.newHashSet("a"));
     assertEquals(FAMILY, Iterables.getOnlyElement(result));
   }
 
-  protected HRegionFileSystem mockFileSystem(RegionInfo info, boolean hasReferenceFiles,
+  private HRegionFileSystem mockFileSystem(RegionInfo info, boolean hasReferenceFiles,
       List<StoreFileInfo> storeFiles) throws IOException {
     long timestamp = storeFiles.stream().findFirst().get().getModificationTime();
     return mockFileSystem(info, hasReferenceFiles, storeFiles, timestamp);
@@ -141,7 +138,7 @@ public class TestMajorCompactionRequest {
     return mockSystem;
   }
 
-  protected List<StoreFileInfo> mockStoreFiles(Path regionStoreDir, int howMany, long timestamp)
+  private List<StoreFileInfo> mockStoreFiles(Path regionStoreDir, int howMany, long timestamp)
       throws IOException {
     List<StoreFileInfo> infos = Lists.newArrayList();
     int i = 0;
@@ -156,14 +153,14 @@ public class TestMajorCompactionRequest {
     return infos;
   }
 
-  private MajorCompactionRequest makeMockRequest(List<StoreFileInfo> storeFiles,
+  private MajorCompactionRequest makeMockRequest(long timestamp, List<StoreFileInfo> storeFiles,
       boolean references) throws IOException {
     Configuration configuration = mock(Configuration.class);
     RegionInfo regionInfo = mock(RegionInfo.class);
     when(regionInfo.getEncodedName()).thenReturn("HBase");
     when(regionInfo.getTable()).thenReturn(TableName.valueOf("foo"));
     MajorCompactionRequest request =
-        new MajorCompactionRequest(configuration, regionInfo, Sets.newHashSet("a"));
+        new MajorCompactionRequest(configuration, regionInfo, Sets.newHashSet("a"), timestamp);
     MajorCompactionRequest spy = spy(request);
     HRegionFileSystem fileSystem = mockFileSystem(regionInfo, references, storeFiles);
     doReturn(fileSystem).when(spy).getFileSystem(isA(Connection.class));

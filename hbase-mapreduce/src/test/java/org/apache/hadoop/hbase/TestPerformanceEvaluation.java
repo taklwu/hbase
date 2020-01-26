@@ -18,7 +18,6 @@
 package org.apache.hadoop.hbase;
 
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
@@ -54,6 +53,7 @@ import org.apache.hbase.thirdparty.com.google.gson.Gson;
 
 @Category({MiscTests.class, SmallTests.class})
 public class TestPerformanceEvaluation {
+
   @ClassRule
   public static final HBaseClassTestRule CLASS_RULE =
       HBaseClassTestRule.forClass(TestPerformanceEvaluation.class);
@@ -64,19 +64,19 @@ public class TestPerformanceEvaluation {
   public void testDefaultInMemoryCompaction() {
     PerformanceEvaluation.TestOptions defaultOpts =
         new PerformanceEvaluation.TestOptions();
-    assertEquals(CompactingMemStore.COMPACTING_MEMSTORE_TYPE_DEFAULT,
+    assertEquals(CompactingMemStore.COMPACTING_MEMSTORE_TYPE_DEFAULT.toString(),
         defaultOpts.getInMemoryCompaction().toString());
     HTableDescriptor htd = PerformanceEvaluation.getTableDescriptor(defaultOpts);
     for (HColumnDescriptor hcd: htd.getFamilies()) {
-      assertEquals(CompactingMemStore.COMPACTING_MEMSTORE_TYPE_DEFAULT,
+      assertEquals(CompactingMemStore.COMPACTING_MEMSTORE_TYPE_DEFAULT.toString(),
           hcd.getInMemoryCompaction().toString());
     }
   }
 
   @Test
-  public void testSerialization() {
+  public void testSerialization() throws IOException {
     PerformanceEvaluation.TestOptions options = new PerformanceEvaluation.TestOptions();
-    assertFalse(options.isAutoFlush());
+    assertTrue(!options.isAutoFlush());
     options.setAutoFlush(true);
     Gson gson = GsonUtil.createGson().create();
     String optionsString = gson.toJson(options);
@@ -101,7 +101,8 @@ public class TestPerformanceEvaluation {
     long len = fs.getFileStatus(p).getLen();
     assertTrue(len > 0);
     byte[] content = new byte[(int) len];
-    try (FSDataInputStream dis = fs.open(p)) {
+    FSDataInputStream dis = fs.open(p);
+    try {
       dis.readFully(content);
       BufferedReader br = new BufferedReader(
         new InputStreamReader(new ByteArrayInputStream(content), StandardCharsets.UTF_8));
@@ -110,6 +111,8 @@ public class TestPerformanceEvaluation {
         count++;
       }
       assertEquals(clients, count);
+    } finally {
+      dis.close();
     }
   }
 
@@ -167,8 +170,9 @@ public class TestPerformanceEvaluation {
   }
 
   @Test
-  public void testZipfian() throws NoSuchMethodException, SecurityException, InstantiationException,
-      IllegalAccessException, IllegalArgumentException, InvocationTargetException {
+  public void testZipfian()
+  throws NoSuchMethodException, SecurityException, InstantiationException, IllegalAccessException,
+      IllegalArgumentException, InvocationTargetException {
     TestOptions opts = new PerformanceEvaluation.TestOptions();
     opts.setValueZipf(true);
     final int valueSize = 1024;
@@ -193,10 +197,10 @@ public class TestPerformanceEvaluation {
   public void testSetBufferSizeOption() {
     TestOptions opts = new PerformanceEvaluation.TestOptions();
     long bufferSize = opts.getBufferSize();
-    assertEquals(bufferSize, 2L * 1024L * 1024L);
-    opts.setBufferSize(64L * 1024L);
+    assertEquals(bufferSize, 2l * 1024l * 1024l);
+    opts.setBufferSize(64l * 1024l);
     bufferSize = opts.getBufferSize();
-    assertEquals(bufferSize, 64L * 1024L);
+    assertEquals(bufferSize, 64l * 1024l);
   }
 
   @Test
@@ -261,7 +265,7 @@ public class TestPerformanceEvaluation {
     assertNotNull(options);
     assertNotNull(options.getCmdName());
     assertEquals(cmdName, options.getCmdName());
-    assertEquals(10, options.getMultiPut());
+    assertTrue(options.getMultiPut() == 10);
   }
 
   @Test
@@ -284,6 +288,6 @@ public class TestPerformanceEvaluation {
     assertNotNull(options);
     assertNotNull(options.getCmdName());
     assertEquals(cmdName, options.getCmdName());
-    assertEquals(10, options.getConnCount());
+    assertTrue(options.getConnCount() == 10);
   }
 }

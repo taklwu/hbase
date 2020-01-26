@@ -103,7 +103,11 @@ public abstract class ProcedureManagerHost<E extends ProcedureManager> {
   }
 
   public Set<E> getProcedureManagers() {
-    return new HashSet<>(procedures);
+    Set<E> returnValue = new HashSet<>();
+    for (E e: procedures) {
+      returnValue.add(e);
+    }
+    return returnValue;
   }
 
   public abstract void loadProcedures(Configuration conf);

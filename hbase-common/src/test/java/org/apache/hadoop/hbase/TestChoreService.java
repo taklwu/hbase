@@ -354,17 +354,17 @@ public class TestChoreService {
   public void testFrequencyOfChores() throws InterruptedException {
     final int period = 100;
     // Small delta that acts as time buffer (allowing chores to complete if running slowly)
-    final int delta = period/5;
+    final int delta = 5;
     ChoreService service = new ChoreService("testFrequencyOfChores");
     CountingChore chore = new CountingChore("countingChore", period);
     try {
       service.scheduleChore(chore);
 
       Thread.sleep(10 * period + delta);
-      assertEquals("10 periods have elapsed.", 11, chore.getCountOfChoreCalls());
+      assertTrue(chore.getCountOfChoreCalls() == 11);
 
-      Thread.sleep(10 * period + delta);
-      assertEquals("20 periods have elapsed.", 21, chore.getCountOfChoreCalls());
+      Thread.sleep(10 * period);
+      assertTrue(chore.getCountOfChoreCalls() == 21);
     } finally {
       shutdownService(service);
     }
@@ -380,14 +380,14 @@ public class TestChoreService {
   @Test
   public void testForceTrigger() throws InterruptedException {
     final int period = 100;
-    final int delta = period/10;
+    final int delta = 10;
     ChoreService service = new ChoreService("testForceTrigger");
     final CountingChore chore = new CountingChore("countingChore", period);
     try {
       service.scheduleChore(chore);
       Thread.sleep(10 * period + delta);
 
-      assertEquals("10 periods have elapsed.", 11, chore.getCountOfChoreCalls());
+      assertTrue(chore.getCountOfChoreCalls() == 11);
 
       // Force five runs of the chore to occur, sleeping between triggers to ensure the
       // chore has time to run
@@ -402,14 +402,12 @@ public class TestChoreService {
       chore.triggerNow();
       Thread.sleep(delta);
 
-      assertEquals("Trigger was called 5 times after 10 periods.", 16,
-          chore.getCountOfChoreCalls());
+      assertTrue("" + chore.getCountOfChoreCalls(), chore.getCountOfChoreCalls() == 16);
 
       Thread.sleep(10 * period + delta);
 
       // Be loosey-goosey. It used to be '26' but it was a big flakey relying on timing.
-      assertTrue("Expected at least 16 invocations, instead got " + chore.getCountOfChoreCalls(),
-          chore.getCountOfChoreCalls() > 16);
+      assertTrue("" + chore.getCountOfChoreCalls(), chore.getCountOfChoreCalls() > 16);
     } finally {
       shutdownService(service);
     }
@@ -421,7 +419,7 @@ public class TestChoreService {
     ChoreService service = new ChoreService("testCorePoolIncrease", initialCorePoolSize, false);
 
     try {
-      assertEquals("Setting core pool size gave unexpected results.", initialCorePoolSize,
+      assertEquals("Should have a core pool of size: " + initialCorePoolSize, initialCorePoolSize,
         service.getCorePoolSize());
 
       final int slowChorePeriod = 100;
@@ -705,7 +703,7 @@ public class TestChoreService {
     Stoppable stopperForGroup1 = new SampleStopper();
     Stoppable stopperForGroup2 = new SampleStopper();
     final int period = 100;
-    final int delta = period/10;
+    final int delta = 10;
 
     try {
       ScheduledChore chore1_group1 = new DoNothingChore("c1g1", stopperForGroup1, period);

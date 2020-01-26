@@ -17,7 +17,6 @@
  */
 package org.apache.hadoop.hbase.client;
 
-import static org.apache.hadoop.hbase.client.ConnectionUtils.setCoprocessorError;
 import static org.apache.hadoop.hbase.util.FutureUtils.addListener;
 
 import com.google.protobuf.Descriptors.MethodDescriptor;
@@ -58,8 +57,6 @@ class RegionCoprocessorRpcChannelImpl implements RpcChannel {
 
   private final long operationTimeoutNs;
 
-  private byte[] lastRegion;
-
   RegionCoprocessorRpcChannelImpl(AsyncConnectionImpl conn, TableName tableName, RegionInfo region,
       byte[] row, long rpcTimeoutNs, long operationTimeoutNs) {
     this.conn = conn;
@@ -74,13 +71,15 @@ class RegionCoprocessorRpcChannelImpl implements RpcChannel {
       Message responsePrototype, HBaseRpcController controller, HRegionLocation loc,
       ClientService.Interface stub) {
     CompletableFuture<Message> future = new CompletableFuture<>();
-    if (region != null && !Bytes.equals(loc.getRegion().getRegionName(), region.getRegionName())) {
-      future.completeExceptionally(new DoNotRetryIOException("Region name is changed, expected " +
-        region.getRegionNameAsString() + ", actual " + loc.getRegion().getRegionNameAsString()));
+    if (region != null
+        && !Bytes.equals(loc.getRegionInfo().getRegionName(), region.getRegionName())) {
+      future.completeExceptionally(new DoNotRetryIOException(
+          "Region name is changed, expected " + region.getRegionNameAsString() + ", actual "
+              + loc.getRegionInfo().getRegionNameAsString()));
       return future;
     }
     CoprocessorServiceRequest csr = CoprocessorRpcUtils.getCoprocessorServiceRequest(method,
-      request, row, loc.getRegion().getRegionName());
+      request, row, loc.getRegionInfo().getRegionName());
     stub.execService(controller, csr,
       new org.apache.hbase.thirdparty.com.google.protobuf.RpcCallback<CoprocessorServiceResponse>() {
 
@@ -89,7 +88,6 @@ class RegionCoprocessorRpcChannelImpl implements RpcChannel {
           if (controller.failed()) {
             future.completeExceptionally(controller.getFailed());
           } else {
-            lastRegion = resp.getRegion().getValue().toByteArray();
             try {
               future.complete(CoprocessorRpcUtils.getResponse(resp, responsePrototype));
             } catch (IOException e) {
@@ -111,13 +109,9 @@ class RegionCoprocessorRpcChannelImpl implements RpcChannel {
         .action((c, l, s) -> rpcCall(method, request, responsePrototype, c, l, s)).call(),
       (r, e) -> {
         if (e != null) {
-          setCoprocessorError(controller, e);
+          ((ClientCoprocessorRpcController) controller).setFailed(e);
         }
         done.run(r);
       });
-  }
-
-  public byte[] getLastRegion() {
-    return lastRegion;
   }
 }

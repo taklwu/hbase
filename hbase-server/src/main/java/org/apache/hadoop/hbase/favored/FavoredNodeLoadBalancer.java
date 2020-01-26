@@ -428,10 +428,10 @@ public class FavoredNodeLoadBalancer extends BaseLoadBalancer implements Favored
    * keep it simple.
    */
   @Override
-  public void generateFavoredNodesForMergedRegion(RegionInfo merged, RegionInfo [] mergeParents)
-      throws IOException {
+  public void generateFavoredNodesForMergedRegion(RegionInfo merged, RegionInfo regionA,
+      RegionInfo regionB) throws IOException {
     Map<RegionInfo, List<ServerName>> regionFNMap = Maps.newHashMap();
-    regionFNMap.put(merged, getFavoredNodes(mergeParents[0]));
+    regionFNMap.put(merged, getFavoredNodes(regionA));
     fnm.updateFavoredNodes(regionFNMap);
   }
 

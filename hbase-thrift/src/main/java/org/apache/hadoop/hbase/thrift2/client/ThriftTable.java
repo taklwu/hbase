@@ -29,6 +29,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Queue;
 import java.util.concurrent.TimeUnit;
+
 import org.apache.commons.lang3.NotImplementedException;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hbase.CompareOperator;
@@ -39,7 +40,6 @@ import org.apache.hadoop.hbase.client.Delete;
 import org.apache.hadoop.hbase.client.Get;
 import org.apache.hadoop.hbase.client.Increment;
 import org.apache.hadoop.hbase.client.Put;
-import org.apache.hadoop.hbase.client.RegionLocator;
 import org.apache.hadoop.hbase.client.Result;
 import org.apache.hadoop.hbase.client.ResultScanner;
 import org.apache.hadoop.hbase.client.Row;
@@ -408,13 +408,15 @@ public class ThriftTable implements Table {
     }
   }
 
-  private boolean checkAndMutate(byte[] row, byte[] family, byte[] qualifier, CompareOperator op,
+
+  @Override
+  public boolean checkAndMutate(byte[] row, byte[] family, byte[] qualifier, CompareOperator op,
       byte[] value, RowMutations mutation) throws IOException {
     try {
-      ByteBuffer valueBuffer = value == null ? null : ByteBuffer.wrap(value);
+      ByteBuffer valueBuffer = value == null? null : ByteBuffer.wrap(value);
       return client.checkAndMutate(tableNameInBytes, ByteBuffer.wrap(row), ByteBuffer.wrap(family),
-        ByteBuffer.wrap(qualifier), ThriftUtilities.compareOpFromHBase(op), valueBuffer,
-        ThriftUtilities.rowMutationsFromHBase(mutation));
+          ByteBuffer.wrap(qualifier), ThriftUtilities.compareOpFromHBase(op), valueBuffer,
+          ThriftUtilities.rowMutationsFromHBase(mutation));
     } catch (TException e) {
       throw new IOException(e);
     }
@@ -487,8 +489,4 @@ public class ThriftTable implements Table {
     throw new NotImplementedException("coprocessorService not supported in ThriftTable");
   }
 
-  @Override
-  public RegionLocator getRegionLocator() throws IOException {
-    throw new NotImplementedException("getRegionLocator not supported in ThriftTable");
-  }
 }

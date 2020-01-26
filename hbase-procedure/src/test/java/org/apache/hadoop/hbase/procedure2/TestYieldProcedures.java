@@ -42,6 +42,7 @@ import org.slf4j.LoggerFactory;
 
 @Category({MasterTests.class, SmallTests.class})
 public class TestYieldProcedures {
+
   @ClassRule
   public static final HBaseClassTestRule CLASS_RULE =
       HBaseClassTestRule.forClass(TestYieldProcedures.class);
@@ -202,17 +203,9 @@ public class TestYieldProcedures {
         this.rollback = isRollback;
       }
 
-      public State getStep() {
-        return step;
-      }
-
-      public long getTimestamp() {
-        return timestamp;
-      }
-
-      public boolean isRollback() {
-        return rollback;
-      }
+      public State getStep() { return step; }
+      public long getTimestamp() { return timestamp; }
+      public boolean isRollback() { return rollback; }
     }
 
     private final ArrayList<ExecutionInfo> executionInfo = new ArrayList<>();

@@ -51,8 +51,7 @@ final class AsyncRegionLocatorHelper {
 
   static void updateCachedLocationOnError(HRegionLocation loc, Throwable exception,
       Function<HRegionLocation, HRegionLocation> cachedLocationSupplier,
-      Consumer<HRegionLocation> addToCache, Consumer<HRegionLocation> removeFromCache,
-      MetricsConnection metrics) {
+      Consumer<HRegionLocation> addToCache, Consumer<HRegionLocation> removeFromCache) {
     HRegionLocation oldLoc = cachedLocationSupplier.apply(loc);
     if (LOG.isDebugEnabled()) {
       LOG.debug("Try updating {} , the old value is {}, error={}", loc, oldLoc,
@@ -75,14 +74,10 @@ final class AsyncRegionLocatorHelper {
       RegionMovedException rme = (RegionMovedException) cause;
       HRegionLocation newLoc =
         new HRegionLocation(loc.getRegion(), rme.getServerName(), rme.getLocationSeqNum());
-      LOG.debug("Try updating {} with the new location {} constructed by {}", loc, newLoc,
-        rme.toString());
+      LOG.debug("Try updating {} with the new location {} constructed by {}", loc, newLoc, rme);
       addToCache.accept(newLoc);
     } else {
       LOG.debug("Try removing {} from cache", loc);
-      if (metrics != null) {
-        metrics.incrCacheDroppingExceptions(exception);
-      }
       removeFromCache.accept(loc);
     }
   }

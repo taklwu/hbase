@@ -119,7 +119,7 @@ public class TestBackupSystemTable {
   }
 
   private void cleanBackupTable() throws IOException {
-    Admin admin = UTIL.getAdmin();
+    Admin admin = UTIL.getHBaseAdmin();
     admin.disableTable(BackupSystemTable.getTableName(conf));
     admin.truncateTable(BackupSystemTable.getTableName(conf), true);
     if (admin.isTableDisabled(BackupSystemTable.getTableName(conf))) {

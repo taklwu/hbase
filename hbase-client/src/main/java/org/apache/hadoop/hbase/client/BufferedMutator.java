@@ -62,11 +62,7 @@ import org.apache.yetus.audience.InterfaceAudience;
 public interface BufferedMutator extends Closeable {
   /**
    * Key to use setting non-default BufferedMutator implementation in Configuration.
-   * <p/>
-   * @deprecated Since 3.0.0, will be removed in 4.0.0. For internal test use only, do not use it
-   *             any more.
    */
-  @Deprecated
   String CLASSNAME_KEY = "hbase.client.bufferedmutator.classname";
 
   /**
@@ -183,18 +179,12 @@ public interface BufferedMutator extends Closeable {
 
   /**
    * Set rpc timeout for this mutator instance
-   * @deprecated Since 3.0.0, will be removed in 4.0.0. Please set this through the
-   *             {@link BufferedMutatorParams}.
    */
-  @Deprecated
   void setRpcTimeout(int timeout);
 
   /**
    * Set operation timeout for this mutator instance
-   * @deprecated Since 3.0.0, will be removed in 4.0.0. Please set this through the
-   *             {@link BufferedMutatorParams}.
    */
-  @Deprecated
   void setOperationTimeout(int timeout);
 
   /**

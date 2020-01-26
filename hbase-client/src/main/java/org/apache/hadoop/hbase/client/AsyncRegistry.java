@@ -1,4 +1,4 @@
-/*
+/**
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -19,12 +19,15 @@ package org.apache.hadoop.hbase.client;
 
 import java.io.Closeable;
 import java.util.concurrent.CompletableFuture;
+
 import org.apache.hadoop.hbase.RegionLocations;
 import org.apache.hadoop.hbase.ServerName;
 import org.apache.yetus.audience.InterfaceAudience;
 
 /**
  * Implementations hold cluster information such as this cluster's id, location of hbase:meta, etc..
+ * All stuffs that may be related to zookeeper at client side are placed here.
+ * <p>
  * Internal use only.
  */
 @InterfaceAudience.Private
@@ -43,9 +46,19 @@ interface AsyncRegistry extends Closeable {
   CompletableFuture<String> getClusterId();
 
   /**
+   * Get the number of 'running' regionservers.
+   */
+  CompletableFuture<Integer> getCurrentNrHRS();
+
+  /**
    * Get the address of HMaster.
    */
   CompletableFuture<ServerName> getMasterAddress();
+
+  /**
+   * Get the info port of HMaster.
+   */
+  CompletableFuture<Integer> getMasterInfoPort();
 
   /**
    * Closes this instance and releases any system resources associated with it

@@ -86,14 +86,7 @@ public class ReplicationSourceDummy implements ReplicationSourceInterface {
 
   @Override
   public void terminate(String reason, Exception e) {
-    terminate(reason, e, true);
-  }
-
-  @Override
-  public void terminate(String reason, Exception e, boolean clearMetrics) {
-    if (clearMetrics) {
-      this.metrics.clear();
-    }
+    this.metrics.clear();
   }
 
   @Override

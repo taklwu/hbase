@@ -17,13 +17,10 @@
  */
 package org.apache.hadoop.hbase.io.hfile.bucket;
 
-import static org.apache.hadoop.hbase.io.hfile.bucket.TestByteBufferIOEngine.createBucketEntry;
-import static org.apache.hadoop.hbase.io.hfile.bucket.TestByteBufferIOEngine.getByteBuff;
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.fail;
 
 import java.io.File;
 import java.io.IOException;
@@ -31,22 +28,16 @@ import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.util.ArrayList;
 import java.util.List;
-
 import org.apache.hadoop.hbase.HBaseClassTestRule;
-import org.apache.hadoop.hbase.io.ByteBuffAllocator;
+import org.apache.hadoop.hbase.io.hfile.bucket.TestByteBufferIOEngine.BufferGrabbingDeserializer;
 import org.apache.hadoop.hbase.nio.ByteBuff;
-import org.apache.hadoop.hbase.nio.RefCnt;
 import org.apache.hadoop.hbase.testclassification.IOTests;
 import org.apache.hadoop.hbase.testclassification.SmallTests;
 import org.junit.After;
-import org.junit.Assert;
 import org.junit.Before;
 import org.junit.ClassRule;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
-import org.mockito.Mockito;
-import org.mockito.invocation.InvocationOnMock;
-import org.mockito.stubbing.Answer;
 
 /**
  * Basic test for {@link FileIOEngine}
@@ -118,10 +109,9 @@ public class TestFileIOEngine {
         data1[j] = (byte) (Math.random() * 255);
       }
       fileIOEngine.write(ByteBuffer.wrap(data1), offset);
-
-      BucketEntry be = createBucketEntry(offset, len);
-      fileIOEngine.read(be);
-      ByteBuff data2 = getByteBuff(be);
+      BufferGrabbingDeserializer deserializer = new BufferGrabbingDeserializer();
+      fileIOEngine.read(offset, len, deserializer);
+      ByteBuff data2 = deserializer.getDeserializedByteBuff();
       assertArrayEquals(data1, data2.array());
     }
   }
@@ -131,35 +121,10 @@ public class TestFileIOEngine {
     byte[] data1 = new byte[0];
 
     fileIOEngine.write(ByteBuffer.wrap(data1), 0);
-    BucketEntry be = createBucketEntry(0, 0);
-    fileIOEngine.read(be);
-    ByteBuff data2 = getByteBuff(be);
+    BufferGrabbingDeserializer deserializer = new BufferGrabbingDeserializer();
+    fileIOEngine.read(0, 0, deserializer);
+    ByteBuff data2 = deserializer.getDeserializedByteBuff();
     assertArrayEquals(data1, data2.array());
-  }
-
-  @Test
-  public void testReadFailedShouldReleaseByteBuff() {
-    ByteBuffAllocator alloc = Mockito.mock(ByteBuffAllocator.class);
-    final RefCnt refCnt = RefCnt.create();
-    Mockito.when(alloc.allocate(Mockito.anyInt())).thenAnswer(new Answer<ByteBuff>() {
-      @Override
-      public ByteBuff answer(InvocationOnMock invocation) throws Throwable {
-        int len = invocation.getArgument(0);
-        return ByteBuff.wrap(new ByteBuffer[]{ByteBuffer.allocate(len + 1)}, refCnt);
-      }
-    });
-    int len = 10;
-    byte[] data1 = new byte[len];
-    assertEquals(1, refCnt.refCnt());
-    try {
-      fileIOEngine.write(ByteBuffer.wrap(data1), 0);
-      BucketEntry be = createBucketEntry(0, len, alloc);
-      fileIOEngine.read(be);
-      fail();
-    } catch (IOException ioe) {
-      // expected exception.
-    }
-    assertEquals(0, refCnt.refCnt());
   }
 
   @Test
@@ -167,22 +132,15 @@ public class TestFileIOEngine {
     fileIOEngine.closeFileChannels();
     int len = 5;
     long offset = 0L;
-    int val = (int) (Math.random() * 255);
-    for (int i = 0; i < 2; i++) {
-      ByteBuff src = TestByteBufferIOEngine.createByteBuffer(len, val, i % 2 == 0);
-      int pos = src.position(), lim = src.limit();
-      fileIOEngine.write(src, offset);
-      src.position(pos).limit(lim);
-
-      BucketEntry be = createBucketEntry(offset, len);
-      fileIOEngine.read(be);
-      ByteBuff dst = getByteBuff(be);
-
-      Assert.assertEquals(src.remaining(), len);
-      Assert.assertEquals(dst.remaining(), len);
-      Assert.assertEquals(0,
-        ByteBuff.compareTo(src, pos, len, dst, dst.position(), dst.remaining()));
+    byte[] data1 = new byte[len];
+    for (int j = 0; j < data1.length; ++j) {
+      data1[j] = (byte) (Math.random() * 255);
     }
+    fileIOEngine.write(ByteBuffer.wrap(data1), offset);
+    BufferGrabbingDeserializer deserializer = new BufferGrabbingDeserializer();
+    fileIOEngine.read(offset, len, deserializer);
+    ByteBuff data2 = deserializer.getDeserializedByteBuff();
+    assertArrayEquals(data1, data2.array());
   }
 
   @Test

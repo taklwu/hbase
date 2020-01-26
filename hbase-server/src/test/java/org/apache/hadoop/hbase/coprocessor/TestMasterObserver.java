@@ -111,8 +111,6 @@ public class TestMasterObserver {
     private boolean postModifyNamespaceCalled;
     private boolean preGetNamespaceDescriptorCalled;
     private boolean postGetNamespaceDescriptorCalled;
-    private boolean preListNamespacesCalled;
-    private boolean postListNamespacesCalled;
     private boolean preListNamespaceDescriptorsCalled;
     private boolean postListNamespaceDescriptorsCalled;
     private boolean preAddColumnCalled;
@@ -206,8 +204,6 @@ public class TestMasterObserver {
       postModifyNamespaceCalled = false;
       preGetNamespaceDescriptorCalled = false;
       postGetNamespaceDescriptorCalled = false;
-      preListNamespacesCalled = false;
-      postListNamespacesCalled = false;
       preListNamespaceDescriptorsCalled = false;
       postListNamespaceDescriptorsCalled = false;
       preAddColumnCalled = false;
@@ -474,18 +470,6 @@ public class TestMasterObserver {
 
     public boolean wasGetNamespaceDescriptorCalled() {
       return preGetNamespaceDescriptorCalled && postGetNamespaceDescriptorCalled;
-    }
-
-    @Override
-    public void preListNamespaces(ObserverContext<MasterCoprocessorEnvironment> ctx,
-        List<String> namespaces) {
-      preListNamespacesCalled = true;
-    }
-
-    @Override
-    public void postListNamespaces(ObserverContext<MasterCoprocessorEnvironment> ctx,
-        List<String> namespaces) {
-      postListNamespacesCalled = true;
     }
 
     @Override
@@ -1269,15 +1253,14 @@ public class TestMasterObserver {
         final ObserverContext<MasterCoprocessorEnvironment> ctx,
         final RegionInfo[] regionsToMerge) throws IOException {
     }
-
   }
 
   private static HBaseTestingUtility UTIL = new HBaseTestingUtility();
-  private static String TEST_SNAPSHOT = "observed_snapshot";
+  private static byte[] TEST_SNAPSHOT = Bytes.toBytes("observed_snapshot");
   private static TableName TEST_CLONE = TableName.valueOf("observed_clone");
   private static byte[] TEST_FAMILY = Bytes.toBytes("fam1");
-  @Rule
-  public TestName name = new TestName();
+  private static byte[] TEST_FAMILY2 = Bytes.toBytes("fam2");
+  @Rule public TestName name = new TestName();
 
   @BeforeClass
   public static void setupBeforeClass() throws Exception {
@@ -1341,8 +1324,8 @@ public class TestMasterObserver {
       RegionLocator regionLocator = connection.getRegionLocator(htd.getTableName());
       List<HRegionLocation> regions = regionLocator.getAllRegionLocations();
 
-      admin.mergeRegionsAsync(regions.get(0).getRegion().getEncodedNameAsBytes(),
-        regions.get(1).getRegion().getEncodedNameAsBytes(), true).get();
+      admin.mergeRegionsAsync(regions.get(0).getRegionInfo().getEncodedNameAsBytes(),
+        regions.get(1).getRegionInfo().getEncodedNameAsBytes(), true);
       assertTrue("Coprocessor should have been called on region merge",
         cp.wasMergeRegionsCalled());
 
@@ -1512,11 +1495,6 @@ public class TestMasterObserver {
 
     // create a table
     Admin admin = UTIL.getAdmin();
-
-    admin.listNamespaces();
-    assertTrue("preListNamespaces should have been called", cp.preListNamespacesCalled);
-    assertTrue("postListNamespaces should have been called", cp.postListNamespacesCalled);
-
     admin.createNamespace(NamespaceDescriptor.create(testNamespace).build());
     assertTrue("Test namespace should be created", cp.wasCreateNamespaceCalled());
 
@@ -1529,10 +1507,10 @@ public class TestMasterObserver {
 
   private void modifyTableSync(Admin admin, TableName tableName, HTableDescriptor htd)
       throws IOException {
-    admin.modifyTable(htd);
+    admin.modifyTable(tableName, htd);
     //wait until modify table finishes
     for (int t = 0; t < 100; t++) { //10 sec timeout
-      HTableDescriptor td = new HTableDescriptor(admin.getDescriptor(htd.getTableName()));
+      HTableDescriptor td = admin.getTableDescriptor(htd.getTableName());
       if (td.equals(htd)) {
         break;
       }
@@ -1585,7 +1563,7 @@ public class TestMasterObserver {
       assertTrue("Found server", found);
       LOG.info("Found " + destName);
       master.getMasterRpcServices().moveRegion(null, RequestConverter.buildMoveRegionRequest(
-          firstGoodPair.getRegion().getEncodedNameAsBytes(), ServerName.valueOf(destName)));
+          firstGoodPair.getRegionInfo().getEncodedNameAsBytes(), ServerName.valueOf(destName)));
       assertTrue("Coprocessor should have been called on region move",
         cp.wasMoveCalled());
 

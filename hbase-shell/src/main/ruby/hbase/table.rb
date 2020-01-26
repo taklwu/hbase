@@ -288,7 +288,7 @@ EOF
         ttl = args[TTL]
         set_op_ttl(append, ttl) if ttl
       end
-      append.addColumn(family, qualifier, value.to_s.to_java_bytes)
+      append.add(family, qualifier, value.to_s.to_java_bytes)
       result = @table.append(append)
       return nil if result.isEmpty
 
@@ -401,8 +401,8 @@ EOF
           end
 
           # Additional params
-          get.readVersions(vers)
-          get.setTimestamp(args[TIMESTAMP]) if args[TIMESTAMP]
+          get.setMaxVersions(vers)
+          get.setTimeStamp(args[TIMESTAMP]) if args[TIMESTAMP]
           get.setTimeRange(args[TIMERANGE][0], args[TIMERANGE][1]) if args[TIMERANGE]
         else
           if attributes
@@ -416,9 +416,9 @@ EOF
             end
           end
 
-          get.readVersions(vers)
+          get.setMaxVersions(vers)
           # Set the timestamp/timerange
-          get.setTimestamp(ts.to_i) if args[TIMESTAMP]
+          get.setTimeStamp(ts.to_i) if args[TIMESTAMP]
           get.setTimeRange(args[TIMERANGE][0], args[TIMERANGE][1]) if args[TIMERANGE]
         end
         set_attributes(get, attributes) if attributes
@@ -473,7 +473,7 @@ EOF
       # Format get request
       get = org.apache.hadoop.hbase.client.Get.new(row.to_s.to_java_bytes)
       get.addColumn(family, qualifier)
-      get.readVersions(1)
+      get.setMaxVersions(1)
 
       # Call hbase
       result = @table.get(get)
@@ -553,7 +553,7 @@ EOF
         scan.setCacheBlocks(cache_blocks)
         scan.setReversed(reversed)
         scan.setCaching(cache) if cache > 0
-        scan.readVersions(versions) if versions > 1
+        scan.setMaxVersions(versions) if versions > 1
         scan.setTimeRange(timerange[0], timerange[1]) if timerange
         scan.setRaw(raw)
         scan.setLimit(limit) if limit > 0
@@ -717,7 +717,7 @@ EOF
 
     # Returns a list of column names in the table
     def get_all_columns
-      @table.descriptor.getColumnFamilies.map do |family|
+      @table.table_descriptor.getFamilies.map do |family|
         "#{family.getNameAsString}:"
       end
     end
@@ -741,7 +741,7 @@ EOF
         if column == 'info:regioninfo' || column == 'info:splitA' || column == 'info:splitB'
           hri = org.apache.hadoop.hbase.HRegionInfo.parseFromOrNull(kv.getValueArray,
                                                                     kv.getValueOffset, kv.getValueLength)
-          return format('timestamp=%d, value=%s', kv.getTimestamp, hri.nil? ? '' : hri.toString)
+          return format('timestamp=%d, value=%s', kv.getTimestamp, hri.toString)
         end
         if column == 'info:serverstartcode'
           if kv.getValueLength > 0
@@ -816,7 +816,7 @@ EOF
       locator = @table.getRegionLocator
       locator.getAllRegionLocations
              .select { |s| RegionReplicaUtil.isDefaultReplica(s.getRegion) }
-             .map { |i| Bytes.toStringBinary(i.getRegion.getStartKey) }
+             .map { |i| Bytes.toStringBinary(i.getRegionInfo.getStartKey) }
              .delete_if { |k| k == '' }
     ensure
       locator.close

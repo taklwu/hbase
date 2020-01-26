@@ -28,6 +28,7 @@ import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hbase.HBaseClassTestRule;
 import org.apache.hadoop.hbase.HConstants;
 import org.apache.hadoop.hbase.TableName;
+import org.apache.hadoop.hbase.client.ClusterConnection;
 import org.apache.hadoop.hbase.coprocessor.CoprocessorHost;
 import org.apache.hadoop.hbase.io.hfile.TestHFile;
 import org.apache.hadoop.hbase.master.assignment.AssignmentManager;
@@ -73,10 +74,10 @@ public class TestHBaseFsckMOB extends BaseTestHBaseFsck {
         TEST_UTIL.getHBaseCluster().getMaster().getAssignmentManager();
     regionStates = assignmentManager.getRegionStates();
 
-    connection = TEST_UTIL.getConnection();
+    connection = (ClusterConnection) TEST_UTIL.getConnection();
 
     admin = connection.getAdmin();
-    admin.balancerSwitch(false, true);
+    admin.setBalancerRunning(false, true);
 
     TEST_UTIL.waitUntilAllRegionsAssigned(TableName.META_TABLE_NAME);
   }

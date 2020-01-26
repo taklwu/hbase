@@ -27,18 +27,13 @@
 
 <%
 Configuration conf = (Configuration)getServletContext().getAttribute("hbase.conf");
-String serverType = (String)getServletContext().getAttribute("hbase.thrift.server.type");
 long startcode = conf.getLong("startcode", System.currentTimeMillis());
 String listenPort = conf.get("hbase.regionserver.thrift.port", "9090");
+String serverInfo = listenPort + "," + String.valueOf(startcode);
 ImplType implType = ImplType.getServerImpl(conf);
-
-String transport =
-  (implType.isAlwaysFramed() ||
-    conf.getBoolean("hbase.regionserver.thrift.framed", false)) ? "Framed" : "Standard";
-String protocol =
-  conf.getBoolean("hbase.regionserver.thrift.compact", false) ? "Compact" : "Binary";
-String qop = conf.get("hbase.thrift.security.qop", "None");
-
+String framed = implType.isAlwaysFramed()
+    ? "true" : conf.get("hbase.regionserver.thrift.framed", "false");
+String compact = conf.get("hbase.regionserver.thrift.compact", "false");
 %>
 <!DOCTYPE html>
 <?xml version="1.0" encoding="UTF-8" ?>
@@ -58,15 +53,12 @@ String qop = conf.get("hbase.thrift.security.qop", "None");
   <div class="navbar  navbar-fixed-top navbar-default">
       <div class="container-fluid">
           <div class="navbar-header">
-              <button type="button"
-                      class="navbar-toggle" data-toggle="collapse" data-target=".navbar-collapse">
+              <button type="button" class="navbar-toggle" data-toggle="collapse" data-target=".navbar-collapse">
                   <span class="icon-bar"></span>
                   <span class="icon-bar"></span>
                   <span class="icon-bar"></span>
               </button>
-              <a class="navbar-brand" href="/thrift.jsp">
-                <img src="/static/hbase_logo_small.png" alt="HBase Logo"/>
-              </a>
+              <a class="navbar-brand" href="/thrift.jsp"><img src="/static/hbase_logo_small.png" alt="HBase Logo"/></a>
           </div>
           <div class="collapse navbar-collapse">
               <ul class="nav navbar-nav">
@@ -74,7 +66,6 @@ String qop = conf.get("hbase.thrift.security.qop", "None");
                 <li><a href="/logs/">Local logs</a></li>
                 <li><a href="/logLevel">Log Level</a></li>
                 <li><a href="/jmx">Metrics Dump</a></li>
-                <li><a href="/prof">Profiler</a></li>
                 <% if (HBaseConfiguration.isShowConfInServlet()) { %>
                 <li><a href="/conf">HBase Configuration</a></li>
                 <% } %>
@@ -120,32 +111,21 @@ String qop = conf.get("hbase.thrift.security.qop", "None");
             <td>Thrift RPC engine implementation type chosen by this Thrift server</td>
         </tr>
         <tr>
-            <td>Protocol</td>
-            <td><%= protocol %></td>
-            <td>Thrift RPC engine protocol type</td>
+            <td>Compact Protocol</td>
+            <td><%= compact %></td>
+            <td>Thrift RPC engine uses compact protocol</td>
         </tr>
         <tr>
-            <td>Transport</td>
-            <td><%= transport %></td>
-            <td>Thrift RPC engine transport type</td>
+            <td>Framed Transport</td>
+            <td><%= framed %></td>
+            <td>Thrift RPC engine uses framed transport</td>
         </tr>
-        <tr>
-            <td>Thrift Server Type</td>
-            <td><%= serverType %></td>
-            <td>The type of this Thrift server</td>
-        </tr>
-      <tr>
-        <td>Quality of Protection</td>
-        <td><%= qop %></td>
-        <td>QOP Settings for SASL</td>
-      </tr>
     </table>
     </section>
     </div>
     <div class="row">
         <section>
-            <a href="http://hbase.apache.org/book.html#_thrift">
-              Apache HBase Reference Guide chapter on Thrift</a>
+            <a href="http://hbase.apache.org/book.html#_thrift">Apache HBase Reference Guide chapter on Thrift</a>
         </section>
     </div>
 </div>

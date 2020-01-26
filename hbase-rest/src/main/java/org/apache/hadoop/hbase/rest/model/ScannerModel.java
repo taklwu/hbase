@@ -16,6 +16,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package org.apache.hadoop.hbase.rest.model;
 
 import java.io.IOException;
@@ -281,7 +282,7 @@ public class ScannerModel implements ProtobufMessageHandler, Serializable {
           if (qualifier != null) {
             this.qualifier = Bytes.toString(Base64.getEncoder().encode(qualifier));
           }
-          this.op = dcf.getCompareOperator().toString();
+          this.op = dcf.getOperator().toString();
           this.comparator = new ByteArrayComparableModel(dcf.getComparator());
           this.dropDependentColumn = dcf.dropDependentColumn();
         } break;
@@ -323,7 +324,7 @@ public class ScannerModel implements ProtobufMessageHandler, Serializable {
         case QualifierFilter:
         case RowFilter:
         case ValueFilter:
-          this.op = ((CompareFilter)filter).getCompareOperator().toString();
+          this.op = ((CompareFilter)filter).getOperator().toString();
           this.comparator =
             new ByteArrayComparableModel(
               ((CompareFilter)filter).getComparator());
@@ -339,7 +340,7 @@ public class ScannerModel implements ProtobufMessageHandler, Serializable {
           if (qualifier != null) {
             this.qualifier = Bytes.toString(Base64.getEncoder().encode(qualifier));
           }
-          this.op = scvf.getCompareOperator().toString();
+          this.op = scvf.getOperator().toString();
           this.comparator =
             new ByteArrayComparableModel(scvf.getComparator());
           if (scvf.getFilterIfMissing()) {

@@ -23,8 +23,6 @@ import org.apache.hadoop.hbase.HBaseTestingUtility;
 import org.apache.hadoop.hbase.TableName;
 import org.apache.hadoop.hbase.client.Admin;
 import org.apache.hadoop.hbase.client.CompactType;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /**
  * Action that queues a table compaction.
@@ -33,7 +31,6 @@ public class CompactMobAction extends Action {
   private final TableName tableName;
   private final int majorRatio;
   private final long sleepTime;
-  private static final Logger LOG = LoggerFactory.getLogger(CompactMobAction.class);
 
   public CompactMobAction(TableName tableName, float majorRatio) {
     this(-1, tableName, majorRatio);

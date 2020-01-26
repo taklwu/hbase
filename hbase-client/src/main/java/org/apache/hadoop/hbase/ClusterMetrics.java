@@ -23,7 +23,6 @@ import edu.umd.cs.findbugs.annotations.Nullable;
 import java.util.List;
 import java.util.Map;
 import org.apache.hadoop.hbase.client.RegionInfo;
-import org.apache.hadoop.hbase.client.RegionStatesCount;
 import org.apache.hadoop.hbase.master.RegionState;
 import org.apache.yetus.audience.InterfaceAudience;
 
@@ -154,14 +153,6 @@ public interface ClusterMetrics {
   }
 
   /**
-   * Provide region states count for given table.
-   * e.g howmany regions of give table are opened/closed/rit etc
-   *
-   * @return map of table to region states count
-   */
-  Map<TableName, RegionStatesCount> getTableRegionStatesCount();
-
-  /**
    * Kinds of ClusterMetrics
    */
   enum Option {
@@ -208,10 +199,6 @@ public interface ClusterMetrics {
     /**
      * metrics about live region servers name
      */
-    SERVERS_NAME,
-    /**
-     * metrics about table to no of regions status count
-     */
-    TABLE_TO_REGIONS_COUNT,
+    SERVERS_NAME
   }
 }

@@ -27,21 +27,15 @@ import java.util.Arrays;
 import java.util.concurrent.CountDownLatch;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.hbase.*;
 import org.apache.hadoop.hbase.HBaseClassTestRule;
-import org.apache.hadoop.hbase.HBaseConfiguration;
-import org.apache.hadoop.hbase.HBaseTestingUtility;
-import org.apache.hadoop.hbase.HColumnDescriptor;
-import org.apache.hadoop.hbase.HConstants;
-import org.apache.hadoop.hbase.HTableDescriptor;
-import org.apache.hadoop.hbase.MiniHBaseCluster;
-import org.apache.hadoop.hbase.TableName;
 import org.apache.hadoop.hbase.client.Admin;
-import org.apache.hadoop.hbase.client.ConnectionFactory;
 import org.apache.hadoop.hbase.client.Delete;
 import org.apache.hadoop.hbase.client.Get;
 import org.apache.hadoop.hbase.client.Put;
 import org.apache.hadoop.hbase.client.Result;
 import org.apache.hadoop.hbase.client.Table;
+import org.apache.hadoop.hbase.client.replication.ReplicationAdmin;
 import org.apache.hadoop.hbase.coprocessor.CoprocessorHost;
 import org.apache.hadoop.hbase.regionserver.HRegion;
 import org.apache.hadoop.hbase.regionserver.wal.WALActionsListener;
@@ -136,7 +130,7 @@ public class TestMultiSlaveReplication {
     MiniHBaseCluster master = utility1.startMiniCluster();
     utility2.startMiniCluster();
     utility3.startMiniCluster();
-    Admin admin1 = ConnectionFactory.createConnection(conf1).getAdmin();
+    ReplicationAdmin admin1 = new ReplicationAdmin(conf1);
 
     utility1.getAdmin().createTable(table);
     utility2.getAdmin().createTable(table);
@@ -147,7 +141,7 @@ public class TestMultiSlaveReplication {
 
     ReplicationPeerConfig rpc = new ReplicationPeerConfig();
     rpc.setClusterKey(utility2.getClusterKey());
-    admin1.addReplicationPeer("1", rpc);
+    admin1.addPeer("1", rpc, null);
 
     // put "row" and wait 'til it got around, then delete
     putAndWait(row, famName, htable1, htable2);
@@ -165,7 +159,7 @@ public class TestMultiSlaveReplication {
 
     rpc = new ReplicationPeerConfig();
     rpc.setClusterKey(utility3.getClusterKey());
-    admin1.addReplicationPeer("2", rpc);
+    admin1.addPeer("2", rpc, null);
 
     // put a row, check it was replicated to all clusters
     putAndWait(row1, famName, htable1, htable2, htable3);

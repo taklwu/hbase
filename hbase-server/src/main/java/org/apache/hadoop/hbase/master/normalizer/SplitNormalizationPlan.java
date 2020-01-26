@@ -18,7 +18,9 @@
  */
 package org.apache.hadoop.hbase.master.normalizer;
 
+import java.io.IOException;
 import java.util.Arrays;
+
 import org.apache.hadoop.hbase.client.Admin;
 import org.apache.hadoop.hbase.client.RegionInfo;
 import org.apache.yetus.audience.InterfaceAudience;
@@ -76,8 +78,8 @@ public class SplitNormalizationPlan implements NormalizationPlan {
   public void execute(Admin admin) {
     LOG.info("Executing splitting normalization plan: " + this);
     try {
-      admin.splitRegionAsync(regionInfo.getRegionName()).get();
-    } catch (Exception ex) {
+      admin.splitRegion(regionInfo.getRegionName());
+    } catch (IOException ex) {
       LOG.error("Error during region split: ", ex);
     }
   }

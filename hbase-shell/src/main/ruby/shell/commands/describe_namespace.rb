@@ -33,16 +33,14 @@ EOF
 
         formatter.header(['DESCRIPTION'], [64])
         formatter.row([desc], true, [64])
+
+        puts
+        formatter.header(%w[QUOTAS])
         ns = namespace.to_s
-        if admin.exists?(::HBaseQuotasConstants::QUOTA_TABLE_NAME.to_s)
-          puts formatter.header(%w[QUOTAS])
-          count = quotas_admin.list_quotas(NAMESPACE => ns) do |_, quota|
-            formatter.row([quota])
-          end
-          formatter.footer(count)
-        else
-          puts 'Quota is disabled'
+        count = quotas_admin.list_quotas(NAMESPACE => ns) do |_, quota|
+          formatter.row([quota])
         end
+        formatter.footer(count)
       end
       # rubocop:enable Metrics/AbcSize
     end

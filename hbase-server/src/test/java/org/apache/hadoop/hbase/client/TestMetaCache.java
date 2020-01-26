@@ -17,25 +17,18 @@
  */
 package org.apache.hadoop.hbase.client;
 
-import static org.junit.Assert.assertEquals;
+import static junit.framework.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
 import java.io.IOException;
-import java.util.Arrays;
+import java.util.ArrayList;
 import java.util.List;
 import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.hbase.CallQueueTooBigException;
+import org.apache.hadoop.hbase.*;
 import org.apache.hadoop.hbase.HBaseClassTestRule;
-import org.apache.hadoop.hbase.HBaseTestingUtility;
-import org.apache.hadoop.hbase.HConstants;
-import org.apache.hadoop.hbase.MultiActionResultTooLarge;
-import org.apache.hadoop.hbase.NotServingRegionException;
-import org.apache.hadoop.hbase.RegionTooBusyException;
-import org.apache.hadoop.hbase.RetryImmediatelyException;
-import org.apache.hadoop.hbase.TableName;
 import org.apache.hadoop.hbase.exceptions.ClientExceptionsUtil;
 import org.apache.hadoop.hbase.exceptions.RegionOpeningException;
 import org.apache.hadoop.hbase.quotas.RpcThrottlingException;
@@ -44,14 +37,12 @@ import org.apache.hadoop.hbase.regionserver.RSRpcServices;
 import org.apache.hadoop.hbase.testclassification.ClientTests;
 import org.apache.hadoop.hbase.testclassification.MediumTests;
 import org.apache.hadoop.hbase.util.Bytes;
-import org.junit.After;
 import org.junit.AfterClass;
 import org.junit.BeforeClass;
 import org.junit.ClassRule;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
 
-import org.apache.hbase.thirdparty.com.google.common.io.Closeables;
 import org.apache.hbase.thirdparty.com.google.protobuf.RpcController;
 import org.apache.hbase.thirdparty.com.google.protobuf.ServiceException;
 
@@ -73,51 +64,45 @@ public class TestMetaCache {
 
   private static HRegionServer badRS;
 
-  private Connection conn;
-  private MetricsConnection metrics;
-  private AsyncRegionLocator locator;
-
+  /**
+   * @throws java.lang.Exception
+   */
   @BeforeClass
   public static void setUpBeforeClass() throws Exception {
     Configuration conf = TEST_UTIL.getConfiguration();
-    conf.setStrings(HConstants.REGION_SERVER_IMPL, RegionServerWithFakeRpcServices.class.getName());
+    conf.setStrings(HConstants.REGION_SERVER_IMPL,
+        RegionServerWithFakeRpcServices.class.getName());
     TEST_UTIL.startMiniCluster(1);
     TEST_UTIL.getHBaseCluster().waitForActiveAndReadyMaster();
-    TEST_UTIL.waitUntilAllRegionsAssigned(TableName.META_TABLE_NAME);
+    TEST_UTIL.waitUntilAllRegionsAssigned(TABLE_NAME.META_TABLE_NAME);
     badRS = TEST_UTIL.getHBaseCluster().getRegionServer(0);
     assertTrue(badRS.getRSRpcServices() instanceof FakeRSRpcServices);
-    TableDescriptor desc = TableDescriptorBuilder.newBuilder(TABLE_NAME)
-      .setColumnFamily(ColumnFamilyDescriptorBuilder.newBuilder(FAMILY).setMaxVersions(2).build())
-      .build();
-    TEST_UTIL.createTable(desc, null);
+    HTableDescriptor table = new HTableDescriptor(TABLE_NAME);
+    HColumnDescriptor fam = new HColumnDescriptor(FAMILY);
+    fam.setMaxVersions(2);
+    table.addFamily(fam);
+    TEST_UTIL.createTable(table, null);
   }
 
+
+  /**
+   * @throws java.lang.Exception
+   */
   @AfterClass
   public static void tearDownAfterClass() throws Exception {
     TEST_UTIL.shutdownMiniCluster();
   }
 
-  @After
-  public void tearDown() throws IOException {
-    Closeables.close(conn, true);
-  }
-
-  private void setupConnection(int retry) throws IOException {
-    Configuration conf = new Configuration(TEST_UTIL.getConfiguration());
-    conf.setInt(HConstants.HBASE_CLIENT_RETRIES_NUMBER, retry);
-    conf.setBoolean(MetricsConnection.CLIENT_SIDE_METRICS_ENABLED_KEY, true);
-    conn = ConnectionFactory.createConnection(conf);
-    AsyncConnectionImpl asyncConn = (AsyncConnectionImpl) conn.toAsyncConnection();
-    locator = asyncConn.getLocator();
-    metrics = asyncConn.getConnectionMetrics().get();
-  }
-
   @Test
   public void testPreserveMetaCacheOnException() throws Exception {
-    ((FakeRSRpcServices) badRS.getRSRpcServices())
-      .setExceptionInjector(new RoundRobinExceptionInjector());
-    setupConnection(1);
-    try (Table table = conn.getTable(TABLE_NAME)){
+    ((FakeRSRpcServices)badRS.getRSRpcServices()).setExceptionInjector(
+        new RoundRobinExceptionInjector());
+    Configuration conf = new Configuration(TEST_UTIL.getConfiguration());
+    conf.set("hbase.client.retries.number", "1");
+    ConnectionImplementation conn =
+        (ConnectionImplementation) ConnectionFactory.createConnection(conf);
+    try {
+      Table table = conn.getTable(TABLE_NAME);
       byte[] row = Bytes.toBytes("row1");
 
       Put put = new Put(row);
@@ -155,51 +140,66 @@ public class TestMetaCache {
         }
         // Do not test if we did not touch the meta cache in this iteration.
         if (exp != null && ClientExceptionsUtil.isMetaClearingException(exp)) {
-          assertNull(locator.getRegionLocationInCache(TABLE_NAME, row));
+          assertNull(conn.getCachedLocation(TABLE_NAME, row));
         } else if (success) {
-          assertNotNull(locator.getRegionLocationInCache(TABLE_NAME, row));
+          assertNotNull(conn.getCachedLocation(TABLE_NAME, row));
         }
       }
+    } finally {
+      conn.close();
     }
   }
 
   @Test
   public void testCacheClearingOnCallQueueTooBig() throws Exception {
-    ((FakeRSRpcServices) badRS.getRSRpcServices())
-      .setExceptionInjector(new CallQueueTooBigExceptionInjector());
-    setupConnection(2);
-    Table table = conn.getTable(TABLE_NAME);
-    byte[] row = Bytes.toBytes("row1");
-
-    Put put = new Put(row);
-    put.addColumn(FAMILY, QUALIFIER, Bytes.toBytes(10));
-    table.put(put);
-
-    // obtain the client metrics
-    long preGetRegionClears = metrics.metaCacheNumClearRegion.getCount();
-    long preGetServerClears = metrics.metaCacheNumClearServer.getCount();
-
-    // attempt a get on the test table
-    Get get = new Get(row);
+    ((FakeRSRpcServices)badRS.getRSRpcServices()).setExceptionInjector(
+        new CallQueueTooBigExceptionInjector());
+    Configuration conf = new Configuration(TEST_UTIL.getConfiguration());
+    conf.set("hbase.client.retries.number", "2");
+    conf.set(MetricsConnection.CLIENT_SIDE_METRICS_ENABLED_KEY, "true");
+    ConnectionImplementation conn =
+        (ConnectionImplementation) ConnectionFactory.createConnection(conf);
     try {
-      table.get(get);
-      fail("Expected CallQueueTooBigException");
-    } catch (RetriesExhaustedException ree) {
-      // expected
-    }
+      Table table = conn.getTable(TABLE_NAME);
+      byte[] row = Bytes.toBytes("row1");
 
-    // verify that no cache clearing took place
-    long postGetRegionClears = metrics.metaCacheNumClearRegion.getCount();
-    long postGetServerClears = metrics.metaCacheNumClearServer.getCount();
-    assertEquals(preGetRegionClears, postGetRegionClears);
-    assertEquals(preGetServerClears, postGetServerClears);
+      Put put = new Put(row);
+      put.addColumn(FAMILY, QUALIFIER, Bytes.toBytes(10));
+      table.put(put);
+
+      // obtain the client metrics
+      MetricsConnection metrics = conn.getConnectionMetrics();
+      long preGetRegionClears = metrics.metaCacheNumClearRegion.getCount();
+      long preGetServerClears = metrics.metaCacheNumClearServer.getCount();
+
+      // attempt a get on the test table
+      Get get = new Get(row);
+      try {
+        table.get(get);
+        fail("Expected CallQueueTooBigException");
+      } catch (RetriesExhaustedException ree) {
+        // expected
+      }
+
+      // verify that no cache clearing took place
+      long postGetRegionClears = metrics.metaCacheNumClearRegion.getCount();
+      long postGetServerClears = metrics.metaCacheNumClearServer.getCount();
+      assertEquals(preGetRegionClears, postGetRegionClears);
+      assertEquals(preGetServerClears, postGetServerClears);
+    } finally {
+      conn.close();
+    }
   }
 
   public static List<Throwable> metaCachePreservingExceptions() {
-    return Arrays.asList(new RegionOpeningException(" "),
-      new RegionTooBusyException("Some old message"), new RpcThrottlingException(" "),
-      new MultiActionResultTooLarge(" "), new RetryImmediatelyException(" "),
-      new CallQueueTooBigException());
+    return new ArrayList<Throwable>() {{
+        add(new RegionOpeningException(" "));
+        add(new RegionTooBusyException("Some old message"));
+        add(new RpcThrottlingException(" "));
+        add(new MultiActionResultTooLarge(" "));
+        add(new RetryImmediatelyException(" "));
+        add(new CallQueueTooBigException());
+    }};
   }
 
   public static class RegionServerWithFakeRpcServices extends HRegionServer {

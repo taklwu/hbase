@@ -94,11 +94,6 @@ public interface ServerMetrics {
   Map<byte[], RegionMetrics> getRegionMetrics();
 
   /**
-   * @return metrics per user
-   */
-  Map<byte[], UserMetrics> getUserMetrics();
-
-  /**
    * Return the RegionServer-level and Region-level coprocessors
    * @return string set of loaded RegionServer-level and Region-level coprocessors
    */

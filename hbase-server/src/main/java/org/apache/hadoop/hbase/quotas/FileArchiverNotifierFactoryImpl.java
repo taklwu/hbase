@@ -18,7 +18,6 @@ package org.apache.hadoop.hbase.quotas;
 
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
 
 import org.apache.commons.lang3.builder.HashCodeBuilder;
 import org.apache.hadoop.conf.Configuration;
@@ -37,7 +36,7 @@ public final class FileArchiverNotifierFactoryImpl implements FileArchiverNotifi
   private static final FileArchiverNotifierFactoryImpl DEFAULT_INSTANCE =
       new FileArchiverNotifierFactoryImpl();
   private static volatile FileArchiverNotifierFactory CURRENT_INSTANCE = DEFAULT_INSTANCE;
-  private final ConcurrentMap<TableName,FileArchiverNotifier> CACHE;
+  private final ConcurrentHashMap<TableName,FileArchiverNotifier> CACHE;
 
   private FileArchiverNotifierFactoryImpl() {
     CACHE = new ConcurrentHashMap<>();
@@ -63,10 +62,15 @@ public final class FileArchiverNotifierFactoryImpl implements FileArchiverNotifi
    * @param tn The table to obtain a notifier for
    * @return The notifier for the given {@code tablename}.
    */
-  public FileArchiverNotifier get(Connection conn, Configuration conf, FileSystem fs,
-      TableName tn) {
+  public FileArchiverNotifier get(
+      Connection conn, Configuration conf, FileSystem fs, TableName tn) {
     // Ensure that only one instance is exposed to callers
-    return CACHE.computeIfAbsent(tn, key -> new FileArchiverNotifierImpl(conn, conf, fs, key));
+    final FileArchiverNotifier newMapping = new FileArchiverNotifierImpl(conn, conf, fs, tn);
+    final FileArchiverNotifier previousMapping = CACHE.putIfAbsent(tn, newMapping);
+    if (previousMapping == null) {
+      return newMapping;
+    }
+    return previousMapping;
   }
 
   public int getCacheSize() {

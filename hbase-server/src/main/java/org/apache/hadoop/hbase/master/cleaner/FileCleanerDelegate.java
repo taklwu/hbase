@@ -17,13 +17,12 @@
  */
 package org.apache.hadoop.hbase.master.cleaner;
 
-import java.util.Map;
-
-import org.apache.hadoop.fs.Path;
+import org.apache.yetus.audience.InterfaceAudience;
 import org.apache.hadoop.conf.Configurable;
 import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.hbase.Stoppable;
-import org.apache.yetus.audience.InterfaceAudience;
+
+import java.util.Map;
 
 /**
  * General interface for cleaning files from a folder (generally an archive or
@@ -50,14 +49,5 @@ public interface FileCleanerDelegate extends Configurable, Stoppable {
    * Used to do some initialize work before every period clean
    */
   default void preClean() {
-  }
-
-  /**
-   * Check if a empty directory with no subdirs or subfiles can be deleted
-   * @param dir Path of the directory
-   * @return True if the directory can be deleted, otherwise false
-   */
-  default boolean isEmptyDirDeletable(Path dir) {
-    return true;
   }
 }

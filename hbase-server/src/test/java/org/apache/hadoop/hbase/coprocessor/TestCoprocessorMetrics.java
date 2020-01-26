@@ -39,8 +39,6 @@ import org.apache.hadoop.hbase.HRegionLocation;
 import org.apache.hadoop.hbase.HTableDescriptor;
 import org.apache.hadoop.hbase.TableName;
 import org.apache.hadoop.hbase.client.Admin;
-import org.apache.hadoop.hbase.client.ColumnFamilyDescriptor;
-import org.apache.hadoop.hbase.client.ColumnFamilyDescriptorBuilder;
 import org.apache.hadoop.hbase.client.Connection;
 import org.apache.hadoop.hbase.client.ConnectionFactory;
 import org.apache.hadoop.hbase.client.Get;
@@ -50,7 +48,6 @@ import org.apache.hadoop.hbase.client.RegionInfo;
 import org.apache.hadoop.hbase.client.RegionLocator;
 import org.apache.hadoop.hbase.client.Table;
 import org.apache.hadoop.hbase.client.TableDescriptor;
-import org.apache.hadoop.hbase.client.TableDescriptorBuilder;
 import org.apache.hadoop.hbase.ipc.CoprocessorRpcChannel;
 import org.apache.hadoop.hbase.metrics.Counter;
 import org.apache.hadoop.hbase.metrics.Metric;
@@ -289,7 +286,7 @@ public class TestCoprocessorMetrics {
   public void setup() throws IOException {
     try (Connection connection = ConnectionFactory.createConnection(UTIL.getConfiguration());
          Admin admin = connection.getAdmin()) {
-      for (TableDescriptor htd : admin.listTableDescriptors()) {
+      for (HTableDescriptor htd : admin.listTables()) {
         UTIL.deleteTable(htd.getTableName());
       }
     }
@@ -312,12 +309,10 @@ public class TestCoprocessorMetrics {
       Timer createTableTimer = (Timer)metric.get();
       long prevCount = createTableTimer.getHistogram().getCount();
       LOG.info("Creating table");
-      TableDescriptorBuilder tableDescriptorBuilder =
-        TableDescriptorBuilder.newBuilder(TableName.valueOf(name.getMethodName()));
-      ColumnFamilyDescriptor columnFamilyDescriptor =
-        ColumnFamilyDescriptorBuilder.newBuilder(Bytes.toBytes("foo")).build();
-      tableDescriptorBuilder.setColumnFamily(columnFamilyDescriptor);
-      admin.createTable(tableDescriptorBuilder.build());
+      admin.createTable(
+          new HTableDescriptor(TableName.valueOf(name.getMethodName()))
+              .addFamily(new HColumnDescriptor("foo")));
+
       assertEquals(1, createTableTimer.getHistogram().getCount() - prevCount);
     }
   }
@@ -358,12 +353,9 @@ public class TestCoprocessorMetrics {
 
     try (Connection connection = ConnectionFactory.createConnection(UTIL.getConfiguration());
          Admin admin = connection.getAdmin()) {
-      TableDescriptorBuilder tableDescriptorBuilder =
-        TableDescriptorBuilder.newBuilder(TableName.valueOf(name.getMethodName()));
-      ColumnFamilyDescriptor columnFamilyDescriptor =
-        ColumnFamilyDescriptorBuilder.newBuilder(Bytes.toBytes("foo")).build();
-      tableDescriptorBuilder.setColumnFamily(columnFamilyDescriptor);
-      admin.createTable(tableDescriptorBuilder.build());
+      admin.createTable(
+          new HTableDescriptor(TableName.valueOf(name.getMethodName()))
+              .addFamily(new HColumnDescriptor("foo")));
 
       Counter rollWalRequests = (Counter)metric.get();
       long prevCount = rollWalRequests.getCount();
@@ -430,8 +422,8 @@ public class TestCoprocessorMetrics {
         table.get(new Get(bar));
         table.get(new Get(foo)); // 2 gets to 2 separate regions
         assertEquals(2, locator.getAllRegionLocations().size());
-        assertNotEquals(locator.getRegionLocation(bar).getRegion(),
-            locator.getRegionLocation(foo).getRegion());
+        assertNotEquals(locator.getRegionLocation(bar).getRegionInfo(),
+            locator.getRegionLocation(foo).getRegionInfo());
       }
     }
 
@@ -506,12 +498,12 @@ public class TestCoprocessorMetrics {
       // close one of the regions
       try (RegionLocator locator = connection.getRegionLocator(tableName)) {
         HRegionLocation loc = locator.getRegionLocation(foo);
-        admin.unassign(loc.getRegion().getEncodedNameAsBytes(), true);
+        admin.unassign(loc.getRegionInfo().getEncodedNameAsBytes(), true);
 
         HRegionServer server = UTIL.getMiniHBaseCluster().getRegionServer(loc.getServerName());
         UTIL.waitFor(30000,
-          () -> server.getOnlineRegion(loc.getRegion().getRegionName()) == null);
-        assertNull(server.getOnlineRegion(loc.getRegion().getRegionName()));
+            () -> server.getOnlineRegion(loc.getRegionInfo().getRegionName()) == null);
+        assertNull(server.getOnlineRegion(loc.getRegionInfo().getRegionName()));
       }
 
       // with only 1 region remaining, we should still be able to find the Counter

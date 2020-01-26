@@ -17,27 +17,27 @@
  */
 package org.apache.hadoop.hbase.snapshot;
 
-import org.apache.hadoop.hbase.client.SnapshotDescription;
 import org.apache.yetus.audience.InterfaceAudience;
+import org.apache.hadoop.hbase.client.SnapshotDescription;
+
 
 /**
- * Thrown when the server is looking for a snapshot, but can't find the snapshot on the filesystem.
+ * Thrown when the server is looking for a snapshot but can't find the snapshot on the filesystem
  */
 @SuppressWarnings("serial")
 @InterfaceAudience.Public
 public class SnapshotDoesNotExistException extends HBaseSnapshotException {
   /**
-   * @param message the full description of the failure
+   * @param msg full description of the failure
    */
-  public SnapshotDoesNotExistException(String message) {
-    super(message);
+  public SnapshotDoesNotExistException(String msg) {
+    super(msg);
   }
 
   /**
-   * @param snapshotDescription expected snapshot to find
+   * @param desc expected snapshot to find
    */
-  public SnapshotDoesNotExistException(SnapshotDescription snapshotDescription) {
-    super("Snapshot '" + snapshotDescription.getName() + "' doesn't exist on the filesystem",
-        snapshotDescription);
+  public SnapshotDoesNotExistException(SnapshotDescription desc) {
+    super("Snapshot '" + desc.getName() +"' doesn't exist on the filesystem", desc);
   }
 }

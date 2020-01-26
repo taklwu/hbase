@@ -85,4 +85,6 @@ public abstract class HBaseServiceHandler {
   protected Table getTable(final ByteBuffer tableName) throws IOException {
     return getTable(Bytes.getBytes(tableName));
   }
+
+
 }

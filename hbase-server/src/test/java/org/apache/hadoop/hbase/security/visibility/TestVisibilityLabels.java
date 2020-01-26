@@ -45,8 +45,6 @@ import org.apache.hadoop.hbase.HTableDescriptor;
 import org.apache.hadoop.hbase.TableName;
 import org.apache.hadoop.hbase.client.Admin;
 import org.apache.hadoop.hbase.client.Append;
-import org.apache.hadoop.hbase.client.ColumnFamilyDescriptor;
-import org.apache.hadoop.hbase.client.ColumnFamilyDescriptorBuilder;
 import org.apache.hadoop.hbase.client.Connection;
 import org.apache.hadoop.hbase.client.ConnectionFactory;
 import org.apache.hadoop.hbase.client.Get;
@@ -57,7 +55,6 @@ import org.apache.hadoop.hbase.client.ResultScanner;
 import org.apache.hadoop.hbase.client.RowMutations;
 import org.apache.hadoop.hbase.client.Scan;
 import org.apache.hadoop.hbase.client.Table;
-import org.apache.hadoop.hbase.client.TableDescriptorBuilder;
 import org.apache.hadoop.hbase.client.security.SecurityCapability;
 import org.apache.hadoop.hbase.protobuf.generated.ClientProtos.RegionActionResult;
 import org.apache.hadoop.hbase.protobuf.generated.VisibilityLabelsProtos.GetAuthsResponse;
@@ -665,9 +662,8 @@ public abstract class TestVisibilityLabels {
     } catch (Exception e) {
     }
     try {
-      ColumnFamilyDescriptor columnFamilyDescriptor =
-        ColumnFamilyDescriptorBuilder.newBuilder(Bytes.toBytes("testFamily")).build();
-      admin.addColumnFamily(LABELS_TABLE_NAME, columnFamilyDescriptor);
+      HColumnDescriptor hcd = new HColumnDescriptor("testFamily");
+      admin.addColumnFamily(LABELS_TABLE_NAME, hcd);
       fail("Lables table should not get altered by user.");
     } catch (Exception e) {
     }
@@ -684,15 +680,10 @@ public abstract class TestVisibilityLabels {
     } catch (Exception e) {
     }
     try {
-      TableDescriptorBuilder tableDescriptorBuilder =
-        TableDescriptorBuilder.newBuilder(LABELS_TABLE_NAME);
-      ColumnFamilyDescriptor columnFamilyDescriptor =
-        ColumnFamilyDescriptorBuilder.newBuilder(Bytes.toBytes("f1")).build();
-      tableDescriptorBuilder.setColumnFamily(columnFamilyDescriptor);
-      columnFamilyDescriptor = ColumnFamilyDescriptorBuilder
-        .newBuilder(Bytes.toBytes("f2")).build();
-      tableDescriptorBuilder.setColumnFamily(columnFamilyDescriptor);
-      admin.modifyTable(tableDescriptorBuilder.build());
+      HTableDescriptor htd = new HTableDescriptor(LABELS_TABLE_NAME);
+      htd.addFamily(new HColumnDescriptor("f1"));
+      htd.addFamily(new HColumnDescriptor("f2"));
+      admin.modifyTable(LABELS_TABLE_NAME, htd);
       fail("Lables table should not get altered by user.");
     } catch (Exception e) {
     }

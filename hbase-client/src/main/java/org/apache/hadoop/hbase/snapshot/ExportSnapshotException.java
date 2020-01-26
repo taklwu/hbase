@@ -25,16 +25,17 @@ import org.apache.yetus.audience.InterfaceAudience;
 @InterfaceAudience.Public
 @SuppressWarnings("serial")
 public class ExportSnapshotException extends HBaseSnapshotException {
+
   /**
-   * @param message message describing the exception
+   * @param msg message describing the exception
    */
-  public ExportSnapshotException(String message) {
-    super(message);
+  public ExportSnapshotException(String msg) {
+    super(msg);
   }
 
   /**
    * @param message message describing the exception
-   * @param e the actual cause of the exception
+   * @param e cause
    */
   public ExportSnapshotException(String message, Exception e) {
     super(message, e);

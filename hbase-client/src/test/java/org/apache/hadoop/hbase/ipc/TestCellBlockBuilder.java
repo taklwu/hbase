@@ -50,6 +50,7 @@ import org.slf4j.LoggerFactory;
 
 @Category({ ClientTests.class, SmallTests.class })
 public class TestCellBlockBuilder {
+
   @ClassRule
   public static final HBaseClassTestRule CLASS_RULE =
       HBaseClassTestRule.forClass(TestCellBlockBuilder.class);
@@ -136,15 +137,15 @@ public class TestCellBlockBuilder {
 
   /**
    * Prints usage and then exits w/ passed <code>errCode</code>
-   * @param errorCode the error code to use to exit the application
+   * @param errCode
    */
-  private static void usage(final int errorCode) {
+  private static void usage(final int errCode) {
     System.out.println("Usage: IPCUtil [options]");
     System.out.println("Micro-benchmarking how changed sizes and counts work with buffer resizing");
     System.out.println(" --count  Count of Cells");
     System.out.println(" --size   Size of Cell values");
     System.out.println("Example: IPCUtil --count=1024 --size=1024");
-    System.exit(errorCode);
+    System.exit(errCode);
   }
 
   private static void timerTests(final CellBlockBuilder builder, final int count, final int size,
@@ -176,9 +177,8 @@ public class TestCellBlockBuilder {
 
   /**
    * For running a few tests of methods herein.
-   *
-   * @param args the arguments to use for the timer test
-   * @throws IOException if creating the build fails
+   * @param args
+   * @throws IOException
    */
   public static void main(String[] args) throws IOException {
     int count = 1024;

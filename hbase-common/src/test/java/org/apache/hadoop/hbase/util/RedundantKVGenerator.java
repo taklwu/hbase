@@ -18,7 +18,7 @@ package org.apache.hadoop.hbase.util;
 
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
-import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -92,6 +92,7 @@ public class RedundantKVGenerator {
     );
   }
 
+
   /**
    * Various configuration options for generating key values
    * @param randomizer pick things by random
@@ -114,7 +115,8 @@ public class RedundantKVGenerator {
       float chanceForZeroValue,
 
       int baseTimestampDivide,
-      int timestampDiffSize) {
+      int timestampDiffSize
+      ) {
     this.randomizer = randomizer;
 
     this.commonPrefix = DEFAULT_COMMON_PREFIX;
@@ -142,29 +144,29 @@ public class RedundantKVGenerator {
   private Random randomizer;
 
   // row settings
-  private byte[] commonPrefix; //global prefix before rowPrefixes
+  private byte[] commonPrefix;//global prefix before rowPrefixes
   private int numberOfRowPrefixes;
-  private int averagePrefixLength;
-  private int prefixLengthVariance;
-  private int averageSuffixLength;
-  private int suffixLengthVariance;
-  private int numberOfRows;
+  private int averagePrefixLength = 6;
+  private int prefixLengthVariance = 3;
+  private int averageSuffixLength = 3;
+  private int suffixLengthVariance = 3;
+  private int numberOfRows = 500;
 
-  // family
+  //family
   private byte[] family;
 
   // qualifier
-  private float chanceForSameQualifier;
-  private float chanceForSimilarQualifier;
-  private int averageQualifierLength;
-  private int qualifierLengthVariance;
+  private float chanceForSameQualifier = 0.5f;
+  private float chanceForSimilarQualifier = 0.4f;
+  private int averageQualifierLength = 9;
+  private int qualifierLengthVariance = 3;
 
-  private int columnFamilyLength;
-  private int valueLength;
-  private float chanceForZeroValue;
+  private int columnFamilyLength = 9;
+  private int valueLength = 8;
+  private float chanceForZeroValue = 0.5f;
 
-  private int baseTimestampDivide;
-  private int timestampDiffSize;
+  private int baseTimestampDivide = 1000000;
+  private int timestampDiffSize = 100000000;
 
   private List<byte[]> generateRows() {
     // generate prefixes
@@ -176,7 +178,8 @@ public class RedundantKVGenerator {
           prefixLengthVariance;
       byte[] newPrefix = new byte[prefixLength];
       randomizer.nextBytes(newPrefix);
-      prefixes.add(newPrefix);
+      byte[] newPrefixWithCommon = newPrefix;
+      prefixes.add(newPrefixWithCommon);
     }
 
     // generate rest of the row
@@ -203,7 +206,6 @@ public class RedundantKVGenerator {
   public List<KeyValue> generateTestKeyValues(int howMany) {
     return generateTestKeyValues(howMany, false);
   }
-
   /**
    * Generate test data useful to test encoders.
    * @param howMany How many Key values should be generated.
@@ -270,7 +272,9 @@ public class RedundantKVGenerator {
       }
 
       if (randomizer.nextFloat() < chanceForZeroValue) {
-        Arrays.fill(value, (byte) 0);
+        for (int j = 0; j < value.length; ++j) {
+          value[j] = (byte) 0;
+        }
       } else {
         randomizer.nextBytes(value);
       }
@@ -283,7 +287,7 @@ public class RedundantKVGenerator {
       }
     }
 
-    result.sort(CellComparator.getInstance());
+    Collections.sort(result, CellComparator.getInstance());
 
     return result;
   }
@@ -353,7 +357,9 @@ public class RedundantKVGenerator {
       }
 
       if (randomizer.nextFloat() < chanceForZeroValue) {
-        Arrays.fill(value, (byte) 0);
+        for (int j = 0; j < value.length; ++j) {
+          value[j] = (byte) 0;
+        }
       } else {
         randomizer.nextBytes(value);
       }
@@ -377,7 +383,7 @@ public class RedundantKVGenerator {
       }
     }
 
-    result.sort(CellComparator.getInstance());
+    Collections.sort(result, CellComparator.getInstance());
 
     return result;
   }
@@ -463,9 +469,95 @@ public class RedundantKVGenerator {
     return result;
   }
 
+  /************************ get/set ***********************************/
+  public RedundantKVGenerator setCommonPrefix(byte[] prefix){
+    this.commonPrefix = prefix;
+    return this;
+  }
+
+  public RedundantKVGenerator setRandomizer(Random randomizer) {
+    this.randomizer = randomizer;
+    return this;
+  }
+
+  public RedundantKVGenerator setNumberOfRowPrefixes(int numberOfRowPrefixes) {
+    this.numberOfRowPrefixes = numberOfRowPrefixes;
+    return this;
+  }
+
+  public RedundantKVGenerator setAveragePrefixLength(int averagePrefixLength) {
+    this.averagePrefixLength = averagePrefixLength;
+    return this;
+  }
+
+  public RedundantKVGenerator setPrefixLengthVariance(int prefixLengthVariance) {
+    this.prefixLengthVariance = prefixLengthVariance;
+    return this;
+  }
+
+  public RedundantKVGenerator setAverageSuffixLength(int averageSuffixLength) {
+    this.averageSuffixLength = averageSuffixLength;
+    return this;
+  }
+
+  public RedundantKVGenerator setSuffixLengthVariance(int suffixLengthVariance) {
+    this.suffixLengthVariance = suffixLengthVariance;
+    return this;
+  }
+
+  public RedundantKVGenerator setNumberOfRows(int numberOfRows) {
+    this.numberOfRows = numberOfRows;
+    return this;
+  }
+
+  public RedundantKVGenerator setChanceForSameQualifier(float chanceForSameQualifier) {
+    this.chanceForSameQualifier = chanceForSameQualifier;
+    return this;
+  }
+
+  public RedundantKVGenerator setChanceForSimilarQualifier(float chanceForSimiliarQualifier) {
+    this.chanceForSimilarQualifier = chanceForSimiliarQualifier;
+    return this;
+  }
+
+  public RedundantKVGenerator setAverageQualifierLength(int averageQualifierLength) {
+    this.averageQualifierLength = averageQualifierLength;
+    return this;
+  }
+
+  public RedundantKVGenerator setQualifierLengthVariance(int qualifierLengthVariance) {
+    this.qualifierLengthVariance = qualifierLengthVariance;
+    return this;
+  }
+
+  public RedundantKVGenerator setColumnFamilyLength(int columnFamilyLength) {
+    this.columnFamilyLength = columnFamilyLength;
+    return this;
+  }
+
   public RedundantKVGenerator setFamily(byte[] family) {
     this.family = family;
     this.columnFamilyLength = family.length;
+    return this;
+  }
+
+  public RedundantKVGenerator setValueLength(int valueLength) {
+    this.valueLength = valueLength;
+    return this;
+  }
+
+  public RedundantKVGenerator setChanceForZeroValue(float chanceForZeroValue) {
+    this.chanceForZeroValue = chanceForZeroValue;
+    return this;
+  }
+
+  public RedundantKVGenerator setBaseTimestampDivide(int baseTimestampDivide) {
+    this.baseTimestampDivide = baseTimestampDivide;
+    return this;
+  }
+
+  public RedundantKVGenerator setTimestampDiffSize(int timestampDiffSize) {
+    this.timestampDiffSize = timestampDiffSize;
     return this;
   }
 }

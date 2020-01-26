@@ -18,36 +18,37 @@
  */
 package org.apache.hadoop.hbase;
 
-import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.yetus.audience.InterfaceAudience;
+import org.apache.hadoop.hbase.util.Bytes;
 
 /**
- * Thrown if a table should be offline but is not.
+ * Thrown if a table should be offline but is not
  */
 @InterfaceAudience.Public
 public class TableNotDisabledException extends DoNotRetryIOException {
   private static final long serialVersionUID = (1L << 19) - 1L;
-
+  /** default constructor */
   public TableNotDisabledException() {
     super();
   }
 
   /**
-   * @param tableName the name of the table that is not disabled
+   * Constructor
+   * @param s message
    */
-  public TableNotDisabledException(String tableName) {
-    super(tableName);
+  public TableNotDisabledException(String s) {
+    super(s);
   }
 
   /**
-   * @param tableName the name of the table that is not disabled
+   * @param tableName Name of table that is not disabled
    */
   public TableNotDisabledException(byte[] tableName) {
     this(Bytes.toString(tableName));
   }
 
   /**
-   * @param tableName the name of the table that is not disabled
+   * @param tableName Name of table that is not disabled
    */
   public TableNotDisabledException(TableName tableName) {
     this(tableName.getNameAsString());

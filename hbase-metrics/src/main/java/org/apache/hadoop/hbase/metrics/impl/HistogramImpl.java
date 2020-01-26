@@ -36,7 +36,7 @@ public class HistogramImpl implements Histogram {
   private final CounterImpl counter;
 
   public HistogramImpl() {
-    this((long) Integer.MAX_VALUE << 2);
+    this(Integer.MAX_VALUE << 2);
   }
 
   public HistogramImpl(long maxExpected) {

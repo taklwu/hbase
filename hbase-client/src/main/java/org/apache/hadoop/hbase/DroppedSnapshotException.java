@@ -22,32 +22,27 @@ import java.io.IOException;
 
 import org.apache.yetus.audience.InterfaceAudience;
 
+
 /**
  * Thrown during flush if the possibility snapshot content was not properly
  * persisted into store files.  Response should include replay of wal content.
  */
 @InterfaceAudience.Public
 public class DroppedSnapshotException extends IOException {
+
   private static final long serialVersionUID = -5463156580831677374L;
 
+  /**
+   * @param msg
+   */
+  public DroppedSnapshotException(String msg) {
+    super(msg);
+  }
+
+  /**
+   * default constructor
+   */
   public DroppedSnapshotException() {
     super();
-  }
-
-  /**
-   * @param message the message for this exception
-   */
-  public DroppedSnapshotException(String message) {
-    super(message);
-  }
-
-  /**
-   * DroppedSnapshotException with cause
-   *
-   * @param message the message for this exception
-   * @param cause the cause for this exception
-   */
-  public DroppedSnapshotException(String message, Throwable cause) {
-    super(message, cause);
   }
 }

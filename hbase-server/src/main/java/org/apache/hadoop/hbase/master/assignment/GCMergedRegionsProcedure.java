@@ -40,10 +40,8 @@ import org.apache.hadoop.hbase.shaded.protobuf.generated.MasterProcedureProtos.G
  * <p>This is a Table Procedure. We take a read lock on the Table.
  * We do NOT keep a lock for the life of this procedure. The subprocedures
  * take locks on the Regions they are purging.
- * @deprecated 2.3.0 Use {@link GCMultipleMergedRegionsProcedure}.
  */
 @InterfaceAudience.Private
-@Deprecated
 public class GCMergedRegionsProcedure
 extends AbstractStateMachineTableProcedure<GCMergedRegionsState> {
   private static final Logger LOG = LoggerFactory.getLogger(GCMergedRegionsProcedure.class);

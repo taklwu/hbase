@@ -68,13 +68,12 @@ public class TestRegionInfoDisplay {
     RegionState state = RegionState.createForTesting(convert(ri), RegionState.State.OPEN);
     String descriptiveNameForDisplay =
         RegionInfoDisplay.getDescriptiveNameFromRegionStateForDisplay(state, conf);
-    String originalDescriptive = state.toDescriptiveString();
-    checkDescriptiveNameEquality(descriptiveNameForDisplay, originalDescriptive, startKey);
+    checkDescriptiveNameEquality(descriptiveNameForDisplay,state.toDescriptiveString(), startKey);
 
     conf.setBoolean("hbase.display.keys", true);
     Assert.assertArrayEquals(endKey, RegionInfoDisplay.getEndKeyForDisplay(ri, conf));
     Assert.assertArrayEquals(startKey, RegionInfoDisplay.getStartKeyForDisplay(ri, conf));
-    Assert.assertEquals(originalDescriptive,
+    Assert.assertEquals(state.toDescriptiveString(),
         RegionInfoDisplay.getDescriptiveNameFromRegionStateForDisplay(state, conf));
   }
 

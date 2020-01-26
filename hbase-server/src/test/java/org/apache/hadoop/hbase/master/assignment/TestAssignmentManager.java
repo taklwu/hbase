@@ -18,14 +18,12 @@
 package org.apache.hadoop.hbase.master.assignment;
 
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import org.apache.hadoop.hbase.HBaseClassTestRule;
 import org.apache.hadoop.hbase.HBaseTestingUtility;
-import org.apache.hadoop.hbase.MetaTableAccessor;
 import org.apache.hadoop.hbase.TableName;
 import org.apache.hadoop.hbase.client.RegionInfo;
 import org.apache.hadoop.hbase.client.RegionInfoBuilder;
@@ -94,9 +92,7 @@ public class TestAssignmentManager extends TestAssignmentManagerBase {
     rsDispatcher.setMockRsExecutor(new SocketTimeoutRsExecutor(20));
     waitOnFuture(submitProcedure(createAssignProcedure(hri)));
 
-    // we crashed a rs, so it is possible that there are other regions on the rs which will also be
-    // reassigned, so here we just assert greater than, not the exact number.
-    assertTrue(assignProcMetrics.getSubmittedCounter().getCount() > assignSubmittedCount);
+    assertEquals(assignSubmittedCount + 1, assignProcMetrics.getSubmittedCounter().getCount());
     assertEquals(assignFailedCount, assignProcMetrics.getFailedCounter().getCount());
   }
 
@@ -242,88 +238,5 @@ public class TestAssignmentManager extends TestAssignmentManagerBase {
 
     // set it back as default, see setUpMeta()
     am.wakeMetaLoadedEvent();
-  }
-
-  private void assertCloseThenOpen() {
-    assertEquals(closeSubmittedCount + 1, closeProcMetrics.getSubmittedCounter().getCount());
-    assertEquals(closeFailedCount, closeProcMetrics.getFailedCounter().getCount());
-    assertEquals(openSubmittedCount + 1, openProcMetrics.getSubmittedCounter().getCount());
-    assertEquals(openFailedCount, openProcMetrics.getFailedCounter().getCount());
-  }
-
-  @Test
-  public void testMove() throws Exception {
-    TableName tableName = TableName.valueOf("testMove");
-    RegionInfo hri = createRegionInfo(tableName, 1);
-    rsDispatcher.setMockRsExecutor(new GoodRsExecutor());
-    am.assign(hri);
-
-    // collect AM metrics before test
-    collectAssignmentManagerMetrics();
-
-    am.move(hri);
-
-    assertEquals(moveSubmittedCount + 1, moveProcMetrics.getSubmittedCounter().getCount());
-    assertEquals(moveFailedCount, moveProcMetrics.getFailedCounter().getCount());
-    assertCloseThenOpen();
-  }
-
-  @Test
-  public void testReopen() throws Exception {
-    TableName tableName = TableName.valueOf("testReopen");
-    RegionInfo hri = createRegionInfo(tableName, 1);
-    rsDispatcher.setMockRsExecutor(new GoodRsExecutor());
-    am.assign(hri);
-
-    // collect AM metrics before test
-    collectAssignmentManagerMetrics();
-
-    TransitRegionStateProcedure proc =
-      TransitRegionStateProcedure.reopen(master.getMasterProcedureExecutor().getEnvironment(), hri);
-    am.getRegionStates().getRegionStateNode(hri).setProcedure(proc);
-    waitOnFuture(submitProcedure(proc));
-
-    assertEquals(reopenSubmittedCount + 1, reopenProcMetrics.getSubmittedCounter().getCount());
-    assertEquals(reopenFailedCount, reopenProcMetrics.getFailedCounter().getCount());
-    assertCloseThenOpen();
-  }
-
-  @Test
-  public void testLoadRegionFromMetaAfterRegionManuallyAdded() throws Exception {
-    try {
-      this.util.startMiniCluster();
-      final AssignmentManager am = this.util.getHBaseCluster().getMaster().getAssignmentManager();
-      final TableName tableName = TableName.
-        valueOf("testLoadRegionFromMetaAfterRegionManuallyAdded");
-      this.util.createTable(tableName, "f");
-      RegionInfo hri = createRegionInfo(tableName, 1);
-      assertNull("RegionInfo was just instantiated by the test, but "
-        + "shouldn't be in AM regionStates yet.", am.getRegionStates().getRegionState(hri));
-      MetaTableAccessor.addRegionToMeta(this.util.getConnection(), hri);
-      assertNull("RegionInfo was manually added in META, but "
-        + "shouldn't be in AM regionStates yet.", am.getRegionStates().getRegionState(hri));
-      hri = am.loadRegionFromMeta(hri.getEncodedName());
-      assertEquals(hri.getEncodedName(),
-        am.getRegionStates().getRegionState(hri).getRegion().getEncodedName());
-    }finally {
-      this.util.killMiniHBaseCluster();
-    }
-  }
-
-  @Test
-  public void testLoadRegionFromMetaRegionNotInMeta() throws Exception {
-    try {
-      this.util.startMiniCluster();
-      final AssignmentManager am = this.util.getHBaseCluster().getMaster().getAssignmentManager();
-      final TableName tableName = TableName.valueOf("testLoadRegionFromMetaRegionNotInMeta");
-      this.util.createTable(tableName, "f");
-      final RegionInfo hri = createRegionInfo(tableName, 1);
-      assertNull("RegionInfo was just instantiated by the test, but "
-        + "shouldn't be in AM regionStates yet.", am.getRegionStates().getRegionState(hri));
-      assertNull("RegionInfo was never added in META, should had returned null.",
-        am.loadRegionFromMeta(hri.getEncodedName()));
-    }finally {
-      this.util.killMiniHBaseCluster();
-    }
   }
 }

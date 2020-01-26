@@ -47,6 +47,7 @@ import org.apache.hadoop.hbase.client.Scan.ReadType;
 import org.apache.hadoop.hbase.client.TableState;
 import org.apache.hadoop.hbase.exceptions.DeserializationException;
 import org.apache.hadoop.hbase.util.Bytes;
+import org.apache.hadoop.hbase.util.EnvironmentEdgeManager;
 import org.apache.hadoop.hbase.util.Pair;
 import org.apache.yetus.audience.InterfaceAudience;
 import org.slf4j.Logger;
@@ -79,17 +80,23 @@ public class AsyncMetaTableAccessor {
       TableName tableName) {
     CompletableFuture<Optional<TableState>> future = new CompletableFuture<>();
     Get get = new Get(tableName.getName()).addColumn(getTableFamily(), getStateColumn());
-    addListener(metaTable.get(get), (result, error) -> {
-      if (error != null) {
-        future.completeExceptionally(error);
-        return;
-      }
-      try {
-        future.complete(getTableState(result));
-      } catch (IOException e) {
-        future.completeExceptionally(e);
-      }
-    });
+    long time = EnvironmentEdgeManager.currentTime();
+    try {
+      get.setTimeRange(0, time);
+      addListener(metaTable.get(get), (result, error) -> {
+        if (error != null) {
+          future.completeExceptionally(error);
+          return;
+        }
+        try {
+          future.complete(getTableState(result));
+        } catch (IOException e) {
+          future.completeExceptionally(e);
+        }
+      });
+    } catch (IOException ioe) {
+      future.completeExceptionally(ioe);
+    }
     return future;
   }
 
@@ -176,7 +183,7 @@ public class AsyncMetaTableAccessor {
    *         {@link CompletableFuture}.
    */
   public static CompletableFuture<List<HRegionLocation>> getTableHRegionLocations(
-      AsyncTable<AdvancedScanResultConsumer> metaTable, TableName tableName) {
+      AsyncTable<AdvancedScanResultConsumer> metaTable, Optional<TableName> tableName) {
     CompletableFuture<List<HRegionLocation>> future = new CompletableFuture<>();
     addListener(getTableRegionsAndLocations(metaTable, tableName, true), (locations, err) -> {
       if (err != null) {
@@ -202,28 +209,26 @@ public class AsyncMetaTableAccessor {
    *         {@link CompletableFuture}.
    */
   private static CompletableFuture<List<Pair<RegionInfo, ServerName>>> getTableRegionsAndLocations(
-      final AsyncTable<AdvancedScanResultConsumer> metaTable,
-      final TableName tableName, final boolean excludeOfflinedSplitParents) {
+      AsyncTable<AdvancedScanResultConsumer> metaTable, final Optional<TableName> tableName,
+      final boolean excludeOfflinedSplitParents) {
     CompletableFuture<List<Pair<RegionInfo, ServerName>>> future = new CompletableFuture<>();
-    if (TableName.META_TABLE_NAME.equals(tableName)) {
+    if (tableName.filter((t) -> t.equals(TableName.META_TABLE_NAME)).isPresent()) {
       future.completeExceptionally(new IOException(
           "This method can't be used to locate meta regions;" + " use MetaTableLocator instead"));
     }
 
     // Make a version of CollectingVisitor that collects RegionInfo and ServerAddress
-    CollectingVisitor<Pair<RegionInfo, ServerName>> visitor =
-      new CollectingVisitor<Pair<RegionInfo, ServerName>>() {
-      private RegionLocations current = null;
+    CollectingVisitor<Pair<RegionInfo, ServerName>> visitor = new CollectingVisitor<Pair<RegionInfo, ServerName>>() {
+      private Optional<RegionLocations> current = null;
 
       @Override
       public boolean visit(Result r) throws IOException {
-        Optional<RegionLocations> currentRegionLocations = getRegionLocations(r);
-        current = currentRegionLocations.orElse(null);
-        if (current == null || current.getRegionLocation().getRegion() == null) {
+        current = getRegionLocations(r);
+        if (!current.isPresent() || current.get().getRegionLocation().getRegion() == null) {
           LOG.warn("No serialized RegionInfo in " + r);
           return true;
         }
-        RegionInfo hri = current.getRegionLocation().getRegion();
+        RegionInfo hri = current.get().getRegionLocation().getRegion();
         if (excludeOfflinedSplitParents && hri.isSplitParent()) return true;
         // Else call super and add this Result to the collection.
         return super.visit(r);
@@ -231,10 +236,10 @@ public class AsyncMetaTableAccessor {
 
       @Override
       void add(Result r) {
-        if (current == null) {
+        if (!current.isPresent()) {
           return;
         }
-        for (HRegionLocation loc : current.getRegionLocations()) {
+        for (HRegionLocation loc : current.get().getRegionLocations()) {
           if (loc != null) {
             this.results.add(new Pair<RegionInfo, ServerName>(loc.getRegion(), loc
                 .getServerName()));
@@ -261,7 +266,7 @@ public class AsyncMetaTableAccessor {
    * @param visitor Visitor invoked against each row
    */
   private static CompletableFuture<Void> scanMeta(AsyncTable<AdvancedScanResultConsumer> metaTable,
-      TableName tableName, QueryType type, final Visitor visitor) {
+      Optional<TableName> tableName, QueryType type, final Visitor visitor) {
     return scanMeta(metaTable, getTableStartRowForMeta(tableName, type),
       getTableStopRowForMeta(tableName, type), type, Integer.MAX_VALUE, visitor);
   }
@@ -276,18 +281,15 @@ public class AsyncMetaTableAccessor {
    * @param visitor Visitor invoked against each row
    */
   private static CompletableFuture<Void> scanMeta(AsyncTable<AdvancedScanResultConsumer> metaTable,
-      byte[] startRow, byte[] stopRow, QueryType type, int maxRows, final Visitor visitor) {
+      Optional<byte[]> startRow, Optional<byte[]> stopRow, QueryType type, int maxRows,
+      final Visitor visitor) {
     int rowUpperLimit = maxRows > 0 ? maxRows : Integer.MAX_VALUE;
     Scan scan = getMetaScan(metaTable, rowUpperLimit);
     for (byte[] family : type.getFamilies()) {
       scan.addFamily(family);
     }
-    if (startRow != null) {
-      scan.withStartRow(startRow);
-    }
-    if (stopRow != null) {
-      scan.withStopRow(stopRow);
-    }
+    startRow.ifPresent(scan::withStartRow);
+    stopRow.ifPresent(scan::withStopRow);
 
     if (LOG.isDebugEnabled()) {
       LOG.debug("Scanning META" + " starting at row=" + Bytes.toStringBinary(scan.getStartRow())
@@ -471,56 +473,52 @@ public class AsyncMetaTableAccessor {
    * @param tableName table we're working with
    * @return start row for scanning META according to query type
    */
-  private static byte[] getTableStartRowForMeta(TableName tableName, QueryType type) {
-    if (tableName == null) {
-      return null;
-    }
-    switch (type) {
-      case REGION:
-      case REPLICATION: {
-        byte[] startRow = new byte[tableName.getName().length + 2];
-        System.arraycopy(tableName.getName(), 0, startRow, 0, tableName.getName().length);
-        startRow[startRow.length - 2] = HConstants.DELIMITER;
-        startRow[startRow.length - 1] = HConstants.DELIMITER;
-        return startRow;
+  private static Optional<byte[]> getTableStartRowForMeta(Optional<TableName> tableName,
+      QueryType type) {
+    return tableName.map((table) -> {
+      switch (type) {
+        case REGION:
+        case REPLICATION:
+          byte[] startRow = new byte[table.getName().length + 2];
+          System.arraycopy(table.getName(), 0, startRow, 0, table.getName().length);
+          startRow[startRow.length - 2] = HConstants.DELIMITER;
+          startRow[startRow.length - 1] = HConstants.DELIMITER;
+          return startRow;
+        case ALL:
+        case TABLE:
+        default:
+          return table.getName();
       }
-      case ALL:
-      case TABLE:
-      default: {
-        return tableName.getName();
-      }
-    }
+    });
   }
 
   /**
    * @param tableName table we're working with
    * @return stop row for scanning META according to query type
    */
-  private static byte[] getTableStopRowForMeta(TableName tableName, QueryType type) {
-    if (tableName == null) {
-      return null;
-    }
-    final byte[] stopRow;
-    switch (type) {
-      case REGION:
-      case REPLICATION: {
-        stopRow = new byte[tableName.getName().length + 3];
-        System.arraycopy(tableName.getName(), 0, stopRow, 0, tableName.getName().length);
-        stopRow[stopRow.length - 3] = ' ';
-        stopRow[stopRow.length - 2] = HConstants.DELIMITER;
-        stopRow[stopRow.length - 1] = HConstants.DELIMITER;
-        break;
+  private static Optional<byte[]> getTableStopRowForMeta(Optional<TableName> tableName,
+      QueryType type) {
+    return tableName.map((table) -> {
+      final byte[] stopRow;
+      switch (type) {
+        case REGION:
+        case REPLICATION:
+          stopRow = new byte[table.getName().length + 3];
+          System.arraycopy(table.getName(), 0, stopRow, 0, table.getName().length);
+          stopRow[stopRow.length - 3] = ' ';
+          stopRow[stopRow.length - 2] = HConstants.DELIMITER;
+          stopRow[stopRow.length - 1] = HConstants.DELIMITER;
+          break;
+        case ALL:
+        case TABLE:
+        default:
+          stopRow = new byte[table.getName().length + 1];
+          System.arraycopy(table.getName(), 0, stopRow, 0, table.getName().length);
+          stopRow[stopRow.length - 1] = ' ';
+          break;
       }
-      case ALL:
-      case TABLE:
-      default: {
-        stopRow = new byte[tableName.getName().length + 1];
-        System.arraycopy(tableName.getName(), 0, stopRow, 0, tableName.getName().length);
-        stopRow[stopRow.length - 1] = ' ';
-        break;
-      }
-    }
-    return stopRow;
+      return stopRow;
+    });
   }
 
   /**

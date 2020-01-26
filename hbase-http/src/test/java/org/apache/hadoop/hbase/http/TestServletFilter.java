@@ -17,7 +17,11 @@
  */
 package org.apache.hadoop.hbase.http;
 
+import java.io.BufferedReader;
 import java.io.IOException;
+import java.io.InputStreamReader;
+import java.net.URL;
+import java.net.URLConnection;
 import java.util.Random;
 import javax.servlet.Filter;
 import javax.servlet.FilterChain;
@@ -42,12 +46,13 @@ import org.slf4j.LoggerFactory;
 
 @Category({MiscTests.class, SmallTests.class})
 public class TestServletFilter extends HttpServerFunctionalTest {
+
   @ClassRule
   public static final HBaseClassTestRule CLASS_RULE =
       HBaseClassTestRule.forClass(TestServletFilter.class);
 
   private static final Logger LOG = LoggerFactory.getLogger(HttpServer.class);
-  private static volatile String uri = null;
+  static volatile String uri = null;
 
   /** A very simple filter which record the uri filtered. */
   static public class SimpleFilter implements Filter {
@@ -66,9 +71,8 @@ public class TestServletFilter extends HttpServerFunctionalTest {
     @Override
     public void doFilter(ServletRequest request, ServletResponse response,
         FilterChain chain) throws IOException, ServletException {
-      if (filterConfig == null) {
-        return;
-      }
+      if (filterConfig == null)
+         return;
 
       uri = ((HttpServletRequest)request).getRequestURI();
       LOG.info("filtering " + uri);
@@ -86,11 +90,31 @@ public class TestServletFilter extends HttpServerFunctionalTest {
     }
   }
 
-  private static void assertExceptionContains(String string, Throwable t) {
+  public static void assertExceptionContains(String string, Throwable t) {
     String msg = t.getMessage();
     Assert.assertTrue(
         "Expected to find '" + string + "' but got unexpected exception:"
         + StringUtils.stringifyException(t), msg.contains(string));
+  }
+
+  /** access a url, ignoring some IOException such as the page does not exist */
+  static void access(String urlstring) throws IOException {
+    LOG.warn("access " + urlstring);
+    URL url = new URL(urlstring);
+    URLConnection connection = url.openConnection();
+    connection.connect();
+
+    try {
+      BufferedReader in = new BufferedReader(new InputStreamReader(
+          connection.getInputStream()));
+      try {
+        for(; in.readLine() != null; );
+      } finally {
+        in.close();
+      }
+    } catch(IOException ioe) {
+      LOG.warn("urlstring=" + urlstring, ioe);
+    }
   }
 
   @Test
@@ -101,7 +125,7 @@ public class TestServletFilter extends HttpServerFunctionalTest {
   public void testServletFilter() throws Exception {
     Configuration conf = new Configuration();
 
-    //start an http server with CountingFilter
+    //start a http server with CountingFilter
     conf.set(HttpServer.FILTER_INITIALIZERS_PROPERTY,
         SimpleFilter.Initializer.class.getName());
     HttpServer http = createTestServer(conf);
@@ -126,14 +150,14 @@ public class TestServletFilter extends HttpServerFunctionalTest {
     final String prefix = "http://"
         + NetUtils.getHostPortString(http.getConnectorAddress(0));
     try {
-      for (int aSequence : sequence) {
-        access(prefix + urls[aSequence]);
+      for(int i = 0; i < sequence.length; i++) {
+        access(prefix + urls[sequence[i]]);
 
         //make sure everything except fsck get filtered
-        if (aSequence == 0) {
-          assertNull(uri);
+        if (sequence[i] == 0) {
+          assertEquals(null, uri);
         } else {
-          assertEquals(urls[aSequence], uri);
+          assertEquals(urls[sequence[i]], uri);
           uri = null;
         }
       }
@@ -163,7 +187,7 @@ public class TestServletFilter extends HttpServerFunctionalTest {
   @Test
   public void testServletFilterWhenInitThrowsException() throws Exception {
     Configuration conf = new Configuration();
-    // start an http server with ErrorFilter
+    // start a http server with ErrorFilter
     conf.set(HttpServer.FILTER_INITIALIZERS_PROPERTY,
         ErrorFilter.Initializer.class.getName());
     HttpServer http = createTestServer(conf);
@@ -194,4 +218,5 @@ public class TestServletFilter extends HttpServerFunctionalTest {
       assertExceptionContains("Unable to initialize WebAppContext", e);
     }
   }
+
 }

@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -27,6 +27,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
+
 import org.apache.commons.lang3.mutable.MutableInt;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileStatus;
@@ -37,14 +38,13 @@ import org.apache.hadoop.fs.permission.FsPermission;
 import org.apache.hadoop.hbase.DoNotRetryIOException;
 import org.apache.hadoop.hbase.HConstants;
 import org.apache.hadoop.hbase.TableName;
-import org.apache.hadoop.hbase.client.AsyncConnection;
+import org.apache.hadoop.hbase.client.Connection;
 import org.apache.hadoop.hbase.ipc.RpcServer;
 import org.apache.hadoop.hbase.regionserver.HRegion.BulkLoadListener;
 import org.apache.hadoop.hbase.security.User;
 import org.apache.hadoop.hbase.security.UserProvider;
-import org.apache.hadoop.hbase.security.token.AuthenticationTokenIdentifier;
-import org.apache.hadoop.hbase.security.token.ClientTokenUtil;
 import org.apache.hadoop.hbase.security.token.FsDelegationToken;
+import org.apache.hadoop.hbase.security.token.TokenUtil;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.hbase.util.FSHDFSUtils;
 import org.apache.hadoop.hbase.util.FSUtils;
@@ -56,9 +56,7 @@ import org.apache.hadoop.security.token.Token;
 import org.apache.yetus.audience.InterfaceAudience;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
 import org.apache.hbase.thirdparty.com.google.common.annotations.VisibleForTesting;
-
 import org.apache.hadoop.hbase.shaded.protobuf.generated.ClientProtos;
 import org.apache.hadoop.hbase.shaded.protobuf.generated.ClientProtos.BulkLoadHFileRequest;
 import org.apache.hadoop.hbase.shaded.protobuf.generated.ClientProtos.CleanupBulkLoadRequest;
@@ -113,9 +111,9 @@ public class SecureBulkLoadManager {
 
   private UserProvider userProvider;
   private ConcurrentHashMap<UserGroupInformation, MutableInt> ugiReferenceCounter;
-  private AsyncConnection conn;
+  private Connection conn;
 
-  SecureBulkLoadManager(Configuration conf, AsyncConnection conn) {
+  SecureBulkLoadManager(Configuration conf, Connection conn) {
     this.conf = conf;
     this.conn = conn;
   }
@@ -153,15 +151,26 @@ public class SecureBulkLoadManager {
 
   public void cleanupBulkLoad(final HRegion region, final CleanupBulkLoadRequest request)
       throws IOException {
-    region.getCoprocessorHost().preCleanupBulkLoad(getActiveUser());
+    try {
+      region.getCoprocessorHost().preCleanupBulkLoad(getActiveUser());
 
-    Path path = new Path(request.getBulkToken());
-    if (!fs.delete(path, true)) {
-      if (fs.exists(path)) {
-        throw new IOException("Failed to clean up " + path);
+      Path path = new Path(request.getBulkToken());
+      if (!fs.delete(path, true)) {
+        if (fs.exists(path)) {
+          throw new IOException("Failed to clean up " + path);
+        }
+      }
+      LOG.info("Cleaned up " + path + " successfully.");
+    } finally {
+      UserGroupInformation ugi = getActiveUser().getUGI();
+      try {
+        if (!UserGroupInformation.getLoginUser().equals(ugi) && !isUserReferenced(ugi)) {
+          FileSystem.closeAllForUGI(ugi);
+        }
+      } catch (IOException e) {
+        LOG.error("Failed to close FileSystem for: " + ugi, e);
       }
     }
-    LOG.trace("Cleaned up {} successfully.", path);
   }
 
   private Consumer<HRegion> fsCreatedListener;
@@ -203,34 +212,29 @@ public class SecureBulkLoadManager {
   }
 
   public Map<byte[], List<Path>> secureBulkLoadHFiles(final HRegion region,
-    final BulkLoadHFileRequest request) throws IOException {
-    return secureBulkLoadHFiles(region, request, null);
-  }
-
-  public Map<byte[], List<Path>> secureBulkLoadHFiles(final HRegion region,
-      final BulkLoadHFileRequest request, List<String> clusterIds) throws IOException {
+      final BulkLoadHFileRequest request) throws IOException {
     final List<Pair<byte[], String>> familyPaths = new ArrayList<>(request.getFamilyPathCount());
     for(ClientProtos.BulkLoadHFileRequest.FamilyPath el : request.getFamilyPathList()) {
       familyPaths.add(new Pair<>(el.getFamily().toByteArray(), el.getPath()));
     }
 
-    Token<AuthenticationTokenIdentifier> userToken = null;
+    Token userToken = null;
     if (userProvider.isHadoopSecurityEnabled()) {
-      userToken = new Token<>(request.getFsToken().getIdentifier().toByteArray(),
-        request.getFsToken().getPassword().toByteArray(), new Text(request.getFsToken().getKind()),
-        new Text(request.getFsToken().getService()));
+      userToken = new Token(request.getFsToken().getIdentifier().toByteArray(), request.getFsToken()
+              .getPassword().toByteArray(), new Text(request.getFsToken().getKind()), new Text(
+              request.getFsToken().getService()));
     }
     final String bulkToken = request.getBulkToken();
     User user = getActiveUser();
     final UserGroupInformation ugi = user.getUGI();
     if (userProvider.isHadoopSecurityEnabled()) {
       try {
-        Token<AuthenticationTokenIdentifier> tok = ClientTokenUtil.obtainToken(conn).get();
+        Token tok = TokenUtil.obtainToken(conn);
         if (tok != null) {
           boolean b = ugi.addToken(tok);
           LOG.debug("token added " + tok + " for user " + ugi + " return=" + b);
         }
-      } catch (Exception ioe) {
+      } catch (IOException ioe) {
         LOG.warn("unable to add token", ioe);
       }
     }
@@ -270,13 +274,6 @@ public class SecureBulkLoadManager {
         public Map<byte[], List<Path>> run() {
           FileSystem fs = null;
           try {
-            /*
-             * This is creating and caching a new FileSystem instance. Other code called
-             * "beneath" this method will rely on this FileSystem instance being in the
-             * cache. This is important as those methods make _no_ attempt to close this
-             * FileSystem instance. It is critical that here, in SecureBulkLoadManager,
-             * we are tracking the lifecycle and closing the FS when safe to do so.
-             */
             fs = FileSystem.get(conf);
             for(Pair<byte[], String> el: familyPaths) {
               Path stageFamily = new Path(bulkToken, Bytes.toString(el.getFirst()));
@@ -291,8 +288,7 @@ public class SecureBulkLoadManager {
             //We call bulkLoadHFiles as requesting user
             //To enable access prior to staging
             return region.bulkLoadHFiles(familyPaths, true,
-                new SecureBulkLoadListener(fs, bulkToken, conf), request.getCopyFile(),
-              clusterIds, request.getReplicate());
+                new SecureBulkLoadListener(fs, bulkToken, conf), request.getCopyFile());
           } catch (Exception e) {
             LOG.error("Failed to complete bulk load", e);
           }
@@ -301,13 +297,6 @@ public class SecureBulkLoadManager {
       });
     } finally {
       decrementUgiReference(ugi);
-      try {
-        if (!UserGroupInformation.getLoginUser().equals(ugi) && !isUserReferenced(ugi)) {
-          FileSystem.closeAllForUGI(ugi);
-        }
-      } catch (IOException e) {
-        LOG.error("Failed to close FileSystem for: {}", ugi, e);
-      }
       if (region.getCoprocessorHost() != null) {
         region.getCoprocessorHost().postBulkLoadHFile(familyPaths, map);
       }

@@ -19,9 +19,9 @@
 package org.apache.hadoop.hbase.security.access;
 
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.hbase.DaemonThreadFactory;
 import org.apache.hadoop.hbase.TableName;
 import org.apache.hadoop.hbase.util.Bytes;
-import org.apache.hadoop.hbase.util.Threads;
 import org.apache.hadoop.hbase.zookeeper.ZKListener;
 import org.apache.hadoop.hbase.zookeeper.ZKUtil;
 import org.apache.hadoop.hbase.zookeeper.ZKWatcher;
@@ -69,7 +69,7 @@ public class ZKPermissionWatcher extends ZKListener implements Closeable {
     String aclZnodeParent = conf.get("zookeeper.znode.acl.parent", ACL_NODE);
     this.aclZNode = ZNodePaths.joinZNode(watcher.getZNodePaths().baseZNode, aclZnodeParent);
     executor = Executors.newSingleThreadExecutor(
-        Threads.newDaemonThreadFactory("zk-permission-watcher"));
+      new DaemonThreadFactory("zk-permission-watcher"));
   }
 
   public void start() throws KeeperException {
@@ -146,7 +146,7 @@ public class ZKPermissionWatcher extends ZKListener implements Closeable {
         @Override
         public void run() {
           String table = ZKUtil.getNodeName(path);
-          if (PermissionStorage.isNamespaceEntry(table)) {
+          if(AccessControlLists.isNamespaceEntry(table)) {
             authManager.removeNamespace(Bytes.toBytes(table));
           } else {
             authManager.removeTable(TableName.valueOf(table));
@@ -245,9 +245,9 @@ public class ZKPermissionWatcher extends ZKListener implements Closeable {
       LOG.debug("Updating permissions cache from {} with data {}", entry,
           Bytes.toStringBinary(nodeData));
     }
-    if (PermissionStorage.isNamespaceEntry(entry)) {
-      authManager.refreshNamespaceCacheFromWritable(PermissionStorage.fromNamespaceEntry(entry),
-        nodeData);
+    if(AccessControlLists.isNamespaceEntry(entry)) {
+      authManager.refreshNamespaceCacheFromWritable(
+          AccessControlLists.fromNamespaceEntry(entry), nodeData);
     } else {
       authManager.refreshTableCacheFromWritable(TableName.valueOf(entry), nodeData);
     }
@@ -296,7 +296,7 @@ public class ZKPermissionWatcher extends ZKListener implements Closeable {
    */
   public void deleteNamespaceACLNode(final String namespace) {
     String zkNode = ZNodePaths.joinZNode(watcher.getZNodePaths().baseZNode, ACL_NODE);
-    zkNode = ZNodePaths.joinZNode(zkNode, PermissionStorage.NAMESPACE_PREFIX + namespace);
+    zkNode = ZNodePaths.joinZNode(zkNode, AccessControlLists.NAMESPACE_PREFIX + namespace);
 
     try {
       ZKUtil.deleteNode(watcher, zkNode);

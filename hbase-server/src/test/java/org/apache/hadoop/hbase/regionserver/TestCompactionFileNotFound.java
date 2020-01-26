@@ -126,13 +126,12 @@ public class TestCompactionFileNotFound {
       }
       table.put(putb);
       HRegion hr1 = (HRegion) util.getRSForFirstRegionInTable(TEST_TABLE)
-          .getRegionByEncodedName(admin.getRegions(TEST_TABLE).get(0).getEncodedName());
+          .getRegionByEncodedName(admin.getTableRegions(TEST_TABLE).get(0).getEncodedName());
       // Refresh store files post compaction, this should not open already compacted files
       hr1.refreshStoreFiles(true);
-      int numRegionsBeforeSplit = admin.getRegions(TEST_TABLE).size();
+      int numRegionsBeforeSplit = admin.getTableRegions(TEST_TABLE).size();
       // Check if we can successfully split after compaction
-      admin.splitRegionAsync(admin.getRegions(TEST_TABLE).get(0).getEncodedNameAsBytes(), ROW_C)
-        .get();
+      admin.splitRegion(admin.getTableRegions(TEST_TABLE).get(0).getEncodedNameAsBytes(), ROW_C);
       util.waitFor(20000, new Waiter.Predicate<Exception>() {
         @Override
         public boolean evaluate() throws Exception {
@@ -182,7 +181,7 @@ public class TestCompactionFileNotFound {
       }
       table.put(putb);
       HRegion hr1 = (HRegion) util.getRSForFirstRegionInTable(TEST_TABLE)
-          .getRegionByEncodedName(admin.getRegions(TEST_TABLE).get(0).getEncodedName());
+          .getRegionByEncodedName(admin.getTableRegions(TEST_TABLE).get(0).getEncodedName());
       // Refresh store files post compaction, this should not open already compacted files
       hr1.refreshStoreFiles(true);
       // Archive the store files and try another compaction to see if all is good

@@ -34,7 +34,6 @@ import static org.junit.Assert.fail;
 
 import java.io.IOException;
 import java.io.InterruptedIOException;
-import java.net.InetAddress;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -74,16 +73,14 @@ import org.apache.hadoop.hbase.test.MetricsAssertHelper;
 import org.apache.hadoop.hbase.testclassification.ClientTests;
 import org.apache.hadoop.hbase.testclassification.MediumTests;
 import org.apache.hadoop.hbase.thrift.ErrorThrowingGetObserver;
-import org.apache.hadoop.hbase.thrift.HBaseThriftTestingUtility;
 import org.apache.hadoop.hbase.thrift.HbaseHandlerMetricsProxy;
 import org.apache.hadoop.hbase.thrift.ThriftMetrics;
-import org.apache.hadoop.hbase.thrift.ThriftMetrics.ThriftServerType;
 import org.apache.hadoop.hbase.thrift2.generated.TAppend;
 import org.apache.hadoop.hbase.thrift2.generated.TColumn;
 import org.apache.hadoop.hbase.thrift2.generated.TColumnFamilyDescriptor;
 import org.apache.hadoop.hbase.thrift2.generated.TColumnIncrement;
 import org.apache.hadoop.hbase.thrift2.generated.TColumnValue;
-import org.apache.hadoop.hbase.thrift2.generated.TCompareOperator;
+import org.apache.hadoop.hbase.thrift2.generated.TCompareOp;
 import org.apache.hadoop.hbase.thrift2.generated.TConsistency;
 import org.apache.hadoop.hbase.thrift2.generated.TDataBlockEncoding;
 import org.apache.hadoop.hbase.thrift2.generated.TDelete;
@@ -103,14 +100,9 @@ import org.apache.hadoop.hbase.thrift2.generated.TRowMutations;
 import org.apache.hadoop.hbase.thrift2.generated.TScan;
 import org.apache.hadoop.hbase.thrift2.generated.TTableDescriptor;
 import org.apache.hadoop.hbase.thrift2.generated.TTableName;
-import org.apache.hadoop.hbase.thrift2.generated.TThriftServerType;
 import org.apache.hadoop.hbase.thrift2.generated.TTimeRange;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.thrift.TException;
-import org.apache.thrift.protocol.TBinaryProtocol;
-import org.apache.thrift.protocol.TProtocol;
-import org.apache.thrift.transport.TSocket;
-import org.apache.thrift.transport.TTransport;
 import org.junit.AfterClass;
 import org.junit.Before;
 import org.junit.BeforeClass;
@@ -1552,7 +1544,7 @@ public class TestThriftHBaseServiceHandler {
 
     // checkAndMutate -- condition should fail because the value doesn't exist.
     assertFalse("Expected condition to not pass",
-        handler.checkAndMutate(table, row, family, qualifier, TCompareOperator.EQUAL, value,
+        handler.checkAndMutate(table, row, family, qualifier, TCompareOp.EQUAL, value,
             tRowMutations));
 
     List<TColumnValue> columnValuesA = new ArrayList<>(1);
@@ -1569,7 +1561,7 @@ public class TestThriftHBaseServiceHandler {
 
     // checkAndMutate -- condition should pass since we added the value
     assertTrue("Expected condition to pass",
-        handler.checkAndMutate(table, row, family, qualifier, TCompareOperator.EQUAL, value,
+        handler.checkAndMutate(table, row, family, qualifier, TCompareOp.EQUAL, value,
             tRowMutations));
 
     result = handler.get(table, new TGet(row));
@@ -1697,36 +1689,6 @@ public class TestThriftHBaseServiceHandler {
     assertTrue(table.getColumnFamilies().length == 2);
     assertTrue(table.getColumnFamily(familyAname).getMaxVersions() == 3);
     assertTrue(table.getColumnFamily(familyBname).getMaxVersions() == 2);
-  }
-
-  @Test
-  public void testGetThriftServerType() throws Exception {
-    ThriftHBaseServiceHandler handler = createHandler();
-    assertEquals(TThriftServerType.TWO, handler.getThriftServerType());
-  }
-
-  /**
-   * Verify that thrift2 client calling thrift server can get the thrift server type correctly.
-   */
-  @Test
-  public void testGetThriftServerOneType() throws Exception {
-
-    // start a thrift server
-    HBaseThriftTestingUtility THRIFT_TEST_UTIL = new HBaseThriftTestingUtility();
-
-    LOG.info("Starting HBase Thrift server One");
-    THRIFT_TEST_UTIL.startThriftServer(UTIL.getConfiguration(), ThriftServerType.ONE);
-    try (TTransport transport = new TSocket(InetAddress.getLocalHost().getHostName(),
-        THRIFT_TEST_UTIL.getServerPort())){
-      TProtocol protocol = new TBinaryProtocol(transport);
-      // This is our thrift2 client.
-      THBaseService.Iface client = new THBaseService.Client(protocol);
-      // open the transport
-      transport.open();
-      assertEquals(TThriftServerType.ONE.name(), client.getThriftServerType().name());
-    } finally {
-      THRIFT_TEST_UTIL.stopThriftServer();
-    }
   }
 
   public static class DelayingRegionObserver implements RegionCoprocessor, RegionObserver {

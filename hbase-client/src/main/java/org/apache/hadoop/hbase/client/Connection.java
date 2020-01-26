@@ -25,7 +25,6 @@ import org.apache.hadoop.hbase.Abortable;
 import org.apache.hadoop.hbase.HBaseInterfaceAudience;
 import org.apache.hadoop.hbase.ServerName;
 import org.apache.hadoop.hbase.TableName;
-import org.apache.hadoop.hbase.util.FutureUtils;
 import org.apache.yetus.audience.InterfaceAudience;
 
 /**
@@ -125,9 +124,7 @@ public interface Connection extends Abortable, Closeable {
    *
    * @return a {@link BufferedMutator} for the supplied tableName.
    */
-  default BufferedMutator getBufferedMutator(TableName tableName) throws IOException {
-    return getBufferedMutator(new BufferedMutatorParams(tableName));
-  }
+  BufferedMutator getBufferedMutator(TableName tableName) throws IOException;
 
   /**
    * Retrieve a {@link BufferedMutator} for performing client-side buffering of writes. The
@@ -197,14 +194,6 @@ public interface Connection extends Abortable, Closeable {
   TableBuilder getTableBuilder(TableName tableName, ExecutorService pool);
 
   /**
-   * Convert this connection to an {@link AsyncConnection}.
-   * <p/>
-   * Usually we will return the same instance if you call this method multiple times so you can
-   * consider this as a light-weighted operation.
-   */
-  AsyncConnection toAsyncConnection();
-
-  /**
    * Retrieve an Hbck implementation to fix an HBase cluster.
    * The returned Hbck is not guaranteed to be thread-safe. A new instance should be created by
    * each thread. This is a lightweight operation. Pooling or caching of the returned Hbck instance
@@ -218,7 +207,7 @@ public interface Connection extends Abortable, Closeable {
    */
   @InterfaceAudience.LimitedPrivate(HBaseInterfaceAudience.HBCK)
   default Hbck getHbck() throws IOException {
-    return FutureUtils.get(toAsyncConnection().getHbck());
+    throw new UnsupportedOperationException("Not implemented");
   }
 
   /**
@@ -239,6 +228,6 @@ public interface Connection extends Abortable, Closeable {
    */
   @InterfaceAudience.LimitedPrivate(HBaseInterfaceAudience.HBCK)
   default Hbck getHbck(ServerName masterServer) throws IOException {
-    return toAsyncConnection().getHbck(masterServer);
+    throw new UnsupportedOperationException("Not implemented");
   }
 }

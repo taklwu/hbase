@@ -150,11 +150,6 @@ public class ChoreService implements ChoreServicer {
     }
 
     try {
-      if (chore.getPeriod() <= 0) {
-        LOG.info("Chore {} is disabled because its period is not positive.", chore);
-        return false;
-      }
-      LOG.info("Chore {} is enabled.", chore);
       chore.setChoreServicer(this);
       ScheduledFuture<?> future =
           scheduler.scheduleAtFixedRate(chore, chore.getInitialDelay(), chore.getPeriod(),
@@ -173,7 +168,9 @@ public class ChoreService implements ChoreServicer {
    * @param chore The Chore to be rescheduled. If the chore is not scheduled with this ChoreService
    *          yet then this call is equivalent to a call to scheduleChore.
    */
-  private void rescheduleChore(ScheduledChore chore) {
+  private synchronized void rescheduleChore(ScheduledChore chore) {
+    if (chore == null) return;
+
     if (scheduledChores.containsKey(chore)) {
       ScheduledFuture<?> future = scheduledChores.get(chore);
       future.cancel(false);
@@ -214,11 +211,12 @@ public class ChoreService implements ChoreServicer {
   @InterfaceAudience.Private
   @Override
   public synchronized boolean triggerNow(ScheduledChore chore) {
-    if (chore != null) {
+    if (chore == null) {
+      return false;
+    } else {
       rescheduleChore(chore);
       return true;
     }
-    return false;
   }
 
   /**
@@ -349,14 +347,17 @@ public class ChoreService implements ChoreServicer {
   }
 
   private void cancelAllChores(final boolean mayInterruptIfRunning) {
+    ArrayList<ScheduledChore> choresToCancel = new ArrayList<>(scheduledChores.keySet().size());
     // Build list of chores to cancel so we can iterate through a set that won't change
     // as chores are cancelled. If we tried to cancel each chore while iterating through
     // keySet the results would be undefined because the keySet would be changing
-    ArrayList<ScheduledChore> choresToCancel = new ArrayList<>(scheduledChores.keySet());
-
+    for (ScheduledChore chore : scheduledChores.keySet()) {
+      choresToCancel.add(chore);
+    }
     for (ScheduledChore chore : choresToCancel) {
       cancelChore(chore, mayInterruptIfRunning);
     }
+    choresToCancel.clear();
   }
 
   /**

@@ -36,10 +36,9 @@ import org.apache.hadoop.hbase.Cell;
 import org.apache.hadoop.hbase.CellUtil;
 import org.apache.hadoop.hbase.HBaseClassTestRule;
 import org.apache.hadoop.hbase.HBaseTestingUtility;
+import org.apache.hadoop.hbase.HColumnDescriptor;
 import org.apache.hadoop.hbase.KeyValue;
 import org.apache.hadoop.hbase.KeyValueTestUtil;
-import org.apache.hadoop.hbase.client.ColumnFamilyDescriptor;
-import org.apache.hadoop.hbase.client.ColumnFamilyDescriptorBuilder;
 import org.apache.hadoop.hbase.client.Put;
 import org.apache.hadoop.hbase.client.Scan;
 import org.apache.hadoop.hbase.io.compress.Compression;
@@ -110,13 +109,11 @@ public class TestScanWithBloomError {
 
   @Test
   public void testThreeStoreFiles() throws IOException {
-    ColumnFamilyDescriptor columnFamilyDescriptor =
-      ColumnFamilyDescriptorBuilder
-        .newBuilder(Bytes.toBytes(FAMILY))
-        .setCompressionType(Compression.Algorithm.GZ)
-        .setBloomFilterType(bloomType)
-        .setMaxVersions(TestMultiColumnScanner.MAX_VERSIONS).build();
-    region = TEST_UTIL.createTestRegion(TABLE_NAME, columnFamilyDescriptor);
+    region = TEST_UTIL.createTestRegion(TABLE_NAME,
+        new HColumnDescriptor(FAMILY)
+            .setCompressionType(Compression.Algorithm.GZ)
+            .setBloomFilterType(bloomType)
+            .setMaxVersions(TestMultiColumnScanner.MAX_VERSIONS));
     createStoreFile(new int[] {1, 2, 6});
     createStoreFile(new int[] {1, 2, 3, 7});
     createStoreFile(new int[] {1, 9});

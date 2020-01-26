@@ -29,17 +29,15 @@ import java.util.Set;
 import org.apache.hadoop.hbase.Cell;
 import org.apache.hadoop.hbase.HBaseClassTestRule;
 import org.apache.hadoop.hbase.HBaseTestingUtility;
+import org.apache.hadoop.hbase.HColumnDescriptor;
 import org.apache.hadoop.hbase.HRegionInfo;
+import org.apache.hadoop.hbase.HTableDescriptor;
 import org.apache.hadoop.hbase.KeyValue;
 import org.apache.hadoop.hbase.KeyValueTestUtil;
 import org.apache.hadoop.hbase.TableName;
-import org.apache.hadoop.hbase.client.ColumnFamilyDescriptor;
-import org.apache.hadoop.hbase.client.ColumnFamilyDescriptorBuilder;
 import org.apache.hadoop.hbase.client.Durability;
 import org.apache.hadoop.hbase.client.Put;
 import org.apache.hadoop.hbase.client.Scan;
-import org.apache.hadoop.hbase.client.TableDescriptor;
-import org.apache.hadoop.hbase.client.TableDescriptorBuilder;
 import org.apache.hadoop.hbase.regionserver.HRegion;
 import org.apache.hadoop.hbase.regionserver.InternalScanner;
 import org.apache.hadoop.hbase.testclassification.FilterTests;
@@ -67,19 +65,14 @@ public class TestMultipleColumnPrefixFilter {
   @Test
   public void testMultipleColumnPrefixFilter() throws IOException {
     String family = "Family";
-    TableDescriptorBuilder tableDescriptorBuilder =
-      TableDescriptorBuilder.newBuilder(TableName.valueOf(name.getMethodName()));
-    ColumnFamilyDescriptor columnFamilyDescriptor =
-      ColumnFamilyDescriptorBuilder
-        .newBuilder(Bytes.toBytes(family))
-        .setMaxVersions(3)
-        .build();
-    tableDescriptorBuilder.setColumnFamily(columnFamilyDescriptor);
-    TableDescriptor tableDescriptor = tableDescriptorBuilder.build();
+    HTableDescriptor htd = new HTableDescriptor(TableName.valueOf(name.getMethodName()));
+    HColumnDescriptor hcd = new HColumnDescriptor(family);
+    hcd.setMaxVersions(3);
+    htd.addFamily(hcd);
     // HRegionInfo info = new HRegionInfo(htd, null, null, false);
-    HRegionInfo info = new HRegionInfo(tableDescriptor.getTableName(), null, null, false);
+    HRegionInfo info = new HRegionInfo(htd.getTableName(), null, null, false);
     HRegion region = HBaseTestingUtility.createRegionAndWAL(info, TEST_UTIL.
-        getDataTestDir(), TEST_UTIL.getConfiguration(), tableDescriptor);
+        getDataTestDir(), TEST_UTIL.getConfiguration(), htd);
 
     List<String> rows = generateRandomWords(100, "row");
     List<String> columns = generateRandomWords(10000, "column");
@@ -136,23 +129,16 @@ public class TestMultipleColumnPrefixFilter {
   public void testMultipleColumnPrefixFilterWithManyFamilies() throws IOException {
     String family1 = "Family1";
     String family2 = "Family2";
-    TableDescriptorBuilder tableDescriptorBuilder =
-      TableDescriptorBuilder.newBuilder(TableName.valueOf(name.getMethodName()));
-    ColumnFamilyDescriptor columnFamilyDescriptor =
-      ColumnFamilyDescriptorBuilder
-        .newBuilder(Bytes.toBytes(family1))
-        .setMaxVersions(3)
-        .build();
-    tableDescriptorBuilder.setColumnFamily(columnFamilyDescriptor);
-    columnFamilyDescriptor = ColumnFamilyDescriptorBuilder
-      .newBuilder(Bytes.toBytes(family2))
-      .setMaxVersions(3)
-      .build();
-    tableDescriptorBuilder.setColumnFamily(columnFamilyDescriptor);
-    TableDescriptor tableDescriptor = tableDescriptorBuilder.build();
-    HRegionInfo info = new HRegionInfo(tableDescriptor.getTableName(), null, null, false);
+    HTableDescriptor htd = new HTableDescriptor(TableName.valueOf(name.getMethodName()));
+    HColumnDescriptor hcd1 = new HColumnDescriptor(family1);
+    hcd1.setMaxVersions(3);
+    htd.addFamily(hcd1);
+    HColumnDescriptor hcd2 = new HColumnDescriptor(family2);
+    hcd2.setMaxVersions(3);
+    htd.addFamily(hcd2);
+    HRegionInfo info = new HRegionInfo(htd.getTableName(), null, null, false);
     HRegion region = HBaseTestingUtility.createRegionAndWAL(info, TEST_UTIL.
-      getDataTestDir(), TEST_UTIL.getConfiguration(), tableDescriptor);
+        getDataTestDir(), TEST_UTIL.getConfiguration(), htd);
 
     List<String> rows = generateRandomWords(100, "row");
     List<String> columns = generateRandomWords(10000, "column");
@@ -213,15 +199,11 @@ public class TestMultipleColumnPrefixFilter {
   @Test
   public void testMultipleColumnPrefixFilterWithColumnPrefixFilter() throws IOException {
     String family = "Family";
-    TableDescriptorBuilder tableDescriptorBuilder =
-      TableDescriptorBuilder.newBuilder(TableName.valueOf(name.getMethodName()));
-    ColumnFamilyDescriptor columnFamilyDescriptor =
-      ColumnFamilyDescriptorBuilder.newBuilder(Bytes.toBytes(family)).build();
-    tableDescriptorBuilder.setColumnFamily(columnFamilyDescriptor);
-    TableDescriptor tableDescriptor = tableDescriptorBuilder.build();
-    HRegionInfo info = new HRegionInfo(tableDescriptor.getTableName(), null, null, false);
+    HTableDescriptor htd = new HTableDescriptor(TableName.valueOf(name.getMethodName()));
+    htd.addFamily(new HColumnDescriptor(family));
+    HRegionInfo info = new HRegionInfo(htd.getTableName(), null, null, false);
     HRegion region = HBaseTestingUtility.createRegionAndWAL(info, TEST_UTIL.
-      getDataTestDir(), TEST_UTIL.getConfiguration(), tableDescriptor);
+        getDataTestDir(), TEST_UTIL.getConfiguration(), htd);
 
     List<String> rows = generateRandomWords(100, "row");
     List<String> columns = generateRandomWords(10000, "column");

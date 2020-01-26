@@ -67,7 +67,7 @@ public class TestFSTableDescriptorForceCreation {
     Path rootdir = new Path(UTIL.getDataTestDir(), name);
     FSTableDescriptors fstd = new FSTableDescriptors(UTIL.getConfiguration(), fs, rootdir);
     TableDescriptor htd = TableDescriptorBuilder.newBuilder(TableName.valueOf(name)).build();
-    fstd.update(htd);
+    fstd.add(htd);
     assertFalse("Should not create new table descriptor", fstd.createTableDescriptor(htd, false));
   }
 

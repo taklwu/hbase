@@ -40,6 +40,7 @@ import org.apache.hadoop.hbase.client.Get;
 import org.apache.hadoop.hbase.client.Put;
 import org.apache.hadoop.hbase.client.Result;
 import org.apache.hadoop.hbase.client.Table;
+import org.apache.hadoop.hbase.client.replication.ReplicationAdmin;
 import org.apache.hadoop.hbase.client.replication.ReplicationPeerConfigUtil;
 import org.apache.hadoop.hbase.coprocessor.CoprocessorHost;
 import org.apache.hadoop.hbase.testclassification.FlakeyTests;
@@ -373,7 +374,7 @@ public class TestPerTableCFReplication {
   @Test
   public void testPerTableCFReplication() throws Exception {
     LOG.info("testPerTableCFReplication");
-    Admin replicationAdmin = ConnectionFactory.createConnection(conf1).getAdmin();
+    ReplicationAdmin replicationAdmin = new ReplicationAdmin(conf1);
     Connection connection1 = ConnectionFactory.createConnection(conf1);
     Connection connection2 = ConnectionFactory.createConnection(conf2);
     Connection connection3 = ConnectionFactory.createConnection(conf3);
@@ -405,25 +406,25 @@ public class TestPerTableCFReplication {
       Table htab3C = connection3.getTable(tabCName);
 
       // A. add cluster2/cluster3 as peers to cluster1
+      ReplicationPeerConfig rpc2 = new ReplicationPeerConfig();
+      rpc2.setClusterKey(utility2.getClusterKey());
+      rpc2.setReplicateAllUserTables(false);
       Map<TableName, List<String>> tableCFs = new HashMap<>();
       tableCFs.put(tabCName, null);
       tableCFs.put(tabBName, new ArrayList<>());
       tableCFs.get(tabBName).add("f1");
       tableCFs.get(tabBName).add("f3");
-      ReplicationPeerConfig rpc2 = ReplicationPeerConfig.newBuilder()
-              .setClusterKey(utility2.getClusterKey()).setReplicateAllUserTables(false)
-              .setTableCFsMap(tableCFs).build();
-      replicationAdmin.addReplicationPeer("2", rpc2);
+      replicationAdmin.addPeer("2", rpc2, tableCFs);
 
+      ReplicationPeerConfig rpc3 = new ReplicationPeerConfig();
+      rpc3.setClusterKey(utility3.getClusterKey());
+      rpc3.setReplicateAllUserTables(false);
       tableCFs.clear();
       tableCFs.put(tabAName, null);
       tableCFs.put(tabBName, new ArrayList<>());
       tableCFs.get(tabBName).add("f1");
       tableCFs.get(tabBName).add("f2");
-      ReplicationPeerConfig rpc3 = ReplicationPeerConfig.newBuilder()
-              .setClusterKey(utility3.getClusterKey()).setReplicateAllUserTables(false)
-              .setTableCFsMap(tableCFs).build();
-      replicationAdmin.addReplicationPeer("3", rpc3);
+      replicationAdmin.addPeer("3", rpc3, tableCFs);
 
       // A1. tableA can only replicated to cluster3
       putAndWaitWithFamily(row1, f1Name, htab1A, htab3A);
@@ -473,17 +474,13 @@ public class TestPerTableCFReplication {
       tableCFs.put(tabCName, new ArrayList<>());
       tableCFs.get(tabCName).add("f2");
       tableCFs.get(tabCName).add("f3");
-      replicationAdmin.updateReplicationPeerConfig("2",
-              ReplicationPeerConfig.newBuilder(replicationAdmin.getReplicationPeerConfig("2"))
-                      .setTableCFsMap(tableCFs).build());
+      replicationAdmin.setPeerTableCFs("2", tableCFs);
 
       tableCFs.clear();
       tableCFs.put(tabBName, null);
       tableCFs.put(tabCName, new ArrayList<>());
       tableCFs.get(tabCName).add("f3");
-      replicationAdmin.updateReplicationPeerConfig("3",
-              ReplicationPeerConfig.newBuilder(replicationAdmin.getReplicationPeerConfig("3"))
-                      .setTableCFsMap(tableCFs).build());
+      replicationAdmin.setPeerTableCFs("3", tableCFs);
 
       // B1. cf 'f1' of tableA can only replicated to cluster2
       putAndWaitWithFamily(row2, f1Name, htab1A, htab2A);

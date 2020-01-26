@@ -39,6 +39,7 @@ import org.slf4j.LoggerFactory;
 
 @Category({MiscTests.class, SmallTests.class})
 public class TestEncryption {
+
   @ClassRule
   public static final HBaseClassTestRule CLASS_RULE =
       HBaseClassTestRule.forClass(TestEncryption.class);
@@ -51,7 +52,7 @@ public class TestEncryption {
     Bytes.random(key);
     byte[] iv = new byte[16];
     Bytes.random(iv);
-    for (int size: new int[] { 4, 8, 16, 32, 64, 128, 256, 512 }) {
+    for (int size: new int[] { 4, 8, 16, 32, 64, 128, 256, 512 } ) {
       checkTransformSymmetry(key, iv, getRandomBlock(size));
     }
   }
@@ -62,7 +63,7 @@ public class TestEncryption {
     Bytes.random(key);
     byte[] iv = new byte[16];
     Bytes.random(iv);
-    for (int size: new int[] { 256 * 1024, 512 * 1024, 1024 * 1024 }) {
+    for (int size: new int[] { 256 * 1024, 512 * 1024, 1024 * 1024 } ) {
       checkTransformSymmetry(key, iv, getRandomBlock(size));
     }
   }
@@ -73,7 +74,7 @@ public class TestEncryption {
     Bytes.random(key);
     byte[] iv = new byte[16];
     Bytes.random(iv);
-    for (int size: new int[] { 3, 7, 11, 23, 47, 79, 119, 175 }) {
+    for (int size: new int[] { 3, 7, 11, 23, 47, 79, 119, 175 } ) {
       checkTransformSymmetry(key, iv, getRandomBlock(size));
     }
   }
@@ -84,7 +85,7 @@ public class TestEncryption {
     Bytes.random(key);
     byte[] iv = new byte[16];
     Bytes.random(iv);
-    for (int size: new int[] { 4 * 1024, 8 * 1024, 64 * 1024, 128 * 1024 }) {
+    for (int size: new int[] { 4 * 1024, 8 * 1024, 64 * 1024, 128 * 1024 } ) {
       checkTransformSymmetry(key, iv, getRandomBlock(size));
     }
   }
@@ -127,4 +128,5 @@ public class TestEncryption {
     Bytes.random(b);
     return b;
   }
+
 }

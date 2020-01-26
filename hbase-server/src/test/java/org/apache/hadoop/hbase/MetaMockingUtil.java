@@ -23,7 +23,6 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
-import org.apache.hadoop.hbase.client.RegionInfo;
 import org.apache.hadoop.hbase.client.Result;
 import org.apache.hadoop.hbase.util.Bytes;
 
@@ -60,21 +59,21 @@ public class MetaMockingUtil {
   /**
    * Returns a Result object constructed from the given region information simulating
    * a catalog table result.
-   * @param region the RegionInfo object or null
+   * @param region the HRegionInfo object or null
    * @param sn to use making startcode and server hostname:port in meta or null
    * @param splita daughter region or null
    * @param splitb  daughter region or null
    * @return A mocked up Result that fakes a Get on a row in the <code>hbase:meta</code> table.
    * @throws IOException
    */
-  public static Result getMetaTableRowResult(RegionInfo region, final ServerName sn,
-      RegionInfo splita, RegionInfo splitb) throws IOException {
+  public static Result getMetaTableRowResult(HRegionInfo region, final ServerName sn,
+      HRegionInfo splita, HRegionInfo splitb) throws IOException {
     List<Cell> kvs = new ArrayList<>();
     if (region != null) {
       kvs.add(new KeyValue(
         region.getRegionName(),
         HConstants.CATALOG_FAMILY, HConstants.REGIONINFO_QUALIFIER,
-        RegionInfo.toByteArray(region)));
+        region.toByteArray()));
     }
 
     if (sn != null) {
@@ -90,14 +89,14 @@ public class MetaMockingUtil {
       kvs.add(new KeyValue(
           region.getRegionName(),
           HConstants.CATALOG_FAMILY, HConstants.SPLITA_QUALIFIER,
-          RegionInfo.toByteArray(splita)));
+          splita.toByteArray()));
     }
 
     if (splitb != null) {
       kvs.add(new KeyValue(
           region.getRegionName(),
           HConstants.CATALOG_FAMILY, HConstants.SPLITB_QUALIFIER,
-          RegionInfo.toByteArray(splitb)));
+          splitb.toByteArray()));
     }
 
     //important: sort the kvs so that binary search work

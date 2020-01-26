@@ -63,6 +63,12 @@ public class ColumnCountGetFilter extends FilterBase {
     return this.count > this.limit;
   }
 
+  @Deprecated
+  @Override
+  public ReturnCode filterKeyValue(final Cell c) {
+    return filterCell(c);
+  }
+
   @Override
   public ReturnCode filterCell(final Cell c) {
     this.count++;

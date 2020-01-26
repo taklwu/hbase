@@ -25,7 +25,6 @@ import java.util.concurrent.TimeUnit;
 import java.util.Collection;
 import java.util.Comparator;
 import java.util.Iterator;
-import java.util.Objects;
 import java.util.AbstractQueue;
 
 import org.apache.yetus.audience.InterfaceAudience;
@@ -158,7 +157,7 @@ public class BoundedPriorityBlockingQueue<E> extends AbstractQueue<E> implements
 
   @Override
   public boolean offer(E e) {
-    Objects.requireNonNull(e);
+    if (e == null) throw new NullPointerException();
 
     lock.lock();
     try {
@@ -175,7 +174,7 @@ public class BoundedPriorityBlockingQueue<E> extends AbstractQueue<E> implements
 
   @Override
   public void put(E e) throws InterruptedException {
-    Objects.requireNonNull(e);
+    if (e == null) throw new NullPointerException();
 
     lock.lock();
     try {
@@ -192,7 +191,7 @@ public class BoundedPriorityBlockingQueue<E> extends AbstractQueue<E> implements
   @Override
   public boolean offer(E e, long timeout, TimeUnit unit)
       throws InterruptedException {
-    Objects.requireNonNull(e);
+    if (e == null) throw new NullPointerException();
     long nanos = unit.toNanos(timeout);
 
     lock.lockInterruptibly();
@@ -322,7 +321,8 @@ public class BoundedPriorityBlockingQueue<E> extends AbstractQueue<E> implements
 
   @Override
   public int drainTo(Collection<? super E> c, int maxElements) {
-    Objects.requireNonNull(c);
+    if (c == null)
+        throw new NullPointerException();
     if (c == this)
         throw new IllegalArgumentException();
     if (maxElements <= 0)

@@ -32,7 +32,6 @@ import org.apache.hadoop.hbase.testclassification.MediumTests;
 import org.apache.hadoop.hbase.testclassification.RegionServerTests;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.hbase.util.JVMClusterUtil.RegionServerThread;
-import org.apache.hadoop.hbase.wal.WALFactory;
 import org.junit.AfterClass;
 import org.junit.BeforeClass;
 import org.junit.ClassRule;
@@ -60,7 +59,7 @@ public class TestRegionServerCrashDisableWAL {
   @BeforeClass
   public static void setUp() throws Exception {
     UTIL.getConfiguration().setInt(ServerManager.WAIT_ON_REGIONSERVERS_MINTOSTART, 1);
-    UTIL.getConfiguration().setBoolean(WALFactory.WAL_ENABLED, false);
+    UTIL.getConfiguration().setBoolean("hbase.regionserver.hlog.enabled", false);
     UTIL.startMiniCluster(2);
     UTIL.createTable(TABLE_NAME, CF);
     UTIL.waitTableAvailable(TABLE_NAME);

@@ -23,16 +23,17 @@ import java.util.HashMap;
 import java.util.Map;
 import org.apache.hadoop.hbase.MetaTableAccessor;
 import org.apache.hadoop.hbase.TableName;
-import org.apache.hadoop.hbase.TableNotFoundException;
 import org.apache.hadoop.hbase.client.Connection;
 import org.apache.hadoop.hbase.client.TableDescriptor;
 import org.apache.hadoop.hbase.master.TableStateManager;
+import org.apache.hadoop.hbase.master.TableStateManager.TableStateNotFoundException;
 import org.apache.hadoop.hbase.master.procedure.MasterProcedureEnv;
 import org.apache.hadoop.hbase.master.procedure.PeerProcedureInterface;
 import org.apache.hadoop.hbase.master.procedure.ProcedurePrepareLatch;
 import org.apache.hadoop.hbase.replication.ReplicationException;
 import org.apache.hadoop.hbase.replication.ReplicationPeerConfig;
 import org.apache.hadoop.hbase.replication.ReplicationQueueStorage;
+import org.apache.hadoop.hbase.replication.ReplicationUtils;
 import org.apache.hadoop.hbase.util.Pair;
 import org.apache.yetus.audience.InterfaceAudience;
 import org.slf4j.Logger;
@@ -117,7 +118,7 @@ public abstract class AbstractPeerProcedure<TState> extends AbstractPeerNoLockPr
         continue;
       }
       TableName tn = td.getTableName();
-      if (!peerConfig.needToReplicate(tn)) {
+      if (!ReplicationUtils.contains(peerConfig, tn)) {
         continue;
       }
       setLastPushedSequenceIdForTable(env, tn, lastSeqIds);
@@ -139,7 +140,7 @@ public abstract class AbstractPeerProcedure<TState> extends AbstractPeerNoLockPr
           return true;
         }
         Thread.sleep(SLEEP_INTERVAL_MS);
-      } catch (TableNotFoundException e) {
+      } catch (TableStateNotFoundException e) {
         return false;
       } catch (InterruptedException e) {
         throw (IOException) new InterruptedIOException(e.getMessage()).initCause(e);

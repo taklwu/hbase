@@ -156,11 +156,10 @@ public class TestPassCustomCellViaRegionObserver {
       table.get(new Get(ROW)).isEmpty());
     assertObserverHasExecuted();
 
-    assertTrue(table.checkAndMutate(ROW, FAMILY).qualifier(QUALIFIER).ifNotExists().thenPut(put));
+    assertTrue(table.checkAndPut(ROW, FAMILY, QUALIFIER, null, put));
     assertObserverHasExecuted();
 
-    assertTrue(
-      table.checkAndMutate(ROW, FAMILY).qualifier(QUALIFIER).ifEquals(VALUE).thenDelete(delete));
+    assertTrue(table.checkAndDelete(ROW, FAMILY, QUALIFIER, VALUE, delete));
     assertObserverHasExecuted();
 
     assertTrue(table.get(new Get(ROW)).isEmpty());

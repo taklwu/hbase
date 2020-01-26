@@ -237,13 +237,6 @@ message GetNamespaceDescriptorResponse {
   required NamespaceDescriptor namespaceDescriptor = 1;
 }
 
-message ListNamespacesRequest {
-}
-
-message ListNamespacesResponse {
-  repeated string namespaceName = 1;
-}
-
 message ListNamespaceDescriptorsRequest {
 }
 
@@ -318,22 +311,6 @@ enum MasterSwitchType {
   MERGE = 1;
 }
 
-message SetSnapshotCleanupRequest {
-  required bool enabled = 1;
-  optional bool synchronous = 2;
-}
-
-message SetSnapshotCleanupResponse {
-  required bool prev_snapshot_cleanup = 1;
-}
-
-message IsSnapshotCleanupEnabledRequest {
-}
-
-message IsSnapshotCleanupEnabledResponse {
-  required bool enabled = 1;
-}
-
 message SetSplitOrMergeEnabledRequest {
   required bool enabled = 1;
   optional bool synchronous = 2;
@@ -372,13 +349,6 @@ message IsNormalizerEnabledRequest {
 
 message IsNormalizerEnabledResponse {
   required bool enabled = 1;
-}
-
-message RunHbckChoreRequest {
-}
-
-message RunHbckChoreResponse {
-  required bool ran = 1;
 }
 
 message RunCatalogScanRequest {
@@ -515,10 +485,6 @@ message GetTableStateRequest {
 
 message GetTableStateResponse {
   required TableState table_state = 1;
-}
-
-message GetRegionStateInMetaResponse {
-  repeated RegionState states = 1;
 }
 
 
@@ -917,18 +883,6 @@ service MasterService {
   rpc RestoreSnapshot(RestoreSnapshotRequest) returns(RestoreSnapshotResponse);
 
   /**
-   * Turn on/off snapshot auto-cleanup based on TTL expiration
-   */
-  rpc SwitchSnapshotCleanup (SetSnapshotCleanupRequest)
-    returns (SetSnapshotCleanupResponse);
-
-  /**
-   * Determine if snapshot auto-cleanup based on TTL expiration is turned on
-   */
-  rpc IsSnapshotCleanupEnabled (IsSnapshotCleanupEnabledRequest)
-    returns (IsSnapshotCleanupEnabledResponse);
-
-  /**
    * Execute a distributed procedure.
    */
   rpc ExecProcedure(ExecProcedureRequest) returns(ExecProcedureResponse);
@@ -962,7 +916,7 @@ service MasterService {
   rpc GetNamespaceDescriptor(GetNamespaceDescriptorRequest)
     returns(GetNamespaceDescriptorResponse);
 
-  /** returns a list of namespace descriptors */
+  /** returns a list of namespaces */
   rpc ListNamespaceDescriptors(ListNamespaceDescriptorsRequest)
     returns(ListNamespaceDescriptorsResponse);
 
@@ -1077,14 +1031,6 @@ service MasterService {
   rpc Grant(GrantRequest) returns (GrantResponse);
 
   rpc Revoke(RevokeRequest) returns (RevokeResponse);
-
-  rpc GetUserPermissions (GetUserPermissionsRequest) returns (GetUserPermissionsResponse);
-
-  rpc HasUserPermissions (HasUserPermissionsRequest) returns (HasUserPermissionsResponse);
-
-  /** returns a list of namespace names */
-  rpc ListNamespaces(ListNamespacesRequest)
-    returns(ListNamespacesResponse);
 }
 
 // HBCK Service definitions.
@@ -1092,10 +1038,6 @@ service MasterService {
 message SetTableStateInMetaRequest {
   required TableName table_name = 1;
   required TableState table_state = 2;
-}
-
-message SetRegionStateInMetaRequest {
-  repeated RegionState states = 2;
 }
 
 /** Like Admin's AssignRegionRequest except it can
@@ -1151,18 +1093,10 @@ message ScheduleServerCrashProcedureResponse {
   repeated uint64 pid = 1;
 }
 
-message FixMetaRequest {}
-
-message FixMetaResponse {}
-
 service HbckService {
   /** Update state of the table in meta only*/
   rpc SetTableStateInMeta(SetTableStateInMetaRequest)
     returns(GetTableStateResponse);
-
-  /** Update state of the region in meta only*/
-  rpc SetRegionStateInMeta(SetRegionStateInMetaRequest)
-    returns(GetRegionStateInMetaResponse);
 
   /**
    * Assign regions.
@@ -1189,14 +1123,4 @@ service HbckService {
   /** Schedule a ServerCrashProcedure to help recover a crash server */
   rpc ScheduleServerCrashProcedure(ScheduleServerCrashProcedureRequest)
     returns(ScheduleServerCrashProcedureResponse);
-
-  /**
-   * Request HBCK chore to run at master side.
-   */
-  rpc RunHbckChore(RunHbckChoreRequest)
-    returns(RunHbckChoreResponse);
-
-  /** Schedule a fix meta run. */
-  rpc FixMeta(FixMetaRequest)
-    returns(FixMetaResponse);
 }

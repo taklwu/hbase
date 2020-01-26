@@ -39,7 +39,6 @@ import org.apache.hadoop.hbase.HBaseClassTestRule;
 import org.apache.hadoop.hbase.HBaseTestingUtility;
 import org.apache.hadoop.hbase.HConstants;
 import org.apache.hadoop.hbase.HDFSBlocksDistribution;
-import org.apache.hadoop.hbase.client.RegionInfoBuilder;
 import org.apache.hadoop.hbase.exceptions.DeserializationException;
 import org.apache.hadoop.hbase.fs.HFileSystem;
 import org.apache.hadoop.hbase.testclassification.MediumTests;
@@ -202,43 +201,18 @@ public class TestFSUtils {
     }
   }
 
-  private void writeVersionFile(Path versionFile, String version) throws IOException {
-    if (FSUtils.isExists(fs, versionFile)) {
-      assertTrue(FSUtils.delete(fs, versionFile, true));
-    }
-    try (FSDataOutputStream s = fs.create(versionFile)) {
-      s.writeUTF(version);
-    }
-    assertTrue(fs.exists(versionFile));
-  }
-
   @Test
   public void testVersion() throws DeserializationException, IOException {
     final Path rootdir = htu.getDataTestDir();
     final FileSystem fs = rootdir.getFileSystem(conf);
     assertNull(FSUtils.getVersion(fs, rootdir));
-    // No meta dir so no complaint from checkVersion.
-    // Presumes it a new install. Will create version file.
-    FSUtils.checkVersion(fs, rootdir, true);
-    // Now remove the version file and create a metadir so checkVersion fails.
+    // Write out old format version file.  See if we can read it in and convert.
     Path versionFile = new Path(rootdir, HConstants.VERSION_FILE_NAME);
-    assertTrue(FSUtils.isExists(fs, versionFile));
-    assertTrue(FSUtils.delete(fs, versionFile, true));
-    Path metaRegionDir =
-        FSUtils.getRegionDirFromRootDir(rootdir, RegionInfoBuilder.FIRST_META_REGIONINFO);
-    FsPermission defaultPerms = FSUtils.getFilePermissions(fs, this.conf,
-        HConstants.DATA_FILE_UMASK_KEY);
-    FSUtils.create(fs, metaRegionDir, defaultPerms, false);
-    boolean thrown = false;
-    try {
-      FSUtils.checkVersion(fs, rootdir, true);
-    } catch (FileSystemVersionException e) {
-      thrown = true;
-    }
-    assertTrue("Expected FileSystemVersionException", thrown);
-    // Write out a good version file.  See if we can read it in and convert.
-    String version = HConstants.FILE_SYSTEM_VERSION;
-    writeVersionFile(versionFile, version);
+    FSDataOutputStream s = fs.create(versionFile);
+    final String version = HConstants.FILE_SYSTEM_VERSION;
+    s.writeUTF(version);
+    s.close();
+    assertTrue(fs.exists(versionFile));
     FileStatus [] status = fs.listStatus(versionFile);
     assertNotNull(status);
     assertTrue(status.length > 0);
@@ -248,18 +222,6 @@ public class TestFSUtils {
     // File will have been converted. Exercise the pb format
     assertEquals(version, FSUtils.getVersion(fs, rootdir));
     FSUtils.checkVersion(fs, rootdir, true);
-    // Write an old version file.
-    String oldVersion = "1";
-    writeVersionFile(versionFile, oldVersion);
-    newVersion = FSUtils.getVersion(fs, rootdir);
-    assertNotEquals(version, newVersion);
-    thrown = false;
-    try {
-      FSUtils.checkVersion(fs, rootdir, true);
-    } catch (FileSystemVersionException e) {
-      thrown = true;
-    }
-    assertTrue("Expected FileSystemVersionException", thrown);
   }
 
   @Test

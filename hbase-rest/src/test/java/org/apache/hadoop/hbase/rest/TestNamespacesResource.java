@@ -17,8 +17,7 @@
  */
 package org.apache.hadoop.hbase.rest;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.*;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
@@ -45,6 +44,7 @@ import org.junit.experimental.categories.Category;
 
 @Category({RestTests.class, MediumTests.class})
 public class TestNamespacesResource {
+
   @ClassRule
   public static final HBaseClassTestRule CLASS_RULE =
       HBaseClassTestRule.forClass(TestNamespacesResource.class);
@@ -83,8 +83,8 @@ public class TestNamespacesResource {
 
   private boolean doesNamespaceExist(Admin admin, String namespaceName) throws IOException {
     NamespaceDescriptor[] nd = admin.listNamespaceDescriptors();
-    for (NamespaceDescriptor namespaceDescriptor : nd) {
-      if (namespaceDescriptor.getName().equals(namespaceName)) {
+    for(int i = 0; i < nd.length; i++) {
+      if(nd[i].getName().equals(namespaceName)) {
         return true;
       }
     }
@@ -156,7 +156,7 @@ public class TestNamespacesResource {
   }
 
   @Test
-  public void testNamespaceListPBandDefault() throws IOException {
+  public void testNamespaceListPBandDefault() throws IOException, JAXBException {
     String schemaPath = "/namespaces/";
     NamespacesModel model;
     Response response;

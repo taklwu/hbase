@@ -29,7 +29,6 @@ import org.apache.hadoop.hbase.util.LoadTestTool;
 import org.apache.hadoop.hbase.util.MultiThreadedUpdater;
 import org.apache.hadoop.hbase.util.MultiThreadedWriter;
 import org.apache.hadoop.hbase.util.ServerRegionReplicaUtil;
-import org.apache.hadoop.hbase.util.TableDescriptorChecker;
 import org.apache.hadoop.hbase.util.Threads;
 import org.apache.hadoop.hbase.util.test.LoadTestDataGenerator;
 import org.apache.hadoop.util.StringUtils;
@@ -95,7 +94,7 @@ public class IntegrationTestRegionReplicaReplication extends IntegrationTestInge
       String.format("%s.%s", TEST_NAME, LoadTestTool.OPT_COLUMN_FAMILIES),
       StringUtils.join(",", DEFAULT_COLUMN_FAMILIES));
 
-    conf.setBoolean(TableDescriptorChecker.TABLE_SANITY_CHECKS, true);
+    conf.setBoolean("hbase.table.sanity.checks", true);
 
     // enable async wal replication to region replicas for unit tests
     conf.setBoolean(ServerRegionReplicaUtil.REGION_REPLICA_REPLICATION_CONF_KEY, true);

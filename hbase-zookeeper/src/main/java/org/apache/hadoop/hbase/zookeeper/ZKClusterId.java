@@ -35,8 +35,8 @@ import org.apache.zookeeper.KeeperException;
  */
 @InterfaceAudience.Private
 public class ZKClusterId {
-  private final ZKWatcher watcher;
-  private final Abortable abortable;
+  private ZKWatcher watcher;
+  private Abortable abortable;
   private String id;
 
   public ZKClusterId(ZKWatcher watcher, Abortable abortable) {

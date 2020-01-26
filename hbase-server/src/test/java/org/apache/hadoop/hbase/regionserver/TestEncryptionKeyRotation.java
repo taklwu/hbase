@@ -31,16 +31,13 @@ import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hbase.HBaseClassTestRule;
 import org.apache.hadoop.hbase.HBaseTestingUtility;
+import org.apache.hadoop.hbase.HColumnDescriptor;
 import org.apache.hadoop.hbase.HConstants;
+import org.apache.hadoop.hbase.HTableDescriptor;
 import org.apache.hadoop.hbase.TableName;
-import org.apache.hadoop.hbase.Waiter;
-import org.apache.hadoop.hbase.client.ColumnFamilyDescriptor;
-import org.apache.hadoop.hbase.client.ColumnFamilyDescriptorBuilder;
-import org.apache.hadoop.hbase.client.CompactionState;
+import org.apache.hadoop.hbase.Waiter.Predicate;
 import org.apache.hadoop.hbase.client.Put;
 import org.apache.hadoop.hbase.client.Table;
-import org.apache.hadoop.hbase.client.TableDescriptor;
-import org.apache.hadoop.hbase.client.TableDescriptorBuilder;
 import org.apache.hadoop.hbase.io.crypto.Encryption;
 import org.apache.hadoop.hbase.io.crypto.KeyProviderForTesting;
 import org.apache.hadoop.hbase.io.crypto.aes.AES;
@@ -58,6 +55,8 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
 import org.junit.rules.TestName;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 @Category({RegionServerTests.class, MediumTests.class})
 public class TestEncryptionKeyRotation {
@@ -66,6 +65,7 @@ public class TestEncryptionKeyRotation {
   public static final HBaseClassTestRule CLASS_RULE =
       HBaseClassTestRule.forClass(TestEncryptionKeyRotation.class);
 
+  private static final Logger LOG = LoggerFactory.getLogger(TestEncryptionKeyRotation.class);
   private static final HBaseTestingUtility TEST_UTIL = new HBaseTestingUtility();
   private static final Configuration conf = TEST_UTIL.getConfiguration();
   private static final Key initialCFKey;
@@ -104,23 +104,19 @@ public class TestEncryptionKeyRotation {
   @Test
   public void testCFKeyRotation() throws Exception {
     // Create the table schema
-    TableDescriptorBuilder tableDescriptorBuilder =
-      TableDescriptorBuilder.newBuilder(TableName.valueOf("default", name.getMethodName()));
-    ColumnFamilyDescriptorBuilder columnFamilyDescriptorBuilder =
-      ColumnFamilyDescriptorBuilder.newBuilder(Bytes.toBytes("cf"));
+    HTableDescriptor htd = new HTableDescriptor(TableName.valueOf("default", name.getMethodName()));
+    HColumnDescriptor hcd = new HColumnDescriptor("cf");
     String algorithm =
-      conf.get(HConstants.CRYPTO_KEY_ALGORITHM_CONF_KEY, HConstants.CIPHER_AES);
-    columnFamilyDescriptorBuilder.setEncryptionType(algorithm);
-    columnFamilyDescriptorBuilder.setEncryptionKey(EncryptionUtil.wrapKey(conf, "hbase",
-      initialCFKey));
-    tableDescriptorBuilder.setColumnFamily(columnFamilyDescriptorBuilder.build());
-    TableDescriptor tableDescriptor = tableDescriptorBuilder.build();
+        conf.get(HConstants.CRYPTO_KEY_ALGORITHM_CONF_KEY, HConstants.CIPHER_AES);
+    hcd.setEncryptionType(algorithm);
+    hcd.setEncryptionKey(EncryptionUtil.wrapKey(conf, "hbase", initialCFKey));
+    htd.addFamily(hcd);
 
     // Create the table and some on disk files
-    createTableAndFlush(tableDescriptor);
+    createTableAndFlush(htd);
 
     // Verify we have store file(s) with the initial key
-    final List<Path> initialPaths = findStorefilePaths(tableDescriptor.getTableName());
+    final List<Path> initialPaths = findStorefilePaths(htd.getTableName());
     assertTrue(initialPaths.size() > 0);
     for (Path path: initialPaths) {
       assertTrue("Store file " + path + " has incorrect key",
@@ -128,30 +124,43 @@ public class TestEncryptionKeyRotation {
     }
 
     // Update the schema with a new encryption key
-    columnFamilyDescriptorBuilder.setEncryptionKey(EncryptionUtil.wrapKey(conf,
+    hcd = htd.getFamily(Bytes.toBytes("cf"));
+    hcd.setEncryptionKey(EncryptionUtil.wrapKey(conf,
       conf.get(HConstants.CRYPTO_MASTERKEY_NAME_CONF_KEY, User.getCurrent().getShortName()),
       secondCFKey));
-    TEST_UTIL.getAdmin().modifyColumnFamily(tableDescriptor.getTableName(),
-      columnFamilyDescriptorBuilder.build());
+    TEST_UTIL.getAdmin().modifyColumnFamily(htd.getTableName(), hcd);
     Thread.sleep(5000); // Need a predicate for online schema change
 
     // And major compact
-    TEST_UTIL.getAdmin().majorCompact(tableDescriptor.getTableName());
-    // waiting for the major compaction to complete
-    TEST_UTIL.waitFor(30000, new Waiter.Predicate<IOException>() {
+    TEST_UTIL.getAdmin().majorCompact(htd.getTableName());
+    final List<Path> updatePaths = findCompactedStorefilePaths(htd.getTableName());
+    TEST_UTIL.waitFor(30000, 1000, true, new Predicate<Exception>() {
       @Override
-      public boolean evaluate() throws IOException {
-        return TEST_UTIL.getAdmin().getCompactionState(tableDescriptor
-          .getTableName()) == CompactionState.NONE;
+      public boolean evaluate() throws Exception {
+        // When compaction has finished, all of the original files will be
+        // gone
+        boolean found = false;
+        for (Path path: updatePaths) {
+          found = TEST_UTIL.getTestFileSystem().exists(path);
+          if (found) {
+            LOG.info("Found " + path);
+            break;
+          }
+        }
+        return !found;
       }
     });
-    List<Path> pathsAfterCompaction = findStorefilePaths(tableDescriptor.getTableName());
+
+    // Verify we have store file(s) with only the new key
+    Thread.sleep(1000);
+    waitForCompaction(htd.getTableName());
+    List<Path> pathsAfterCompaction = findStorefilePaths(htd.getTableName());
     assertTrue(pathsAfterCompaction.size() > 0);
     for (Path path: pathsAfterCompaction) {
       assertTrue("Store file " + path + " has incorrect key",
         Bytes.equals(secondCFKey.getEncoded(), extractHFileKey(path)));
     }
-    List<Path> compactedPaths = findCompactedStorefilePaths(tableDescriptor.getTableName());
+    List<Path> compactedPaths = findCompactedStorefilePaths(htd.getTableName());
     assertTrue(compactedPaths.size() > 0);
     for (Path path: compactedPaths) {
       assertTrue("Store file " + path + " retains initial key",
@@ -162,23 +171,19 @@ public class TestEncryptionKeyRotation {
   @Test
   public void testMasterKeyRotation() throws Exception {
     // Create the table schema
-    TableDescriptorBuilder tableDescriptorBuilder =
-      TableDescriptorBuilder.newBuilder(TableName.valueOf("default", name.getMethodName()));
-    ColumnFamilyDescriptorBuilder columnFamilyDescriptorBuilder =
-      ColumnFamilyDescriptorBuilder.newBuilder(Bytes.toBytes("cf"));
+    HTableDescriptor htd = new HTableDescriptor(TableName.valueOf("default", name.getMethodName()));
+    HColumnDescriptor hcd = new HColumnDescriptor("cf");
     String algorithm =
         conf.get(HConstants.CRYPTO_KEY_ALGORITHM_CONF_KEY, HConstants.CIPHER_AES);
-    columnFamilyDescriptorBuilder.setEncryptionType(algorithm);
-    columnFamilyDescriptorBuilder.setEncryptionKey(
-      EncryptionUtil.wrapKey(conf, "hbase", initialCFKey));
-    tableDescriptorBuilder.setColumnFamily(columnFamilyDescriptorBuilder.build());
-    TableDescriptor tableDescriptor = tableDescriptorBuilder.build();
+    hcd.setEncryptionType(algorithm);
+    hcd.setEncryptionKey(EncryptionUtil.wrapKey(conf, "hbase", initialCFKey));
+    htd.addFamily(hcd);
 
     // Create the table and some on disk files
-    createTableAndFlush(tableDescriptor);
+    createTableAndFlush(htd);
 
     // Verify we have store file(s) with the initial key
-    List<Path> storeFilePaths = findStorefilePaths(tableDescriptor.getTableName());
+    List<Path> storeFilePaths = findStorefilePaths(htd.getTableName());
     assertTrue(storeFilePaths.size() > 0);
     for (Path path: storeFilePaths) {
       assertTrue("Store file " + path + " has incorrect key",
@@ -195,13 +200,40 @@ public class TestEncryptionKeyRotation {
     // Start the cluster back up
     TEST_UTIL.startMiniHBaseCluster();
     // Verify the table can still be loaded
-    TEST_UTIL.waitTableAvailable(tableDescriptor.getTableName(), 5000);
+    TEST_UTIL.waitTableAvailable(htd.getTableName(), 5000);
     // Double check that the store file keys can be unwrapped
-    storeFilePaths = findStorefilePaths(tableDescriptor.getTableName());
+    storeFilePaths = findStorefilePaths(htd.getTableName());
     assertTrue(storeFilePaths.size() > 0);
     for (Path path: storeFilePaths) {
       assertTrue("Store file " + path + " has incorrect key",
         Bytes.equals(initialCFKey.getEncoded(), extractHFileKey(path)));
+    }
+  }
+
+  private static void waitForCompaction(TableName tableName)
+      throws IOException, InterruptedException {
+    boolean compacted = false;
+    for (Region region : TEST_UTIL.getRSForFirstRegionInTable(tableName)
+        .getRegions(tableName)) {
+      for (HStore store : ((HRegion) region).getStores()) {
+        compacted = false;
+        while (!compacted) {
+          if (store.getStorefiles() != null) {
+            while (store.getStorefilesCount() != 1) {
+              Thread.sleep(100);
+            }
+            for (HStoreFile storefile : store.getStorefiles()) {
+              if (!storefile.isCompactedAway()) {
+                compacted = true;
+                break;
+              }
+              Thread.sleep(100);
+            }
+          } else {
+            break;
+          }
+        }
+      }
     }
   }
 
@@ -235,26 +267,27 @@ public class TestEncryptionKeyRotation {
     return paths;
   }
 
-  private void createTableAndFlush(TableDescriptor tableDescriptor) throws Exception {
-    ColumnFamilyDescriptor cfd = tableDescriptor.getColumnFamilies()[0];
+  private void createTableAndFlush(HTableDescriptor htd) throws Exception {
+    HColumnDescriptor hcd = htd.getFamilies().iterator().next();
     // Create the test table
-    TEST_UTIL.getAdmin().createTable(tableDescriptor);
-    TEST_UTIL.waitTableAvailable(tableDescriptor.getTableName(), 5000);
+    TEST_UTIL.getAdmin().createTable(htd);
+    TEST_UTIL.waitTableAvailable(htd.getTableName(), 5000);
     // Create a store file
-    Table table = TEST_UTIL.getConnection().getTable(tableDescriptor.getTableName());
+    Table table = TEST_UTIL.getConnection().getTable(htd.getTableName());
     try {
       table.put(new Put(Bytes.toBytes("testrow"))
-        .addColumn(cfd.getName(), Bytes.toBytes("q"), Bytes.toBytes("value")));
+              .addColumn(hcd.getName(), Bytes.toBytes("q"), Bytes.toBytes("value")));
     } finally {
       table.close();
     }
-    TEST_UTIL.getAdmin().flush(tableDescriptor.getTableName());
+    TEST_UTIL.getAdmin().flush(htd.getTableName());
   }
 
   private static byte[] extractHFileKey(Path path) throws Exception {
     HFile.Reader reader = HFile.createReader(TEST_UTIL.getTestFileSystem(), path,
       new CacheConfig(conf), true, conf);
     try {
+      reader.loadFileInfo();
       Encryption.Context cryptoContext = reader.getFileContext().getEncryptionContext();
       assertNotNull("Reader has a null crypto context", cryptoContext);
       Key key = cryptoContext.getKey();

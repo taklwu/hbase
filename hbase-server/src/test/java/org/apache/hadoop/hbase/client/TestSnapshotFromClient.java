@@ -146,10 +146,19 @@ public class TestSnapshotFromClient {
 
   /**
    * Test snapshotting not allowed hbase:meta and -ROOT-
+   * @throws Exception
    */
-  @Test(expected = IllegalArgumentException.class)
+  @Test
   public void testMetaTablesSnapshot() throws Exception {
-    UTIL.getAdmin().snapshot("metaSnapshot", TableName.META_TABLE_NAME);
+    Admin admin = UTIL.getAdmin();
+    byte[] snapshotName = Bytes.toBytes("metaSnapshot");
+
+    try {
+      admin.snapshot(snapshotName, TableName.META_TABLE_NAME);
+      fail("taking a snapshot of hbase:meta should not be allowed");
+    } catch (IllegalArgumentException e) {
+      // expected
+    }
   }
 
   /**
@@ -168,16 +177,16 @@ public class TestSnapshotFromClient {
     UTIL.loadTable(table, TEST_FAM);
     table.close();
 
-    String snapshot1 = "TableSnapshot1";
+    byte[] snapshot1 = Bytes.toBytes("TableSnapshot1");
     admin.snapshot(snapshot1, TABLE_NAME);
     LOG.debug("Snapshot1 completed.");
 
-    String snapshot2 = "TableSnapshot2";
+    byte[] snapshot2 = Bytes.toBytes("TableSnapshot2");
     admin.snapshot(snapshot2, TABLE_NAME);
     LOG.debug("Snapshot2 completed.");
 
     String snapshot3 = "3rdTableSnapshot";
-    admin.snapshot(snapshot3, TABLE_NAME);
+    admin.snapshot(Bytes.toBytes(snapshot3), TABLE_NAME);
     LOG.debug(snapshot3 + " completed.");
 
     // delete the first two snapshots
@@ -216,10 +225,10 @@ public class TestSnapshotFromClient {
 
     // take a snapshot of the disabled table
     final String SNAPSHOT_NAME = "offlineTableSnapshot";
-    String snapshot = SNAPSHOT_NAME;
+    byte[] snapshot = Bytes.toBytes(SNAPSHOT_NAME);
 
     admin.snapshot(new SnapshotDescription(SNAPSHOT_NAME, TABLE_NAME,
-        SnapshotType.DISABLED, null, -1, SnapshotManifestV1.DESCRIPTOR_VERSION, null));
+        SnapshotType.DISABLED, null, -1, SnapshotManifestV1.DESCRIPTOR_VERSION));
     LOG.debug("Snapshot completed.");
 
     // make sure we have the snapshot
@@ -251,13 +260,13 @@ public class TestSnapshotFromClient {
     // make sure the table doesn't exist
     boolean fail = false;
     do {
-      try {
-        admin.getDescriptor(TableName.valueOf(tableName));
-        fail = true;
-        LOG.error("Table:" + tableName + " already exists, checking a new name");
-        tableName = tableName + "!";
-      } catch (TableNotFoundException e) {
-        fail = false;
+    try {
+      admin.getTableDescriptor(TableName.valueOf(tableName));
+      fail = true;
+          LOG.error("Table:" + tableName + " already exists, checking a new name");
+      tableName = tableName+"!";
+    } catch (TableNotFoundException e) {
+      fail = false;
       }
     } while (fail);
 
@@ -288,7 +297,7 @@ public class TestSnapshotFromClient {
       FSUtils.getRootDir(UTIL.getConfiguration()), LOG);
 
     // take a snapshot of the disabled table
-    String snapshot = "testOfflineTableSnapshotWithEmptyRegions";
+    byte[] snapshot = Bytes.toBytes("testOfflineTableSnapshotWithEmptyRegions");
     admin.snapshot(snapshot, TABLE_NAME);
     LOG.debug("Snapshot completed.");
 
@@ -333,7 +342,7 @@ public class TestSnapshotFromClient {
       LOG.debug("Snapshot2 completed.");
 
       String table2Snapshot1 = "Table2Snapshot1";
-      admin.snapshot(table2Snapshot1, tableName);
+      admin.snapshot(Bytes.toBytes(table2Snapshot1), tableName);
       LOG.debug(table2Snapshot1 + " completed.");
 
       List<SnapshotDescription> listTableSnapshots =
@@ -375,7 +384,7 @@ public class TestSnapshotFromClient {
       LOG.debug("Snapshot2 completed.");
 
       String table2Snapshot1 = "Table2Snapshot1";
-      admin.snapshot(table2Snapshot1, TABLE_NAME);
+      admin.snapshot(Bytes.toBytes(table2Snapshot1), TABLE_NAME);
       LOG.debug(table2Snapshot1 + " completed.");
 
       List<SnapshotDescription> listTableSnapshots =
@@ -418,7 +427,7 @@ public class TestSnapshotFromClient {
       LOG.debug("Snapshot2 completed.");
 
       String table2Snapshot1 = "Table2Snapshot1";
-      admin.snapshot(table2Snapshot1, tableName);
+      admin.snapshot(Bytes.toBytes(table2Snapshot1), tableName);
       LOG.debug(table2Snapshot1 + " completed.");
 
       Pattern tableNamePattern = Pattern.compile("test.*");
@@ -450,7 +459,7 @@ public class TestSnapshotFromClient {
       LOG.debug("Snapshot2 completed.");
 
       String table2Snapshot1 = "Table2Snapshot1";
-      admin.snapshot(table2Snapshot1, TABLE_NAME);
+      admin.snapshot(Bytes.toBytes(table2Snapshot1), TABLE_NAME);
       LOG.debug(table2Snapshot1 + " completed.");
 
       admin.deleteTableSnapshots(tableNamePattern, Pattern.compile("Table1.*"));

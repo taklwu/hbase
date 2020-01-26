@@ -17,38 +17,35 @@
  */
 package org.apache.hadoop.hbase.snapshot;
 
-import org.apache.hadoop.hbase.client.SnapshotDescription;
 import org.apache.yetus.audience.InterfaceAudience;
+import org.apache.hadoop.hbase.client.SnapshotDescription;
+
 
 /**
- * Exception thrown when the found snapshot info from the filesystem is not valid.
+ * Exception thrown when the found snapshot info from the filesystem is not valid
  */
 @SuppressWarnings("serial")
 @InterfaceAudience.Public
 public class CorruptedSnapshotException extends HBaseSnapshotException {
+
   /**
-   * Snapshot was corrupt for some reason.
-   *
    * @param message message describing the exception
-   * @param e the actual cause of the exception
+   * @param e cause
    */
   public CorruptedSnapshotException(String message, Exception e) {
     super(message, e);
   }
 
   /**
-   * Snapshot was corrupt for some reason.
-   *
+   * Snapshot was corrupt for some reason
    * @param message full description of the failure
-   * @param snapshotDescription snapshot that was expected
+   * @param snapshot snapshot that was expected
    */
-  public CorruptedSnapshotException(String message, SnapshotDescription snapshotDescription) {
-    super(message, snapshotDescription);
+  public CorruptedSnapshotException(String message, SnapshotDescription snapshot) {
+    super(message, snapshot);
   }
 
   /**
-   * Snapshot was corrupt for some reason.
-   *
    * @param message message describing the exception
    */
   public CorruptedSnapshotException(String message) {

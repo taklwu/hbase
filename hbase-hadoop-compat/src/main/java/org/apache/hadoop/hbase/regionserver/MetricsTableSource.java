@@ -15,11 +15,12 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package org.apache.hadoop.hbase.regionserver;
 
-import java.io.Closeable;
-
 import org.apache.yetus.audience.InterfaceAudience;
+
+import java.io.Closeable;
 
 /**
  * This interface will be implemented to allow region server to push table metrics into

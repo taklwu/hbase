@@ -42,21 +42,16 @@ module Hbase
         configuration.setInt('hbase.client.retries.number', 7)
         configuration.setInt('hbase.ipc.client.connect.max.retries', 3)
       end
+      @connection = ConnectionFactory.createConnection(configuration)
     end
 
-    def connection
-      if @connection.nil?
-        @connection = ConnectionFactory.createConnection(configuration)
-      end
-      @connection
-    end
     # Returns ruby's Admin class from admin.rb
     def admin
-      ::Hbase::Admin.new(self.connection)
+      ::Hbase::Admin.new(@connection)
     end
 
     def rsgroup_admin
-      ::Hbase::RSGroupAdmin.new(self.connection)
+      ::Hbase::RSGroupAdmin.new(@connection)
     end
 
     def taskmonitor
@@ -65,7 +60,7 @@ module Hbase
 
     # Create new one each time
     def table(table, shell)
-      ::Hbase::Table.new(self.connection.getTable(TableName.valueOf(table)), shell)
+      ::Hbase::Table.new(@connection.getTable(TableName.valueOf(table)), shell)
     end
 
     def replication_admin
@@ -73,21 +68,19 @@ module Hbase
     end
 
     def security_admin
-      ::Hbase::SecurityAdmin.new(self.connection.getAdmin)
+      ::Hbase::SecurityAdmin.new(@connection.getAdmin)
     end
 
     def visibility_labels_admin
-      ::Hbase::VisibilityLabelsAdmin.new(self.connection.getAdmin)
+      ::Hbase::VisibilityLabelsAdmin.new(@connection.getAdmin)
     end
 
     def quotas_admin
-      ::Hbase::QuotasAdmin.new(self.connection.getAdmin)
+      ::Hbase::QuotasAdmin.new(@connection.getAdmin)
     end
 
     def shutdown
-      if @connection != nil
-        @connection.close
-      end
+      @connection.close
     end
   end
 end

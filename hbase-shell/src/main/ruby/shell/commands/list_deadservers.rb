@@ -29,7 +29,6 @@ module Shell
       end
 
       def command
-        now = Time.now
         formatter.header(['SERVERNAME'])
 
         servers = admin.list_deadservers

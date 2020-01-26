@@ -37,16 +37,15 @@ import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hbase.CellUtil;
 import org.apache.hadoop.hbase.HBaseClassTestRule;
 import org.apache.hadoop.hbase.HBaseTestingUtility;
+import org.apache.hadoop.hbase.HColumnDescriptor;
+import org.apache.hadoop.hbase.HTableDescriptor;
 import org.apache.hadoop.hbase.TableName;
 import org.apache.hadoop.hbase.client.Admin;
-import org.apache.hadoop.hbase.client.ColumnFamilyDescriptor;
-import org.apache.hadoop.hbase.client.ColumnFamilyDescriptorBuilder;
 import org.apache.hadoop.hbase.client.Connection;
 import org.apache.hadoop.hbase.client.ConnectionFactory;
 import org.apache.hadoop.hbase.client.Durability;
 import org.apache.hadoop.hbase.client.Put;
 import org.apache.hadoop.hbase.client.Table;
-import org.apache.hadoop.hbase.client.TableDescriptorBuilder;
 import org.apache.hadoop.hbase.rest.client.Client;
 import org.apache.hadoop.hbase.rest.client.Cluster;
 import org.apache.hadoop.hbase.rest.client.Response;
@@ -187,28 +186,17 @@ public class TestScannerResource {
     if (admin.tableExists(TABLE)) {
       return;
     }
-    TableDescriptorBuilder tableDescriptorBuilder =
-      TableDescriptorBuilder.newBuilder(TABLE);
-    ColumnFamilyDescriptor columnFamilyDescriptor =
-      ColumnFamilyDescriptorBuilder.newBuilder(Bytes.toBytes(CFA)).build();
-    tableDescriptorBuilder.setColumnFamily(columnFamilyDescriptor);
-    columnFamilyDescriptor =
-      ColumnFamilyDescriptorBuilder.newBuilder(Bytes.toBytes(CFB)).build();
-    tableDescriptorBuilder.setColumnFamily(columnFamilyDescriptor);
-
-    admin.createTable(tableDescriptorBuilder.build());
+    HTableDescriptor htd = new HTableDescriptor(TABLE);
+    htd.addFamily(new HColumnDescriptor(CFA));
+    htd.addFamily(new HColumnDescriptor(CFB));
+    admin.createTable(htd);
     expectedRows1 = insertData(TEST_UTIL.getConfiguration(), TABLE, COLUMN_1, 1.0);
     expectedRows2 = insertData(TEST_UTIL.getConfiguration(), TABLE, COLUMN_2, 0.5);
 
-    tableDescriptorBuilder=TableDescriptorBuilder.newBuilder(TABLE_TO_BE_DISABLED);
-    columnFamilyDescriptor =
-      ColumnFamilyDescriptorBuilder.newBuilder(Bytes.toBytes(CFA)).build();
-    tableDescriptorBuilder.setColumnFamily(columnFamilyDescriptor);
-    columnFamilyDescriptor =
-      ColumnFamilyDescriptorBuilder.newBuilder(Bytes.toBytes(CFB)).build();
-    tableDescriptorBuilder.setColumnFamily(columnFamilyDescriptor);
-
-    admin.createTable(tableDescriptorBuilder.build());
+    htd = new HTableDescriptor(TABLE_TO_BE_DISABLED);
+    htd.addFamily(new HColumnDescriptor(CFA));
+    htd.addFamily(new HColumnDescriptor(CFB));
+    admin.createTable(htd);
   }
 
   @AfterClass
@@ -389,20 +377,22 @@ public class TestScannerResource {
     assertEquals(404, response.getCode());
   }
 
+  // performs table scan during which the underlying table is disabled
+  // assert that we get 410 (Gone)
   @Test
   public void testTableScanWithTableDisable() throws IOException {
-    TEST_UTIL.getAdmin().disableTable(TABLE_TO_BE_DISABLED);
     ScannerModel model = new ScannerModel();
     model.addColumn(Bytes.toBytes(COLUMN_1));
     model.setCaching(1);
     Response response = client.put("/" + TABLE_TO_BE_DISABLED + "/scanner",
       Constants.MIMETYPE_PROTOBUF, model.createProtobufOutput());
-    // we will see the exception when we actually want to get the result.
     assertEquals(201, response.getCode());
     String scannerURI = response.getLocation();
     assertNotNull(scannerURI);
-    response = client.get(scannerURI, Constants.MIMETYPE_PROTOBUF);
-    assertEquals(410, response.getCode());
+    TEST_UTIL.getAdmin().disableTable(TABLE_TO_BE_DISABLED);
+      response = client.get(scannerURI, Constants.MIMETYPE_PROTOBUF);
+    assertTrue("got " + response.getCode(), response.getCode() == 410);
   }
+
 }
 

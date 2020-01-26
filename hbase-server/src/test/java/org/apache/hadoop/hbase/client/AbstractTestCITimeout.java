@@ -38,7 +38,7 @@ import org.junit.Rule;
 import org.junit.rules.TestName;
 
 /**
- * Based class for testing timeout logic.
+ * Based class for testing timeout logic for {@link ConnectionImplementation}.
  */
 public abstract class AbstractTestCITimeout {
 

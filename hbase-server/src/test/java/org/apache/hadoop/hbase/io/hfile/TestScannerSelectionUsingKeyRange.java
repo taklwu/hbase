@@ -39,6 +39,7 @@ import org.apache.hadoop.hbase.client.Scan;
 import org.apache.hadoop.hbase.regionserver.BloomType;
 import org.apache.hadoop.hbase.regionserver.HRegion;
 import org.apache.hadoop.hbase.regionserver.InternalScanner;
+import org.apache.hadoop.hbase.regionserver.Region;
 import org.apache.hadoop.hbase.testclassification.IOTests;
 import org.apache.hadoop.hbase.testclassification.SmallTests;
 import org.apache.hadoop.hbase.util.Bytes;
@@ -122,17 +123,16 @@ public class TestScannerSelectionUsingKeyRange {
     }
 
     Scan scan = new Scan(Bytes.toBytes("aaa"), Bytes.toBytes("aaz"));
-    BlockCache cache = BlockCacheFactory.createBlockCache(conf);
+    LruBlockCache cache = (LruBlockCache) BlockCacheFactory.createBlockCache(conf);
+    cache.clearCache();
     InternalScanner scanner = region.getScanner(scan);
     List<Cell> results = new ArrayList<>();
     while (scanner.next(results)) {
     }
     scanner.close();
     assertEquals(0, results.size());
-    if (cache instanceof LruBlockCache) {
-      Set<String> accessedFiles = ((LruBlockCache)cache).getCachedFileNamesForTest();
-      assertEquals(expectedCount, accessedFiles.size());
-    }
+    Set<String> accessedFiles = cache.getCachedFileNamesForTest();
+    assertEquals(expectedCount, accessedFiles.size());
     HBaseTestingUtility.closeRegionAndWAL(region);
   }
 }

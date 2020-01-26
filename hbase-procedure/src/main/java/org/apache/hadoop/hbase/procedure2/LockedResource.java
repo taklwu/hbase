@@ -15,11 +15,13 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package org.apache.hadoop.hbase.procedure2;
 
 import java.util.List;
 
 import org.apache.yetus.audience.InterfaceAudience;
+import org.apache.hadoop.hbase.procedure2.LockedResourceType;
 
 @InterfaceAudience.Private
 public class LockedResource {

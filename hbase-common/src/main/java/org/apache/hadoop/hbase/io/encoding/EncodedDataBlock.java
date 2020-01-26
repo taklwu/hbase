@@ -210,9 +210,7 @@ public class EncodedDataBlock {
     } finally {
       nullOutputStream.close();
       compressedStream.close();
-      if (compressingStream != null) {
-        compressingStream.close();
-      }
+      compressingStream.close();
     }
   }
 

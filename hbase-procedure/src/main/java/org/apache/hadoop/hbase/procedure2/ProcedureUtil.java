@@ -21,15 +21,9 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Modifier;
-import java.util.concurrent.TimeUnit;
-import org.apache.hadoop.conf.Configuration;
+import java.util.concurrent.ThreadLocalRandom;
 import org.apache.hadoop.hbase.HConstants;
-import org.apache.hadoop.hbase.util.NonceKey;
-import org.apache.hadoop.hbase.util.RetryCounter;
-import org.apache.hadoop.hbase.util.RetryCounter.ExponentialBackoffPolicyWithLimit;
-import org.apache.hadoop.hbase.util.RetryCounter.RetryConfig;
 import org.apache.yetus.audience.InterfaceAudience;
-
 import org.apache.hbase.thirdparty.com.google.common.base.Preconditions;
 import org.apache.hbase.thirdparty.com.google.protobuf.Any;
 import org.apache.hbase.thirdparty.com.google.protobuf.Internal;
@@ -37,9 +31,9 @@ import org.apache.hbase.thirdparty.com.google.protobuf.InvalidProtocolBufferExce
 import org.apache.hbase.thirdparty.com.google.protobuf.Message;
 import org.apache.hbase.thirdparty.com.google.protobuf.Parser;
 import org.apache.hbase.thirdparty.com.google.protobuf.UnsafeByteOperations;
-
 import org.apache.hadoop.hbase.shaded.protobuf.generated.LockServiceProtos;
 import org.apache.hadoop.hbase.shaded.protobuf.generated.ProcedureProtos;
+import org.apache.hadoop.hbase.util.NonceKey;
 
 /**
  * Helper to convert to/from ProcedureProtos
@@ -339,48 +333,20 @@ public final class ProcedureUtil {
     return builder.build();
   }
 
-  public static final String PROCEDURE_RETRY_SLEEP_INTERVAL_MS =
-    "hbase.procedure.retry.sleep.interval.ms";
-
-  // default to 1 second
-  public static final long DEFAULT_PROCEDURE_RETRY_SLEEP_INTERVAL_MS = 1000;
-
-  public static final String PROCEDURE_RETRY_MAX_SLEEP_TIME_MS =
-    "hbase.procedure.retry.max.sleep.time.ms";
-
-  // default to 10 minutes
-  public static final long DEFAULT_PROCEDURE_RETRY_MAX_SLEEP_TIME_MS =
-    TimeUnit.MINUTES.toMillis(10);
-
   /**
-   * Get a retry counter for getting the backoff time. We will use the
-   * {@link ExponentialBackoffPolicyWithLimit} policy, and the base unit is 1 second, max sleep time
-   * is 10 minutes by default.
-   * <p/>
-   * For UTs, you can set the {@link #PROCEDURE_RETRY_SLEEP_INTERVAL_MS} and
-   * {@link #PROCEDURE_RETRY_MAX_SLEEP_TIME_MS} to make more frequent retry so your UT will not
-   * timeout.
+   * Get an exponential backoff time, in milliseconds. The base unit is 1 second, and the max
+   * backoff time is 10 minutes. This is the general backoff policy for most procedure
+   * implementation.
    */
-  public static RetryCounter createRetryCounter(Configuration conf) {
-    long sleepIntervalMs =
-      conf.getLong(PROCEDURE_RETRY_SLEEP_INTERVAL_MS, DEFAULT_PROCEDURE_RETRY_SLEEP_INTERVAL_MS);
-    long maxSleepTimeMs =
-      conf.getLong(PROCEDURE_RETRY_MAX_SLEEP_TIME_MS, DEFAULT_PROCEDURE_RETRY_MAX_SLEEP_TIME_MS);
-    RetryConfig retryConfig = new RetryConfig().setSleepInterval(sleepIntervalMs)
-      .setMaxSleepTime(maxSleepTimeMs).setBackoffPolicy(new ExponentialBackoffPolicyWithLimit());
-    return new RetryCounter(retryConfig);
-  }
-
-  public static boolean isFinished(ProcedureProtos.Procedure proc) {
-    if (!proc.hasParentId()) {
-      switch (proc.getState()) {
-        case ROLLEDBACK:
-        case SUCCESS:
-          return true;
-        default:
-          break;
-      }
+  public static long getBackoffTimeMs(int attempts) {
+    long maxBackoffTime = 10L * 60 * 1000; // Ten minutes, hard coded for now.
+    // avoid overflow
+    if (attempts >= 30) {
+      return maxBackoffTime;
     }
-    return false;
+    long backoffTimeMs = Math.min((long) (1000 * Math.pow(2, attempts)), maxBackoffTime);
+    // 1% possible jitter
+    long jitter = (long) (backoffTimeMs * ThreadLocalRandom.current().nextFloat() * 0.01f);
+    return backoffTimeMs + jitter;
   }
 }

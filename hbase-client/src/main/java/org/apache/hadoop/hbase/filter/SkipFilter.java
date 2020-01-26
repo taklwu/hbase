@@ -79,6 +79,12 @@ public class SkipFilter extends FilterBase {
     return false;
   }
 
+  @Deprecated
+  @Override
+  public ReturnCode filterKeyValue(final Cell c) throws IOException {
+    return filterCell(c);
+  }
+
   @Override
   public ReturnCode filterCell(final Cell c) throws IOException {
     ReturnCode rc = filter.filterCell(c);

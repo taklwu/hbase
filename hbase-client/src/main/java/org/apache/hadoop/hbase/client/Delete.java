@@ -154,6 +154,20 @@ public class Delete extends Mutation {
   }
 
   /**
+   * Advanced use only. Add an existing delete marker to this Delete object.
+   * @param kv An existing KeyValue of type "delete".
+   * @return this for invocation chaining
+   * @throws IOException
+   * @deprecated As of release 2.0.0, this will be removed in HBase 3.0.0. Use {@link #add(Cell)}
+   *             instead
+   */
+  @SuppressWarnings("unchecked")
+  @Deprecated
+  public Delete addDeleteMarker(Cell kv) throws IOException {
+    return this.add(kv);
+  }
+
+  /**
    * Add an existing delete marker to this Delete object.
    * @param cell An existing cell of type "delete".
    * @return this for invocation chaining
@@ -293,6 +307,17 @@ public class Delete extends Mutation {
   @Override
   public Delete setDurability(Durability d) {
     return (Delete) super.setDurability(d);
+  }
+
+  /**
+   * Method for setting the Delete's familyMap
+   * @deprecated As of release 2.0.0, this will be removed in HBase 3.0.0.
+   *             Use {@link Delete#Delete(byte[], long, NavigableMap)} instead
+   */
+  @Deprecated
+  @Override
+  public Delete setFamilyCellMap(NavigableMap<byte[], List<Cell>> map) {
+    return (Delete) super.setFamilyCellMap(map);
   }
 
   @Override

@@ -18,15 +18,11 @@
 package org.apache.hadoop.hbase.master.replication;
 
 import java.io.IOException;
-import java.util.function.LongConsumer;
-import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hbase.master.procedure.MasterProcedureEnv;
 import org.apache.hadoop.hbase.master.procedure.PeerProcedureInterface;
 import org.apache.hadoop.hbase.procedure2.ProcedureStateSerializer;
 import org.apache.hadoop.hbase.procedure2.ProcedureSuspendedException;
-import org.apache.hadoop.hbase.procedure2.ProcedureUtil;
 import org.apache.hadoop.hbase.procedure2.StateMachineProcedure;
-import org.apache.hadoop.hbase.util.RetryCounter;
 import org.apache.yetus.audience.InterfaceAudience;
 
 import org.apache.hadoop.hbase.shaded.protobuf.generated.MasterProcedureProtos.PeerProcedureStateData;
@@ -42,7 +38,7 @@ public abstract class AbstractPeerNoLockProcedure<TState>
 
   protected String peerId;
 
-  private RetryCounter retryCounter;
+  protected int attempts;
 
   protected AbstractPeerNoLockProcedure() {
   }
@@ -91,20 +87,12 @@ public abstract class AbstractPeerNoLockProcedure<TState>
     return false;
   }
 
-  protected final ProcedureSuspendedException suspend(Configuration conf,
-      LongConsumer backoffConsumer) throws ProcedureSuspendedException {
-    if (retryCounter == null) {
-      retryCounter = ProcedureUtil.createRetryCounter(conf);
-    }
-    long backoff = retryCounter.getBackoffTimeAndIncrementAttempts();
-    backoffConsumer.accept(backoff);
+  protected final ProcedureSuspendedException suspend(long backoff)
+      throws ProcedureSuspendedException {
+    attempts++;
     setTimeout(Math.toIntExact(backoff));
     setState(ProcedureProtos.ProcedureState.WAITING_TIMEOUT);
     skipPersistence();
     throw new ProcedureSuspendedException();
-  }
-
-  protected final void resetRetry() {
-    retryCounter = null;
   }
 }

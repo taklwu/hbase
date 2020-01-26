@@ -26,7 +26,6 @@ import org.apache.hadoop.hbase.NotServingRegionException;
 import org.apache.hadoop.hbase.ServerName;
 import org.apache.hadoop.hbase.TableName;
 import org.apache.hadoop.hbase.client.Put;
-import org.apache.hadoop.hbase.client.RegionInfo;
 import org.apache.hadoop.hbase.client.RegionLocator;
 import org.apache.hadoop.hbase.client.Table;
 import org.apache.hadoop.hbase.client.TableDescriptor;
@@ -68,7 +67,7 @@ public class TestRegionServerNoMaster {
   private static Table table;
   private static final byte[] row = Bytes.toBytes("ee");
 
-  private static RegionInfo hri;
+  private static HRegionInfo hri;
 
   private static byte[] regionName;
   private static final HBaseTestingUtility HTU = new HBaseTestingUtility();
@@ -86,7 +85,7 @@ public class TestRegionServerNoMaster {
     table.put(p);
 
     try (RegionLocator locator = HTU.getConnection().getRegionLocator(tableName)) {
-      hri = locator.getRegionLocation(row, false).getRegion();
+      hri = locator.getRegionLocation(row, false).getRegionInfo();
     }
     regionName = hri.getRegionName();
 
@@ -122,7 +121,7 @@ public class TestRegionServerNoMaster {
     while (true) {
       sn = MetaTableLocator.getMetaRegionLocation(zkw);
       if (sn != null && sn.equals(hrs.getServerName())
-          && hrs.getOnlineRegions().containsKey(
+          && hrs.onlineRegions.containsKey(
               HRegionInfo.FIRST_META_REGIONINFO.getEncodedName())) {
         break;
       }
@@ -131,8 +130,7 @@ public class TestRegionServerNoMaster {
   }
 
   /** Flush the given region in the mini cluster. Since no master, we cannot use HBaseAdmin.flush() */
-  public static void flushRegion(HBaseTestingUtility HTU, RegionInfo regionInfo)
-          throws IOException {
+  public static void flushRegion(HBaseTestingUtility HTU, HRegionInfo regionInfo) throws IOException {
     for (RegionServerThread rst : HTU.getMiniHBaseCluster().getRegionServerThreads()) {
       HRegion region = rst.getRegionServer().getRegionByEncodedName(regionInfo.getEncodedName());
       if (region != null) {
@@ -155,7 +153,7 @@ public class TestRegionServerNoMaster {
   }
 
 
-  public static void openRegion(HBaseTestingUtility HTU, HRegionServer rs, RegionInfo hri)
+  public static void openRegion(HBaseTestingUtility HTU, HRegionServer rs, HRegionInfo hri)
       throws Exception {
     AdminProtos.OpenRegionRequest orr =
       RequestConverter.buildOpenRegionRequest(rs.getServerName(), hri, null);
@@ -170,7 +168,7 @@ public class TestRegionServerNoMaster {
   }
 
   public static void checkRegionIsOpened(HBaseTestingUtility HTU, HRegionServer rs,
-      RegionInfo hri) throws Exception {
+      HRegionInfo hri) throws Exception {
     while (!rs.getRegionsInTransitionInRS().isEmpty()) {
       Thread.sleep(1);
     }
@@ -188,7 +186,7 @@ public class TestRegionServerNoMaster {
   }
 
   public static void checkRegionIsClosed(HBaseTestingUtility HTU, HRegionServer rs,
-      RegionInfo hri) throws Exception {
+      HRegionInfo hri) throws Exception {
     while (!rs.getRegionsInTransitionInRS().isEmpty()) {
       Thread.sleep(1);
     }

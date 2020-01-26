@@ -33,9 +33,12 @@ import org.apache.yetus.audience.InterfaceAudience;
  */
 @InterfaceAudience.Private
 public class ServerStateNode implements Comparable<ServerStateNode> {
+
   private final Set<RegionStateNode> regions;
   private final ServerName serverName;
+
   private final ReadWriteLock lock = new ReentrantReadWriteLock();
+
   private volatile ServerState state = ServerState.ONLINE;
 
   public ServerStateNode(ServerName serverName) {
@@ -117,7 +120,6 @@ public class ServerStateNode implements Comparable<ServerStateNode> {
 
   @Override
   public String toString() {
-    return getServerName() + "/" + getState() + "/regionCount=" + this.regions.size() +
-        "/lock=" + this.lock;
+    return String.format("ServerStateNode(%s)", getServerName());
   }
 }

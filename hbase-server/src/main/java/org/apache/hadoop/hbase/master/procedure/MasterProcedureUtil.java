@@ -146,14 +146,8 @@ public final class MasterProcedureUtil {
   /**
    * Pattern used to validate a Procedure WAL file name see
    * {@link #validateProcedureWALFilename(String)} for description.
-   * @deprecated Since 2.3.0, will be removed in 4.0.0. We do not use this style of procedure wal
-   *             file name any more.
    */
-  @Deprecated
-  private static final Pattern PATTERN = Pattern.compile(".*pv2-\\d{20}.log");
-
-  // Use the character $ to let the log cleaner know that this is not the normal wal file.
-  public static final String ARCHIVED_PROC_WAL_SUFFIX = "$masterproc$";
+  private static final Pattern pattern = Pattern.compile(".*pv2-\\d{20}.log");
 
   /**
    * A Procedure WAL file name is of the format: pv-&lt;wal-id&gt;.log where wal-id is 20 digits.
@@ -161,7 +155,7 @@ public final class MasterProcedureUtil {
    * @return <tt>true</tt> if the filename matches a Procedure WAL, <tt>false</tt> otherwise
    */
   public static boolean validateProcedureWALFilename(String filename) {
-    return PATTERN.matcher(filename).matches() || filename.endsWith(ARCHIVED_PROC_WAL_SUFFIX);
+    return pattern.matcher(filename).matches();
   }
 
   /**

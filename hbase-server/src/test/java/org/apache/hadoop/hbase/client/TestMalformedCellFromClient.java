@@ -122,8 +122,12 @@ public class TestMalformedCellFromClient {
       try {
         table.batch(batches, results);
         fail("Where is the exception? We put the malformed cells!!!");
-      } catch (RetriesExhaustedException e) {
-        exceptionByCaught = e.getCause();
+      } catch (RetriesExhaustedWithDetailsException e) {
+        for (Throwable throwable : e.getCauses()) {
+          assertNotNull(throwable);
+        }
+        assertEquals(1, e.getNumExceptions());
+        exceptionByCaught = e.getCause(0);
       }
       for (Object obj : results) {
         assertNotNull(obj);
@@ -281,14 +285,12 @@ public class TestMalformedCellFromClient {
     try (Table table = TEST_UTIL.getConnection().getTable(TABLE_NAME)) {
       table.batch(batches, objs);
       fail("Where is the exception? We put the malformed cells!!!");
-    } catch (RetriesExhaustedException e) {
-      Throwable error = e.getCause();
-      for (;;) {
-        assertNotNull("Can not find a DoNotRetryIOException on stack trace", error);
-        if (error instanceof DoNotRetryIOException) {
-          break;
-        }
-        error = error.getCause();
+    } catch (RetriesExhaustedWithDetailsException e) {
+      assertEquals(2, e.getNumExceptions());
+      for (int i = 0; i != e.getNumExceptions(); ++i) {
+        assertNotNull(e.getCause(i));
+        assertEquals(DoNotRetryIOException.class, e.getCause(i).getClass());
+        assertEquals("fail", Bytes.toString(e.getRow(i).getRow()));
       }
     } finally {
       assertObjects(objs, batches.size());
@@ -317,14 +319,12 @@ public class TestMalformedCellFromClient {
     try (Table table = TEST_UTIL.getConnection().getTable(TABLE_NAME)) {
       table.batch(batches, objs);
       fail("Where is the exception? We put the malformed cells!!!");
-    } catch (RetriesExhaustedException e) {
-      Throwable error = e.getCause();
-      for (;;) {
-        assertNotNull("Can not find a DoNotRetryIOException on stack trace", error);
-        if (error instanceof DoNotRetryIOException) {
-          break;
-        }
-        error = error.getCause();
+    } catch (RetriesExhaustedWithDetailsException e) {
+      assertEquals(1, e.getNumExceptions());
+      for (int i = 0; i != e.getNumExceptions(); ++i) {
+        assertNotNull(e.getCause(i));
+        assertTrue(e.getCause(i) instanceof IOException);
+        assertEquals("fail", Bytes.toString(e.getRow(i).getRow()));
       }
     } finally {
       assertObjects(objs, batches.size());

@@ -26,9 +26,6 @@ import java.net.InetSocketAddress;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.net.URL;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Enumeration;
@@ -147,7 +144,7 @@ public class HttpServer implements FilterContainer {
   protected String appDir;
   protected String logDir;
 
-  private static final class ListenerInfo {
+  private static class ListenerInfo {
     /**
      * Boolean flag to determine whether the HTTP server should clean up the
      * listener in stop().
@@ -206,22 +203,10 @@ public class HttpServer implements FilterContainer {
     private String kerberosNameRulesKey;
     private String signatureSecretFileKey;
 
-    /**
-     * @see #setAppDir(String)
-     * @deprecated Since 0.99.0. Use builder pattern via {@link #setAppDir(String)} instead.
-     */
     @Deprecated
     private String name;
-    /**
-     * @see #addEndpoint(URI)
-     * @deprecated Since 0.99.0. Use builder pattern via {@link #addEndpoint(URI)} instead.
-     */
     @Deprecated
     private String bindAddress;
-    /**
-     * @see #addEndpoint(URI)
-     * @deprecated Since 0.99.0. Use builder pattern vai {@link #addEndpoint(URI)} instead.
-     */
     @Deprecated
     private int port = -1;
 
@@ -279,8 +264,7 @@ public class HttpServer implements FilterContainer {
     }
 
     /**
-     * @see #setAppDir(String)
-     * @deprecated Since 0.99.0. Use {@link #setAppDir(String)} instead.
+     * Use setAppDir() instead.
      */
     @Deprecated
     public Builder setName(String name){
@@ -289,8 +273,7 @@ public class HttpServer implements FilterContainer {
     }
 
     /**
-     * @see #addEndpoint(URI)
-     * @deprecated Since 0.99.0. Use {@link #addEndpoint(URI)} instead.
+     * Use addEndpoint() instead.
      */
     @Deprecated
     public Builder setBindAddress(String bindAddress){
@@ -299,8 +282,7 @@ public class HttpServer implements FilterContainer {
     }
 
     /**
-     * @see #addEndpoint(URI)
-     * @deprecated Since 0.99.0. Use {@link #addEndpoint(URI)} instead.
+     * Use addEndpoint() instead.
      */
     @Deprecated
     public Builder setPort(int port) {
@@ -354,14 +336,14 @@ public class HttpServer implements FilterContainer {
     }
 
     public Builder setAppDir(String appDir) {
-      this.appDir = appDir;
-      return this;
-    }
+        this.appDir = appDir;
+        return this;
+      }
 
     public Builder setLogDir(String logDir) {
-      this.logDir = logDir;
-      return this;
-    }
+        this.logDir = logDir;
+        return this;
+      }
 
     public HttpServer build() throws IOException {
 
@@ -375,8 +357,7 @@ public class HttpServer implements FilterContainer {
         try {
           endpoints.add(0, new URI("http", "", bindAddress, port, "", "", ""));
         } catch (URISyntaxException e) {
-          throw new HadoopIllegalArgumentException("Invalid endpoint: "+ e);
-        }
+          throw new HadoopIllegalArgumentException("Invalid endpoint: "+ e); }
       }
 
       if (endpoints.isEmpty()) {
@@ -457,13 +438,10 @@ public class HttpServer implements FilterContainer {
 
   }
 
-  /**
-   * @see #HttpServer(String, String, int, boolean, Configuration)
-   * @deprecated Since 0.99.0
-   */
+  /** Same as this(name, bindAddress, port, findPort, null); */
   @Deprecated
-  public HttpServer(String name, String bindAddress, int port, boolean findPort)
-          throws IOException {
+  public HttpServer(String name, String bindAddress, int port, boolean findPort
+      ) throws IOException {
     this(name, bindAddress, port, findPort, new Configuration());
   }
 
@@ -480,7 +458,6 @@ public class HttpServer implements FilterContainer {
    * @param conf Configuration
    * @param pathSpecs Path specifications that this httpserver will be serving.
    *        These will be added to any filters.
-   * @deprecated Since 0.99.0
    */
   @Deprecated
   public HttpServer(String name, String bindAddress, int port,
@@ -496,7 +473,6 @@ public class HttpServer implements FilterContainer {
    * @param findPort whether the server should start at the given port and
    *        increment by 1 until it finds a free port.
    * @param conf Configuration
-   * @deprecated Since 0.99.0
    */
   @Deprecated
   public HttpServer(String name, String bindAddress, int port,
@@ -504,20 +480,6 @@ public class HttpServer implements FilterContainer {
     this(name, bindAddress, port, findPort, conf, null, null);
   }
 
-  /**
-   * Creates a status server on the given port. The JSP scripts are taken
-   * from src/webapp&lt;name&gt;.
-   *
-   * @param name the name of the server
-   * @param bindAddress the address for this server
-   * @param port the port to use on the server
-   * @param findPort whether the server should start at the given port and increment by 1 until it
-   *                 finds a free port
-   * @param conf the configuration to use
-   * @param adminsAcl {@link AccessControlList} of the admins
-   * @throws IOException when creating the server fails
-   * @deprecated Since 0.99.0
-   */
   @Deprecated
   public HttpServer(String name, String bindAddress, int port,
       boolean findPort, Configuration conf, AccessControlList adminsAcl)
@@ -537,7 +499,6 @@ public class HttpServer implements FilterContainer {
    * @param adminsAcl {@link AccessControlList} of the admins
    * @param pathSpecs Path specifications that this httpserver will be serving.
    *        These will be added to any filters.
-   * @deprecated Since 0.99.0
    */
   @Deprecated
   public HttpServer(String name, String bindAddress, int port,
@@ -596,15 +557,10 @@ public class HttpServer implements FilterContainer {
     addDefaultApps(contexts, appDir, conf);
 
     addGlobalFilter("safety", QuotingInputFilter.class.getName(), null);
-
+    Map<String, String> params = new HashMap<>();
+    params.put("xframeoptions", conf.get("hbase.http.filter.xframeoptions.mode", "DENY"));
     addGlobalFilter("clickjackingprevention",
-        ClickjackingPreventionFilter.class.getName(),
-        ClickjackingPreventionFilter.getDefaultParameters(conf));
-
-    addGlobalFilter("securityheaders",
-        SecurityHeadersFilter.class.getName(),
-        SecurityHeadersFilter.getDefaultParameters(conf));
-
+            ClickjackingPreventionFilter.class.getName(), params);
     final FilterInitializer[] initializers = getFilterInitializers(conf);
     if (initializers != null) {
       conf = new Configuration(conf);
@@ -614,7 +570,7 @@ public class HttpServer implements FilterContainer {
       }
     }
 
-    addDefaultServlets(contexts);
+    addDefaultServlets();
 
     if (pathSpecs != null) {
       for (String path : pathSpecs) {
@@ -669,13 +625,14 @@ public class HttpServer implements FilterContainer {
   /**
    * Add default apps.
    * @param appDir The application directory
+   * @throws IOException
    */
   protected void addDefaultApps(ContextHandlerCollection parent,
-      final String appDir, Configuration conf) {
+      final String appDir, Configuration conf) throws IOException {
     // set up the context for "/logs/" if "hadoop.log.dir" property is defined.
     String logDir = this.logDir;
     if (logDir == null) {
-      logDir = System.getProperty("hadoop.log.dir");
+        logDir = System.getProperty("hadoop.log.dir");
     }
     if (logDir != null) {
       ServletContextHandler logContext = new ServletContextHandler(parent, "/logs");
@@ -711,10 +668,11 @@ public class HttpServer implements FilterContainer {
   /**
    * Add default servlets.
    */
-  protected void addDefaultServlets(ContextHandlerCollection contexts) throws IOException {
+  protected void addDefaultServlets() {
     // set up default servlets
     addServlet("stacks", "/stacks", StackServlet.class);
     addServlet("logLevel", "/logLevel", LogLevel.Servlet.class);
+
     // Hadoop3 has moved completely to metrics2, and  dropped support for Metrics v1's
     // MetricsServlet (see HADOOP-12504).  We'll using reflection to load if against hadoop2.
     // Remove when we drop support for hbase on hadoop2.x.
@@ -724,24 +682,9 @@ public class HttpServer implements FilterContainer {
     } catch (Exception e) {
       // do nothing
     }
+
     addServlet("jmx", "/jmx", JMXJsonServlet.class);
     addServlet("conf", "/conf", ConfServlet.class);
-    final String asyncProfilerHome = ProfileServlet.getAsyncProfilerHome();
-    if (asyncProfilerHome != null && !asyncProfilerHome.trim().isEmpty()) {
-      addServlet("prof", "/prof", ProfileServlet.class);
-      Path tmpDir = Paths.get(ProfileServlet.OUTPUT_DIR);
-      if (Files.notExists(tmpDir)) {
-        Files.createDirectories(tmpDir);
-      }
-      ServletContextHandler genCtx = new ServletContextHandler(contexts, "/prof-output");
-      genCtx.addServlet(ProfileOutputServlet.class, "/*");
-      genCtx.setResourceBase(tmpDir.toAbsolutePath().toString());
-      genCtx.setDisplayName("prof-output");
-    } else {
-      addServlet("prof", "/prof", ProfileServlet.DisabledServlet.class);
-      LOG.info("ASYNC_PROFILER_HOME environment variable and async.profiler.home system property " +
-        "not specified. Disabling /prof endpoint.");
-    }
   }
 
   /**
@@ -818,18 +761,20 @@ public class HttpServer implements FilterContainer {
     webAppContext.addServlet(holder, pathSpec);
 
     if(requireAuth && UserGroupInformation.isSecurityEnabled()) {
-      LOG.info("Adding Kerberos (SPNEGO) filter to " + name);
-      ServletHandler handler = webAppContext.getServletHandler();
-      FilterMapping fmap = new FilterMapping();
-      fmap.setPathSpec(pathSpec);
-      fmap.setFilterName(SPNEGO_FILTER);
-      fmap.setDispatches(FilterMapping.ALL);
-      handler.addFilterMapping(fmap);
+       LOG.info("Adding Kerberos (SPNEGO) filter to " + name);
+       ServletHandler handler = webAppContext.getServletHandler();
+       FilterMapping fmap = new FilterMapping();
+       fmap.setPathSpec(pathSpec);
+       fmap.setFilterName(SPNEGO_FILTER);
+       fmap.setDispatches(FilterMapping.ALL);
+       handler.addFilterMapping(fmap);
     }
   }
 
   @Override
-  public void addFilter(String name, String classname, Map<String, String> parameters) {
+  public void addFilter(String name, String classname,
+      Map<String, String> parameters) {
+
     final String[] USER_FACING_URLS = { "*.html", "*.jsp" };
     defineFilter(webAppContext, name, classname, parameters, USER_FACING_URLS);
     LOG.info("Added filter " + name + " (class=" + classname
@@ -847,7 +792,8 @@ public class HttpServer implements FilterContainer {
   }
 
   @Override
-  public void addGlobalFilter(String name, String classname, Map<String, String> parameters) {
+  public void addGlobalFilter(String name, String classname,
+      Map<String, String> parameters) {
     final String[] ALL_URLS = { "/*" };
     defineFilter(webAppContext, name, classname, parameters, ALL_URLS);
     for (ServletContextHandler ctx : defaultContexts.keySet()) {
@@ -861,6 +807,7 @@ public class HttpServer implements FilterContainer {
    */
   public static void defineFilter(ServletContextHandler handler, String name,
       String classname, Map<String,String> parameters, String[] urls) {
+
     FilterHolder holder = new FilterHolder();
     holder.setName(name);
     holder.setClassName(classname);
@@ -904,7 +851,7 @@ public class HttpServer implements FilterContainer {
   }
 
   public String getWebAppsPath(String appName) throws FileNotFoundException {
-    return getWebAppsPath(this.appDir, appName);
+      return getWebAppsPath(this.appDir, appName);
   }
 
   /**
@@ -915,12 +862,9 @@ public class HttpServer implements FilterContainer {
    */
   protected String getWebAppsPath(String webapps, String appName) throws FileNotFoundException {
     URL url = getClass().getClassLoader().getResource(webapps + "/" + appName);
-
-    if (url == null) {
+    if (url == null)
       throw new FileNotFoundException(webapps + "/" + appName
-              + " not found in CLASSPATH");
-    }
-
+          + " not found in CLASSPATH");
     String urlString = url.toString();
     return urlString.substring(0, urlString.lastIndexOf('/'));
   }
@@ -928,7 +872,6 @@ public class HttpServer implements FilterContainer {
   /**
    * Get the port that the server is on
    * @return the port
-   * @deprecated Since 0.99.0
    */
   @Deprecated
   public int getPort() {
@@ -943,10 +886,8 @@ public class HttpServer implements FilterContainer {
    */
   public InetSocketAddress getConnectorAddress(int index) {
     Preconditions.checkArgument(index >= 0);
-
-    if (index > webServer.getConnectors().length) {
+    if (index > webServer.getConnectors().length)
       return null;
-    }
 
     ServerConnector c = (ServerConnector)webServer.getConnectors()[index];
     if (c.getLocalPort() == -1 || c.getLocalPort() == -2) {
@@ -1074,7 +1015,7 @@ public class HttpServer implements FilterContainer {
 
   /**
    * Open the main listener for the server
-   * @throws Exception if the listener cannot be opened or the appropriate port is already in use
+   * @throws Exception
    */
   @VisibleForTesting
   void openListeners() throws Exception {
@@ -1182,8 +1123,7 @@ public class HttpServer implements FilterContainer {
       return "Inactive HttpServer";
     } else {
       StringBuilder sb = new StringBuilder("HttpServer (")
-        .append(isAlive() ? STATE_DESCRIPTION_ALIVE :
-                STATE_DESCRIPTION_NOT_LIVE).append("), listening at:");
+        .append(isAlive() ? STATE_DESCRIPTION_ALIVE : STATE_DESCRIPTION_NOT_LIVE).append("), listening at:");
       for (ListenerInfo li : listeners) {
         ServerConnector l = li.listener;
         sb.append(l.getHost()).append(":").append(l.getPort()).append("/,");
@@ -1228,11 +1168,11 @@ public class HttpServer implements FilterContainer {
    * Does the user sending the HttpServletRequest has the administrator ACLs? If
    * it isn't the case, response will be modified to send an error to the user.
    *
-   * @param servletContext the {@link ServletContext} to use
-   * @param request the {@link HttpServletRequest} to check
+   * @param servletContext
+   * @param request
    * @param response used to send the error response if user does not have admin access.
    * @return true if admin-authorized, false otherwise
-   * @throws IOException if an unauthenticated or unauthorized user tries to access the page
+   * @throws IOException
    */
   public static boolean hasAdministratorAccess(
       ServletContext servletContext, HttpServletRequest request,
@@ -1348,8 +1288,8 @@ public class HttpServer implements FilterContainer {
        */
       @Override
       public String getParameter(String name) {
-        return HtmlQuoting.quoteHtmlChars(rawRequest.getParameter(
-                HtmlQuoting.unquoteHtmlChars(name)));
+        return HtmlQuoting.quoteHtmlChars(rawRequest.getParameter
+                                     (HtmlQuoting.unquoteHtmlChars(name)));
       }
 
       @Override

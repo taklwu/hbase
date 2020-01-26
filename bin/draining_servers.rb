@@ -49,7 +49,7 @@ optparse.parse!
 # Return array of servernames where servername is hostname+port+startcode
 # comma-delimited
 def getServers(admin)
-  serverInfos = admin.getClusterMetrics.getLiveServerMetrics.keySet
+  serverInfos = admin.getClusterStatus.getServers
   servers = []
   serverInfos.each do |server|
     servers << server.getServerName

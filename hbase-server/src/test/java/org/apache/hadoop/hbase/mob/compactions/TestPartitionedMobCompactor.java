@@ -46,12 +46,12 @@ import org.apache.hadoop.hbase.CellComparatorImpl;
 import org.apache.hadoop.hbase.CellUtil;
 import org.apache.hadoop.hbase.HBaseClassTestRule;
 import org.apache.hadoop.hbase.HBaseTestingUtility;
+import org.apache.hadoop.hbase.HColumnDescriptor;
 import org.apache.hadoop.hbase.HConstants;
 import org.apache.hadoop.hbase.KeyValue;
 import org.apache.hadoop.hbase.KeyValue.Type;
 import org.apache.hadoop.hbase.TableName;
 import org.apache.hadoop.hbase.client.ColumnFamilyDescriptor;
-import org.apache.hadoop.hbase.client.ColumnFamilyDescriptorBuilder;
 import org.apache.hadoop.hbase.client.MobCompactPartitionPolicy;
 import org.apache.hadoop.hbase.io.hfile.CacheConfig;
 import org.apache.hadoop.hbase.io.hfile.HFileContext;
@@ -99,8 +99,7 @@ public class TestPartitionedMobCompactor {
   private final static String qf = "qf";
   private final long DAY_IN_MS = 1000 * 60 * 60 * 24;
   private static byte[] KEYS = Bytes.toBytes("012");
-  private ColumnFamilyDescriptorBuilder cfdb =
-    ColumnFamilyDescriptorBuilder.newBuilder(Bytes.toBytes(family));
+  private HColumnDescriptor hcd = new HColumnDescriptor(family);
   private Configuration conf = TEST_UTIL.getConfiguration();
   private CacheConfig cacheConf = new CacheConfig(conf);
   private FileSystem fs;
@@ -341,12 +340,12 @@ public class TestPartitionedMobCompactor {
     }
 
     // Set the policy
-    this.cfdb.setMobCompactPartitionPolicy(policy);
+    this.hcd.setMobCompactPartitionPolicy(policy);
     // set the mob compaction mergeable threshold
     conf.setLong(MobConstants.MOB_COMPACTION_MERGEABLE_THRESHOLD, mergeSize);
     testSelectFiles(tableName, type, isForceAllFiles, expectedStartKeys);
     // go back to the default daily policy
-    this.cfdb.setMobCompactPartitionPolicy(MobCompactPartitionPolicy.DAILY);
+    this.hcd.setMobCompactPartitionPolicy(MobCompactPartitionPolicy.DAILY);
   }
 
   @Test
@@ -381,8 +380,7 @@ public class TestPartitionedMobCompactor {
       listFiles();
 
       TableName tName = TableName.valueOf(tableName);
-      MobCompactor compactor = new PartitionedMobCompactor(conf, faultyFs, tName,
-        cfdb.build(), pool);
+      MobCompactor compactor = new PartitionedMobCompactor(conf, faultyFs, tName, hcd, pool);
       faultyFs.setThrowException(true);
       try {
         compactor.compact(allFiles, true);
@@ -488,7 +486,7 @@ public class TestPartitionedMobCompactor {
     listFiles();
 
     PartitionedMobCompactor compactor = new PartitionedMobCompactor(conf, fs,
-        TableName.valueOf(tableName), cfdb.build(), pool) {
+        TableName.valueOf(tableName), hcd, pool) {
       @Override
       public List<Path> compact(List<FileStatus> files, boolean isForceAllFiles)
           throws IOException {
@@ -621,7 +619,7 @@ public class TestPartitionedMobCompactor {
     listFiles();
 
     MyPartitionedMobCompactor compactor = new MyPartitionedMobCompactor(conf, fs,
-        TableName.valueOf(tableName), cfdb.build(), pool, 1, cacheConf, 1);
+        TableName.valueOf(tableName), hcd, pool, 1, cacheConf, 1);
 
     compactor.compact(allFiles, true);
   }
@@ -641,7 +639,7 @@ public class TestPartitionedMobCompactor {
     listFiles();
 
     MyPartitionedMobCompactor compactor = new MyPartitionedMobCompactor(conf, fs,
-        TableName.valueOf(tableName), cfdb.build(), pool, 3, cacheConf, 3);
+        TableName.valueOf(tableName), hcd, pool, 3, cacheConf, 3);
     compactor.compact(allFiles, true);
   }
 
@@ -672,7 +670,7 @@ public class TestPartitionedMobCompactor {
   private void testSelectFiles(String tableName, final CompactionType type,
     final boolean isForceAllFiles, final List<String> expected) throws IOException {
     PartitionedMobCompactor compactor = new PartitionedMobCompactor(conf, fs,
-      TableName.valueOf(tableName), cfdb.build(), pool) {
+      TableName.valueOf(tableName), hcd, pool) {
       @Override
       public List<Path> compact(List<FileStatus> files, boolean isForceAllFiles)
         throws IOException {
@@ -742,7 +740,7 @@ public class TestPartitionedMobCompactor {
   private void testCompactDelFiles(String tableName, final int expectedFileCount,
       final int expectedCellCount, boolean isForceAllFiles) throws IOException {
     PartitionedMobCompactor compactor = new PartitionedMobCompactor(conf, fs,
-      TableName.valueOf(tableName), cfdb.build(), pool) {
+      TableName.valueOf(tableName), hcd, pool) {
       @Override
       protected List<Path> performCompaction(PartitionedMobCompactionRequest request)
           throws IOException {
@@ -813,11 +811,10 @@ public class TestPartitionedMobCompactor {
   /**
    * Creates store files.
    * @param basePath the path to create file
-   * @param family the column family name
-   * @param qualifier the column qualifier assigned to data values
-   * @param count the store file number
-   * @param type the row key type
-   * @param date the latest timestamp when an instance of MobFileName is created
+   * @family the family name
+   * @qualifier the column qualifier
+   * @count the store file number
+   * @type the key type
    */
   private void createStoreFiles(Path basePath, String family, String qualifier, int count,
       Type type, final Date date) throws IOException {
@@ -888,9 +885,8 @@ public class TestPartitionedMobCompactor {
     List<KeyValueScanner> scanners = new ArrayList<>(StoreFileScanner.getScannersForStoreFiles(sfs,
       false, true, false, false, HConstants.LATEST_TIMESTAMP));
     long timeToPurgeDeletes = Math.max(conf.getLong("hbase.hstore.time.to.purge.deletes", 0), 0);
-    long ttl = HStore.determineTTLFromFamily(cfdb.build());
-    ScanInfo scanInfo = new ScanInfo(conf, cfdb.build(), ttl, timeToPurgeDeletes,
-      CellComparatorImpl.COMPARATOR);
+    long ttl = HStore.determineTTLFromFamily(hcd);
+    ScanInfo scanInfo = new ScanInfo(conf, hcd, ttl, timeToPurgeDeletes, CellComparatorImpl.COMPARATOR);
     StoreScanner scanner = new StoreScanner(scanInfo, ScanType.COMPACT_RETAIN_DELETES, scanners);
     List<Cell> results = new ArrayList<>();
     boolean hasMore = true;

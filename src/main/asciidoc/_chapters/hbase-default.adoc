@@ -459,13 +459,13 @@ The host name or IP address of the name server (DNS)
 ZooKeeper session timeout in milliseconds. It is used in two different ways.
       First, this value is used in the ZK client that HBase uses to connect to the ensemble.
       It is also used by HBase when it starts a ZK server and it is passed as the 'maxSessionTimeout'. See
-      https://zookeeper.apache.org/doc/current/zookeeperProgrammers.html#ch_zkSessions.
+      https://hadoop.apache.org/zookeeper/docs/current/zookeeperProgrammers.html#ch_zkSessions.
       For example, if an HBase region server connects to a ZK ensemble that's also managed
       by HBase, then the
       session timeout will be the one specified by this configuration. But, a region server that connects
       to an ensemble managed with a different configuration will be subjected that ensemble's maxSessionTimeout. So,
       even though HBase might propose using 90 seconds, the ensemble can have a max timeout lower than this and
-      it will take precedence. The current default maxSessionTimeout that ZK ships with is 40 seconds, which is lower than HBase's.
+      it will take precedence. The current default that ZK ships with is 40 seconds, which is lower than HBase's.
 
 +
 .Default
@@ -523,7 +523,7 @@ The host name or IP address of the name server (DNS)
 +
 .Description
 Port used by ZooKeeper peers to talk to each other.
-    See https://zookeeper.apache.org/doc/r3.4.10/zookeeperStarted.html#sc_RunningReplicatedZooKeeper
+    See https://hadoop.apache.org/zookeeper/docs/r3.1.1/zookeeperStarted.html#sc_RunningReplicatedZooKeeper
     for more information.
 +
 .Default
@@ -535,7 +535,7 @@ Port used by ZooKeeper peers to talk to each other.
 +
 .Description
 Port used by ZooKeeper for leader election.
-    See https://zookeeper.apache.org/doc/r3.4.10/zookeeperStarted.html#sc_RunningReplicatedZooKeeper
+    See https://hadoop.apache.org/zookeeper/docs/r3.1.1/zookeeperStarted.html#sc_RunningReplicatedZooKeeper
     for more information.
 +
 .Default
@@ -1197,13 +1197,10 @@ When the size of a leaf-level, intermediate-level, or root-level
 *`hbase.bucketcache.ioengine`*::
 +
 .Description
-Where to store the contents of the bucketcache. One of: offheap,
-    file, files, mmap or pmem. If a file or files, set it to file(s):PATH_TO_FILE.
-    mmap means the content will be in an mmaped file. Use mmap:PATH_TO_FILE.
-    'pmem' is bucket cache over a file on the persistent memory device.
-    Use pmem:PATH_TO_FILE.
-    See https://hbase.apache.org/devapidocs/org/apache/hadoop/hbase/io/hfile/CacheConfig.html
-    for more information.
+Where to store the contents of the bucketcache. One of: onheap,
+      offheap, or file. If a file, set it to file:PATH_TO_FILE.
+      See https://hbase.apache.org/devapidocs/org/apache/hadoop/hbase/io/hfile/CacheConfig.html
+      for more information.
 
 +
 .Default
@@ -2130,80 +2127,4 @@ The percent of region server RPC threads failed to abort RS.
 +
 .Default
 `0.5`
-
-
-[[hbase.master.cleaner.snapshot.interval]]
-*`hbase.master.cleaner.snapshot.interval`*::
-+
-.Description
-
-    Snapshot Cleanup chore interval in milliseconds.
-    The cleanup thread keeps running at this interval
-    to find all snapshots that are expired based on TTL
-    and delete them.
-
-+
-.Default
-`1800000`
-
-
-[[hbase.master.snapshot.ttl]]
-*`hbase.master.snapshot.ttl`*::
-+
-.Description
-
-      Default Snapshot TTL to be considered when the user
-      does not specify TTL while creating snapshot.
-      Default value 0 indicates FOREVERE - snapshot should not be
-      automatically deleted until it is manually deleted
-
-
-+
-.Default
-`0`
-
-
-[[hbase.master.regions.recovery.check.interval]]
-*`hbase.master.regions.recovery.check.interval`*::
-+
-.Description
-
-    Regions Recovery Chore interval in milliseconds.
-    This chore keeps running at this interval to
-    find all regions with configurable max store file ref count
-    and reopens them.
-
-+
-.Default
-`1200000`
-
-
-[[hbase.regions.recovery.store.file.ref.count]]
-*`hbase.regions.recovery.store.file.ref.count`*::
-+
-.Description
-
-      Very large number of ref count on a compacted
-      store file indicates that it is a ref leak
-      on that object(compacted store file).
-      Such files can not be removed after
-      it is invalidated via compaction.
-      Only way to recover in such scenario is to
-      reopen the region which can release
-      all resources, like the refcount,
-      leases, etc. This config represents Store files Ref
-      Count threshold value considered for reopening
-      regions. Any region with compacted store files
-      ref count > this value would be eligible for
-      reopening by master. Here, we get the max
-      refCount among all refCounts on all
-      compacted away store files that belong to a
-      particular region. Default value -1 indicates
-      this feature is turned off. Only positive
-      integer value should be provided to
-      enable this feature.
-
-+
-.Default
-`-1`
 

@@ -19,6 +19,7 @@ package org.apache.hadoop.hbase.io.encoding;
 import java.io.DataInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+
 import org.apache.commons.io.IOUtils;
 import org.apache.hadoop.hbase.io.ByteBuffInputStream;
 import org.apache.hadoop.hbase.io.TagCompressionContext;
@@ -27,7 +28,6 @@ import org.apache.hadoop.hbase.io.crypto.Cipher;
 import org.apache.hadoop.hbase.io.crypto.Decryptor;
 import org.apache.hadoop.hbase.io.crypto.Encryption;
 import org.apache.hadoop.hbase.io.hfile.HFileContext;
-import org.apache.hadoop.hbase.io.util.BlockIOUtils;
 import org.apache.hadoop.hbase.nio.ByteBuff;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.yetus.audience.InterfaceAudience;
@@ -40,10 +40,11 @@ import org.apache.yetus.audience.InterfaceAudience;
  *
  */
 @InterfaceAudience.Private
-public class HFileBlockDefaultDecodingContext implements HFileBlockDecodingContext {
+public class HFileBlockDefaultDecodingContext implements
+    HFileBlockDecodingContext {
   private final HFileContext fileContext;
   private TagCompressionContext tagCompressionContext;
-
+  
   public HFileBlockDefaultDecodingContext(HFileContext fileContext) {
     this.fileContext = fileContext;
   }
@@ -86,12 +87,14 @@ public class HFileBlockDefaultDecodingContext implements HFileBlockDecodingConte
       }
 
       Compression.Algorithm compression = fileContext.getCompression();
+      assert blockBufferWithoutHeader.hasArray();
       if (compression != Compression.Algorithm.NONE) {
-        Compression.decompress(blockBufferWithoutHeader, dataInputStream,
-          uncompressedSizeWithoutHeader, compression);
+        Compression.decompress(blockBufferWithoutHeader.array(),
+            blockBufferWithoutHeader.arrayOffset(), dataInputStream, onDiskSizeWithoutHeader,
+            uncompressedSizeWithoutHeader, compression);
       } else {
-        BlockIOUtils.readFullyWithHeapBuffer(dataInputStream, blockBufferWithoutHeader,
-          onDiskSizeWithoutHeader);
+        IOUtils.readFully(dataInputStream, blockBufferWithoutHeader.array(),
+            blockBufferWithoutHeader.arrayOffset(), onDiskSizeWithoutHeader);
       }
     } finally {
       byteBuffInputStream.close();

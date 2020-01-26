@@ -20,31 +20,35 @@ package org.apache.hadoop.hbase;
 
 import java.io.IOException;
 
-import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.yetus.audience.InterfaceAudience;
+import org.apache.hadoop.hbase.util.Bytes;
 
 /**
- * Thrown by a region server if it is sent a request for a region it is not serving.
+ * Thrown by a region server if it is sent a request for a region it is not
+ * serving.
  */
 @InterfaceAudience.Public
 public class NotServingRegionException extends IOException {
   private static final long serialVersionUID = (1L << 17) - 1L;
 
+  /** default constructor */
   public NotServingRegionException() {
     super();
   }
 
   /**
-   * @param message the message for this exception
+   * Constructor
+   * @param s message
    */
-  public NotServingRegionException(String message) {
-    super(message);
+  public NotServingRegionException(String s) {
+    super(s);
   }
 
   /**
-   * @param message the message for this exception
+   * Constructor
+   * @param s message
    */
-  public NotServingRegionException(final byte[] message) {
-    super(Bytes.toString(message));
+  public NotServingRegionException(final byte [] s) {
+    super(Bytes.toString(s));
   }
 }

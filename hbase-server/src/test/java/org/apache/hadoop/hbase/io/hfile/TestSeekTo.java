@@ -33,6 +33,7 @@ import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hbase.ArrayBackedTag;
 import org.apache.hadoop.hbase.ByteBufferKeyValue;
 import org.apache.hadoop.hbase.Cell;
+import org.apache.hadoop.hbase.CellComparatorImpl;
 import org.apache.hadoop.hbase.HBaseClassTestRule;
 import org.apache.hadoop.hbase.HBaseTestingUtility;
 import org.apache.hadoop.hbase.HConstants;
@@ -122,7 +123,8 @@ public class TestSeekTo {
         .withIncludesTags(true).build();
     Configuration conf = TEST_UTIL.getConfiguration();
     HFile.Writer writer = HFile.getWriterFactoryNoCache(conf).withOutputStream(fout)
-        .withFileContext(context).create();
+        .withFileContext(context)
+        .withComparator(CellComparatorImpl.COMPARATOR).create();
     // 4 bytes * 3 * 2 for each key/value +
     // 3 for keys, 15 for values = 42 (woot)
     writer.append(toKV("c", tagUsage));
@@ -148,6 +150,7 @@ public class TestSeekTo {
     FileSystem fs = TEST_UTIL.getTestFileSystem();
     Configuration conf = TEST_UTIL.getConfiguration();
     HFile.Reader reader = HFile.createReader(fs, p, new CacheConfig(conf), true, conf);
+    reader.loadFileInfo();
     HFileScanner scanner = reader.getScanner(false, true);
     assertFalse(scanner.seekBefore(toKV("a", tagUsage)));
 
@@ -206,6 +209,7 @@ public class TestSeekTo {
     FileSystem fs = TEST_UTIL.getTestFileSystem();
     Configuration conf = TEST_UTIL.getConfiguration();
     HFile.Reader reader = HFile.createReader(fs, p, new CacheConfig(conf), true, conf);
+    reader.loadFileInfo();
     HFileScanner scanner = reader.getScanner(false, true);
     assertFalse(scanner.seekBefore(toKV("a", tagUsage)));
     assertFalse(scanner.seekBefore(toKV("b", tagUsage)));
@@ -299,6 +303,7 @@ public class TestSeekTo {
     FileSystem fs = TEST_UTIL.getTestFileSystem();
     Configuration conf = TEST_UTIL.getConfiguration();
     HFile.Reader reader = HFile.createReader(fs, p, new CacheConfig(conf), true, conf);
+    reader.loadFileInfo();
     assertEquals(2, reader.getDataBlockIndexReader().getRootBlockCount());
     HFileScanner scanner = reader.getScanner(false, true);
     // lies before the start of the file.
@@ -331,6 +336,7 @@ public class TestSeekTo {
     FileSystem fs = TEST_UTIL.getTestFileSystem();
     Configuration conf = TEST_UTIL.getConfiguration();
     HFile.Reader reader = HFile.createReader(fs, p, new CacheConfig(conf), true, conf);
+    reader.loadFileInfo();
     HFileBlockIndex.BlockIndexReader blockIndexReader =
       reader.getDataBlockIndexReader();
     System.out.println(blockIndexReader.toString());

@@ -25,7 +25,6 @@ org.apache.hadoop.util.StringUtils;
 TaskMonitor taskMonitor = TaskMonitor.get();
 String filter = "general";
 String format = "html";
-String parent = "";
 </%args>
 
 <%if format.equals("json")%>
@@ -80,7 +79,7 @@ String parent = "";
     <%args>
         String filter;
     </%args>
-    <a href="<% parent %>?format=json&filter=<% filter %>">View as JSON</a>
+    <a href="?format=json&filter=<% filter %>">View as JSON</a>
 </%def>
 
 <%def renderTasks>

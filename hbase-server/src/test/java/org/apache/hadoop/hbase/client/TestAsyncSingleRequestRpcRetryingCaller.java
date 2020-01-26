@@ -73,7 +73,7 @@ public class TestAsyncSingleRequestRpcRetryingCaller {
     TEST_UTIL.waitTableAvailable(TABLE_NAME);
     AsyncRegistry registry = AsyncRegistryFactory.getRegistry(TEST_UTIL.getConfiguration());
     CONN = new AsyncConnectionImpl(TEST_UTIL.getConfiguration(), registry,
-      registry.getClusterId().get(), null, User.getCurrent());
+      registry.getClusterId().get(), User.getCurrent());
   }
 
   @AfterClass
@@ -87,14 +87,15 @@ public class TestAsyncSingleRequestRpcRetryingCaller {
     // This will leave a cached entry in location cache
     HRegionLocation loc = CONN.getRegionLocator(TABLE_NAME).getRegionLocation(ROW).get();
     int index = TEST_UTIL.getHBaseCluster().getServerWith(loc.getRegion().getRegionName());
-    TEST_UTIL.getAdmin().move(loc.getRegion().getEncodedNameAsBytes(),
-      TEST_UTIL.getHBaseCluster().getRegionServer(1 - index).getServerName());
+    TEST_UTIL.getAdmin().move(loc.getRegion().getEncodedNameAsBytes(), Bytes.toBytes(
+      TEST_UTIL.getHBaseCluster().getRegionServer(1 - index).getServerName().getServerName()));
     AsyncTable<?> table = CONN.getTableBuilder(TABLE_NAME).setRetryPause(100, TimeUnit.MILLISECONDS)
       .setMaxRetries(30).build();
     table.put(new Put(ROW).addColumn(FAMILY, QUALIFIER, VALUE)).get();
 
     // move back
-    TEST_UTIL.getAdmin().move(loc.getRegion().getEncodedNameAsBytes(), loc.getServerName());
+    TEST_UTIL.getAdmin().move(loc.getRegion().getEncodedNameAsBytes(),
+      Bytes.toBytes(loc.getServerName().getServerName()));
     Result result = table.get(new Get(ROW).addColumn(FAMILY, QUALIFIER)).get();
     assertArrayEquals(VALUE, result.getValue(FAMILY, QUALIFIER));
   }
@@ -163,7 +164,7 @@ public class TestAsyncSingleRequestRpcRetryingCaller {
         }
       };
     try (AsyncConnectionImpl mockedConn = new AsyncConnectionImpl(CONN.getConfiguration(),
-      CONN.registry, CONN.registry.getClusterId().get(), null, User.getCurrent()) {
+      CONN.registry, CONN.registry.getClusterId().get(), User.getCurrent()) {
 
       @Override
       AsyncRegionLocator getLocator() {

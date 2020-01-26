@@ -36,12 +36,12 @@ public class TestReplicationKillMasterRSWithSeparateOldWALs extends TestReplicat
 
   @BeforeClass
   public static void setUpBeforeClass() throws Exception {
-    CONF1.setBoolean(AbstractFSWALProvider.SEPARATE_OLDLOGDIR, true);
+    conf1.setBoolean(AbstractFSWALProvider.SEPARATE_OLDLOGDIR, true);
     TestReplicationBase.setUpBeforeClass();
   }
 
   @Test
   public void killOneMasterRS() throws Exception {
-    loadTableAndKillRS(UTIL1);
+    loadTableAndKillRS(utility1);
   }
 }

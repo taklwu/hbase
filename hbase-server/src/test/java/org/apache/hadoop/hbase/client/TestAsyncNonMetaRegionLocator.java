@@ -81,7 +81,7 @@ public class TestAsyncNonMetaRegionLocator {
     TEST_UTIL.getAdmin().balancerSwitch(false, true);
     AsyncRegistry registry = AsyncRegistryFactory.getRegistry(TEST_UTIL.getConfiguration());
     CONN = new AsyncConnectionImpl(TEST_UTIL.getConfiguration(), registry,
-      registry.getClusterId().get(), null, User.getCurrent());
+      registry.getClusterId().get(), User.getCurrent());
     LOCATOR = new AsyncNonMetaRegionLocator(CONN);
     SPLIT_KEYS = new byte[8][];
     for (int i = 111; i < 999; i += 111) {
@@ -249,7 +249,8 @@ public class TestAsyncNonMetaRegionLocator {
       .map(t -> t.getRegionServer().getServerName()).filter(sn -> !sn.equals(serverName)).findAny()
       .get();
 
-    TEST_UTIL.getAdmin().move(Bytes.toBytes(loc.getRegion().getEncodedName()), newServerName);
+    TEST_UTIL.getAdmin().move(Bytes.toBytes(loc.getRegion().getEncodedName()),
+      Bytes.toBytes(newServerName.getServerName()));
     while (!TEST_UTIL.getRSForFirstRegionInTable(TABLE_NAME).getServerName()
       .equals(newServerName)) {
       Thread.sleep(100);
@@ -325,7 +326,7 @@ public class TestAsyncNonMetaRegionLocator {
       .get();
     Admin admin = TEST_UTIL.getAdmin();
     RegionInfo region = admin.getRegions(TABLE_NAME).stream().findAny().get();
-    admin.move(region.getEncodedNameAsBytes(), newServerName);
+    admin.move(region.getEncodedNameAsBytes(), Bytes.toBytes(newServerName.getServerName()));
     TEST_UTIL.waitFor(30000, new ExplainingPredicate<Exception>() {
 
       @Override
@@ -387,26 +388,5 @@ public class TestAsyncNonMetaRegionLocator {
           RegionLocateType.CURRENT, reload).get();
       }
     });
-  }
-
-  // Testcase for HBASE-21961
-  @Test
-  public void testLocateBeforeInOnlyRegion() throws IOException, InterruptedException {
-    createSingleRegionTable();
-    HRegionLocation loc =
-      getDefaultRegionLocation(TABLE_NAME, Bytes.toBytes(1), RegionLocateType.BEFORE, false).join();
-    // should locate to the only region
-    assertArrayEquals(loc.getRegion().getStartKey(), EMPTY_START_ROW);
-    assertArrayEquals(loc.getRegion().getEndKey(), EMPTY_END_ROW);
-  }
-
-  @Test
-  public void testConcurrentUpdateCachedLocationOnError() throws Exception {
-    createSingleRegionTable();
-    HRegionLocation loc =
-        getDefaultRegionLocation(TABLE_NAME, EMPTY_START_ROW, RegionLocateType.CURRENT, false)
-            .get();
-    IntStream.range(0, 100).parallel()
-        .forEach(i -> LOCATOR.updateCachedLocationOnError(loc, new NotServingRegionException()));
   }
 }

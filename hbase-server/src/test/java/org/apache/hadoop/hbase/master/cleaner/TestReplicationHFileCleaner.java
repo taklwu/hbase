@@ -41,7 +41,7 @@ import org.apache.hadoop.hbase.HConstants;
 import org.apache.hadoop.hbase.Server;
 import org.apache.hadoop.hbase.ServerName;
 import org.apache.hadoop.hbase.ZooKeeperConnectionException;
-import org.apache.hadoop.hbase.client.AsyncClusterConnection;
+import org.apache.hadoop.hbase.client.ClusterConnection;
 import org.apache.hadoop.hbase.client.Connection;
 import org.apache.hadoop.hbase.master.HMaster;
 import org.apache.hadoop.hbase.replication.ReplicationException;
@@ -251,7 +251,7 @@ public class TestReplicationHFileCleaner {
     }
 
     @Override
-    public Connection getConnection() {
+    public ClusterConnection getConnection() {
       return null;
     }
 
@@ -284,6 +284,12 @@ public class TestReplicationHFileCleaner {
     }
 
     @Override
+    public ClusterConnection getClusterConnection() {
+      // TODO Auto-generated method stub
+      return null;
+    }
+
+    @Override
     public FileSystem getFileSystem() {
       return null;
     }
@@ -295,11 +301,6 @@ public class TestReplicationHFileCleaner {
 
     @Override
     public Connection createConnection(Configuration conf) throws IOException {
-      return null;
-    }
-
-    @Override
-    public AsyncClusterConnection getAsyncClusterConnection() {
       return null;
     }
   }

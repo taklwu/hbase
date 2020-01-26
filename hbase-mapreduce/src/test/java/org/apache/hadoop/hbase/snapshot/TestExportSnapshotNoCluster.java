@@ -17,13 +17,8 @@
  */
 package org.apache.hadoop.hbase.snapshot;
 
-import static org.junit.Assert.assertTrue;
-
-import java.net.URI;
-
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileSystem;
-import org.apache.hadoop.fs.LocalFileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hbase.HBaseClassTestRule;
 import org.apache.hadoop.hbase.HBaseCommonTestingUtility;
@@ -33,6 +28,7 @@ import org.apache.hadoop.hbase.master.snapshot.SnapshotManager;
 import org.apache.hadoop.hbase.snapshot.SnapshotTestingUtils.SnapshotMock;
 import org.apache.hadoop.hbase.testclassification.MapReduceTests;
 import org.apache.hadoop.hbase.testclassification.MediumTests;
+import org.apache.hadoop.hbase.util.Bytes;
 import org.junit.BeforeClass;
 import org.junit.ClassRule;
 import org.junit.Test;
@@ -69,10 +65,8 @@ public class TestExportSnapshotNoCluster {
 
   @BeforeClass
   public static void setUpBeforeClass() throws Exception {
-    // Make sure testDir is on LocalFileSystem
-    testDir = TEST_UTIL.getDataTestDir().makeQualified(URI.create("file:///"), new Path("/"));
+    testDir = TEST_UTIL.getDataTestDir();
     fs = testDir.getFileSystem(TEST_UTIL.getConfiguration());
-    assertTrue("FileSystem '" + fs + "' is not local", fs instanceof LocalFileSystem);
 
     setUpBaseConf(TEST_UTIL.getConfiguration());
   }
@@ -104,7 +98,7 @@ public class TestExportSnapshotNoCluster {
     builder.commit();
     int snapshotFilesCount = r1Files.length + r2Files.length;
 
-    String snapshotName = builder.getSnapshotDescription().getName();
+    byte[] snapshotName = Bytes.toBytes(builder.getSnapshotDescription().getName());
     TableName tableName = builder.getTableDescriptor().getTableName();
     TestExportSnapshot.testExportFileSystemState(TEST_UTIL.getConfiguration(),
       tableName, snapshotName, snapshotName, snapshotFilesCount,

@@ -167,7 +167,7 @@ public class TestSerialReplicationEndpoint {
     }
 
     @Override
-    protected Callable<Integer> createReplicator(List<Entry> entries, int ordinal, int timeout) {
+    protected Callable<Integer> createReplicator(List<Entry> entries, int ordinal) {
       return () -> {
         entryQueue.addAll(entries);
         return ordinal;

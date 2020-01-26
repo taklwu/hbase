@@ -187,8 +187,4 @@ class AsyncTableResultScanner implements ResultScanner, AdvancedScanResultConsum
   public ScanMetrics getScanMetrics() {
     return scanMetrics;
   }
-
-  int getCacheSize() {
-    return queue.size();
-  }
 }

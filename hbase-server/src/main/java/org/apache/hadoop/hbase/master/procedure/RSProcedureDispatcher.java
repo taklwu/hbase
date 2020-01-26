@@ -25,7 +25,6 @@ import java.util.concurrent.TimeUnit;
 import org.apache.hadoop.hbase.CallQueueTooBigException;
 import org.apache.hadoop.hbase.DoNotRetryIOException;
 import org.apache.hadoop.hbase.ServerName;
-import org.apache.hadoop.hbase.client.AsyncRegionServerAdmin;
 import org.apache.hadoop.hbase.client.RegionInfo;
 import org.apache.hadoop.hbase.ipc.ServerNotRunningYetException;
 import org.apache.hadoop.hbase.master.MasterServices;
@@ -34,7 +33,6 @@ import org.apache.hadoop.hbase.procedure2.RemoteProcedureDispatcher;
 import org.apache.hadoop.hbase.regionserver.RegionServerAbortedException;
 import org.apache.hadoop.hbase.regionserver.RegionServerStoppedException;
 import org.apache.hadoop.hbase.util.EnvironmentEdgeManager;
-import org.apache.hadoop.hbase.util.FutureUtils;
 import org.apache.hadoop.ipc.RemoteException;
 import org.apache.yetus.audience.InterfaceAudience;
 import org.slf4j.Logger;
@@ -43,9 +41,11 @@ import org.slf4j.LoggerFactory;
 import org.apache.hbase.thirdparty.com.google.common.annotations.VisibleForTesting;
 import org.apache.hbase.thirdparty.com.google.common.collect.ArrayListMultimap;
 import org.apache.hbase.thirdparty.com.google.protobuf.ByteString;
+import org.apache.hbase.thirdparty.com.google.protobuf.ServiceException;
 
 import org.apache.hadoop.hbase.shaded.protobuf.ProtobufUtil;
 import org.apache.hadoop.hbase.shaded.protobuf.RequestConverter;
+import org.apache.hadoop.hbase.shaded.protobuf.generated.AdminProtos.AdminService;
 import org.apache.hadoop.hbase.shaded.protobuf.generated.AdminProtos.CloseRegionRequest;
 import org.apache.hadoop.hbase.shaded.protobuf.generated.AdminProtos.ExecuteProceduresRequest;
 import org.apache.hadoop.hbase.shaded.protobuf.generated.AdminProtos.ExecuteProceduresResponse;
@@ -219,8 +219,13 @@ public class RSProcedureDispatcher
       this.remoteProcedures = remoteProcedures;
     }
 
-    private AsyncRegionServerAdmin  getRsAdmin() throws IOException {
-      return master.getAsyncClusterConnection().getRegionServerAdmin(serverName);
+    private AdminService.BlockingInterface getRsAdmin() throws IOException {
+      final AdminService.BlockingInterface admin = master.getServerManager().getRsAdmin(serverName);
+      if (admin == null) {
+        throw new IOException("Attempting to send OPEN RPC to server " + getServerName() +
+          " failed because no RPC connection found to this server");
+      }
+      return admin;
     }
 
     protected final ServerName getServerName() {
@@ -340,7 +345,11 @@ public class RSProcedureDispatcher
     @VisibleForTesting
     protected ExecuteProceduresResponse sendRequest(final ServerName serverName,
         final ExecuteProceduresRequest request) throws IOException {
-      return FutureUtils.get(getRsAdmin().executeProcedures(request));
+      try {
+        return getRsAdmin().executeProcedures(null, request);
+      } catch (ServiceException se) {
+        throw ProtobufUtil.getRemoteException(se);
+      }
     }
 
     protected final void remoteCallFailed(final MasterProcedureEnv env, final IOException e) {
@@ -390,36 +399,54 @@ public class RSProcedureDispatcher
   }
 
   public static abstract class RegionOperation extends RemoteOperation {
-    protected final RegionInfo regionInfo;
-    protected final long procId;
+    private final RegionInfo regionInfo;
 
-    protected RegionOperation(RemoteProcedure remoteProcedure, RegionInfo regionInfo, long procId) {
+    protected RegionOperation(final RemoteProcedure remoteProcedure,
+        final RegionInfo regionInfo) {
       super(remoteProcedure);
       this.regionInfo = regionInfo;
-      this.procId = procId;
+    }
+
+    public RegionInfo getRegionInfo() {
+      return this.regionInfo;
     }
   }
 
   public static class RegionOpenOperation extends RegionOperation {
+    private final List<ServerName> favoredNodes;
+    private final boolean openForReplay;
+    private boolean failedOpen;
 
-    public RegionOpenOperation(RemoteProcedure remoteProcedure, RegionInfo regionInfo,
-        long procId) {
-      super(remoteProcedure, regionInfo, procId);
+    public RegionOpenOperation(final RemoteProcedure remoteProcedure,
+        final RegionInfo regionInfo, final List<ServerName> favoredNodes,
+        final boolean openForReplay) {
+      super(remoteProcedure, regionInfo);
+      this.favoredNodes = favoredNodes;
+      this.openForReplay = openForReplay;
+    }
+
+    protected void setFailedOpen(final boolean failedOpen) {
+      this.failedOpen = failedOpen;
+    }
+
+    public boolean isFailedOpen() {
+      return failedOpen;
     }
 
     public OpenRegionRequest.RegionOpenInfo buildRegionOpenInfoRequest(
         final MasterProcedureEnv env) {
-      return RequestConverter.buildRegionOpenInfo(regionInfo,
-        env.getAssignmentManager().getFavoredNodes(regionInfo), procId);
+      return RequestConverter.buildRegionOpenInfo(getRegionInfo(),
+        env.getAssignmentManager().getFavoredNodes(getRegionInfo()));
     }
   }
 
   public static class RegionCloseOperation extends RegionOperation {
     private final ServerName destinationServer;
+    private boolean closed = false;
 
-    public RegionCloseOperation(RemoteProcedure remoteProcedure, RegionInfo regionInfo, long procId,
-        ServerName destinationServer) {
-      super(remoteProcedure, regionInfo, procId);
+    public RegionCloseOperation(final RemoteProcedure remoteProcedure,
+        final RegionInfo regionInfo, final ServerName destinationServer) {
+      super(remoteProcedure, regionInfo);
       this.destinationServer = destinationServer;
     }
 
@@ -427,9 +454,17 @@ public class RSProcedureDispatcher
       return destinationServer;
     }
 
+    protected void setClosed(final boolean closed) {
+      this.closed = closed;
+    }
+
+    public boolean isClosed() {
+      return closed;
+    }
+
     public CloseRegionRequest buildCloseRegionRequest(final ServerName serverName) {
-      return ProtobufUtil.buildCloseRegionRequest(serverName, regionInfo.getRegionName(),
-        getDestinationServer(), procId);
+      return ProtobufUtil.buildCloseRegionRequest(serverName,
+        getRegionInfo().getRegionName(), getDestinationServer());
     }
   }
 }

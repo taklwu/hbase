@@ -49,7 +49,6 @@ import org.apache.hadoop.hbase.shaded.protobuf.ProtobufUtil;
 import org.apache.hadoop.hbase.shaded.protobuf.generated.HBaseProtos;
 
 /**
- * Convenience class for composing an instance of {@link TableDescriptor}.
  * @since 2.0.0
  */
 @InterfaceAudience.Public
@@ -292,9 +291,8 @@ public class TableDescriptorBuilder {
 
   /**
    * Table descriptor for namespace table
-   * @deprecated since 3.0.0 and will be removed in 4.0.0. We have folded the data in namespace
-   *   table into meta table, so do not use it any more.
-   * @see <a href="https://issues.apache.org/jira/browse/HBASE-21154">HBASE-21154</a>
+   * @deprecated We have folded the data in namespace table into meta table, so do not use it any
+   *             more.
    */
   @Deprecated
   public static final TableDescriptor NAMESPACE_TABLEDESC =
@@ -460,20 +458,12 @@ public class TableDescriptorBuilder {
     return this;
   }
 
-  /**
-   * @deprecated since 2.0.0 and will be removed in 3.0.0.
-   * @see <a href="https://issues.apache.org/jira/browse/HBASE-15583">HBASE-15583</a>
-   */
   @Deprecated
   public TableDescriptorBuilder setOwner(User owner) {
     desc.setOwner(owner);
     return this;
   }
 
-  /**
-   * @deprecated since 2.0.0 and will be removed in 3.0.0.
-   * @see <a href="https://issues.apache.org/jira/browse/HBASE-15583">HBASE-15583</a>
-   */
   @Deprecated
   public TableDescriptorBuilder setOwnerString(String ownerString) {
     desc.setOwnerString(ownerString);
@@ -1184,8 +1174,6 @@ public class TableDescriptorBuilder {
           }
           s.append("}");
         }
-
-        s.append("}");
       }
 
       s.append("}"); // end METHOD
@@ -1514,29 +1502,17 @@ public class TableDescriptorBuilder {
       }
     }
 
-    /**
-     * @deprecated since 2.0.0 and will be removed in 3.0.0.
-     * @see <a href="https://issues.apache.org/jira/browse/HBASE-15583">HBASE-15583</a>
-     */
     @Deprecated
     public ModifyableTableDescriptor setOwner(User owner) {
       return setOwnerString(owner != null ? owner.getShortName() : null);
     }
 
-    /**
-     * @deprecated since 2.0.0 and will be removed in 3.0.0.
-     * @see <a href="https://issues.apache.org/jira/browse/HBASE-15583">HBASE-15583</a>
-     */
     // used by admin.rb:alter(table_name,*args) to update owner.
     @Deprecated
     public ModifyableTableDescriptor setOwnerString(String ownerString) {
       return setValue(OWNER_KEY, ownerString);
     }
 
-    /**
-     * @deprecated since 2.0.0 and will be removed in 3.0.0.
-     * @see <a href="https://issues.apache.org/jira/browse/HBASE-15583">HBASE-15583</a>
-     */
     @Override
     @Deprecated
     public String getOwnerString() {

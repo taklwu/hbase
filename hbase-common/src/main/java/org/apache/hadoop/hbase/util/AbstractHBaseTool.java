@@ -21,7 +21,6 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
-import java.util.Objects;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hbase.HBaseConfiguration;
@@ -68,7 +67,7 @@ public abstract class AbstractHBaseTool implements Tool {
   private HashMap<Option, Integer> optionsOrder = new HashMap<>();
   private int optionsCount = 0;
 
-  public class OptionsOrderComparator implements Comparator<Option> {
+  private class OptionsOrderComparator implements Comparator<Option> {
     @Override
     public int compare(Option o1, Option o2) {
       return optionsOrder.get(o1) - optionsOrder.get(o2);
@@ -116,8 +115,10 @@ public abstract class AbstractHBaseTool implements Tool {
   @Override
   public int run(String[] args) throws IOException {
     cmdLineArgs = args;
-
-    Objects.requireNonNull(conf, "Tool configuration is not initialized");
+    if (conf == null) {
+      LOG.error("Tool configuration is not initialized");
+      throw new NullPointerException("conf");
+    }
 
     CommandLine cmd;
     List<String> argsList = new ArrayList<>(args.length);

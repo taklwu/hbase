@@ -18,10 +18,6 @@
 
 package org.apache.hadoop.hbase.chaos.actions;
 
-import java.io.IOException;
-import java.util.LinkedList;
-import java.util.List;
-
 import org.apache.hadoop.hbase.ServerName;
 import org.apache.hadoop.hbase.chaos.monkies.PolicyBasedChaosMonkey;
 import org.apache.hadoop.hbase.util.FSUtils;
@@ -29,15 +25,15 @@ import org.apache.hadoop.hdfs.DFSClient;
 import org.apache.hadoop.hdfs.DistributedFileSystem;
 import org.apache.hadoop.hdfs.protocol.DatanodeInfo;
 import org.apache.hadoop.hdfs.protocol.HdfsConstants;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+
+import java.io.IOException;
+import java.util.LinkedList;
+import java.util.List;
 
 /**
  * Action that restarts a random datanode.
  */
 public class RestartRandomDataNodeAction extends RestartActionBaseAction {
-  private static final Logger LOG = LoggerFactory.getLogger(RestartRandomDataNodeAction.class);
-
   public RestartRandomDataNodeAction(long sleepTime) {
     super(sleepTime);
   }

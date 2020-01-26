@@ -53,7 +53,7 @@ public class TestTerminatedWrapper {
 
   @Test(expected = IllegalArgumentException.class)
   public void testEmptyDelimiter() {
-    new TerminatedWrapper<>(new RawBytes(Order.ASCENDING), "");
+    new TerminatedWrapper<>(new RawBytes(), "");
   }
 
   @Test(expected = IllegalArgumentException.class)
@@ -64,21 +64,21 @@ public class TestTerminatedWrapper {
 
   @Test(expected = IllegalArgumentException.class)
   public void testEncodedValueContainsTerm() {
-    final DataType<byte[]> type = new TerminatedWrapper<>(new RawBytes(Order.ASCENDING), "foo");
-    final PositionedByteRange buff = new SimplePositionedMutableByteRange(16);
+    DataType<byte[]> type = new TerminatedWrapper<>(new RawBytes(), "foo");
+    PositionedByteRange buff = new SimplePositionedMutableByteRange(16);
     type.encode(buff, Bytes.toBytes("hello foobar!"));
   }
 
   @Test
   public void testReadWriteSkippable() {
-    final PositionedByteRange buff = new SimplePositionedMutableByteRange(14);
-    for (final OrderedString t : new OrderedString[] {
-      new OrderedString(Order.ASCENDING), new OrderedString(Order.DESCENDING)
+    PositionedByteRange buff = new SimplePositionedMutableByteRange(14);
+    for (OrderedString t : new OrderedString[] {
+        OrderedString.ASCENDING, OrderedString.DESCENDING
     }) {
-      for (final byte[] term : TERMINATORS) {
-        for (final String val : VALUES_STRINGS) {
+      for (byte[] term : TERMINATORS) {
+        for (String val : VALUES_STRINGS) {
           buff.setPosition(0);
-          final DataType<String> type = new TerminatedWrapper<>(t, term);
+          DataType<String> type = new TerminatedWrapper<>(t, term);
           assertEquals(val.length() + 2 + term.length, type.encode(buff, val));
           buff.setPosition(0);
           assertEquals(val, type.decode(buff));
@@ -107,15 +107,15 @@ public class TestTerminatedWrapper {
 
   @Test
   public void testSkipSkippable() {
-    final PositionedByteRange buff = new SimplePositionedMutableByteRange(14);
-    for (final OrderedString t : new OrderedString[] {
-      new OrderedString(Order.ASCENDING), new OrderedString(Order.DESCENDING)
+    PositionedByteRange buff = new SimplePositionedMutableByteRange(14);
+    for (OrderedString t : new OrderedString[] {
+        OrderedString.ASCENDING, OrderedString.DESCENDING
     }) {
-      for (final byte[] term : TERMINATORS) {
-        for (final String val : VALUES_STRINGS) {
+      for (byte[] term : TERMINATORS) {
+        for (String val : VALUES_STRINGS) {
           buff.setPosition(0);
-          final DataType<String> type = new TerminatedWrapper<>(t, term);
-          final int expected = val.length() + 2 + term.length;
+          DataType<String> type = new TerminatedWrapper<>(t, term);
+          int expected = val.length() + 2 + term.length;
           assertEquals(expected, type.encode(buff, val));
           buff.setPosition(0);
           assertEquals(expected, type.skip(buff));
@@ -144,9 +144,8 @@ public class TestTerminatedWrapper {
 
   @Test(expected = IllegalArgumentException.class)
   public void testInvalidSkip() {
-    final PositionedByteRange buff = new SimplePositionedMutableByteRange(Bytes.toBytes("foo"));
-    final DataType<byte[]> type = new TerminatedWrapper<>(new RawBytes(Order.ASCENDING),
-        new byte[] { 0x00 });
+    PositionedByteRange buff = new SimplePositionedMutableByteRange(Bytes.toBytes("foo"));
+    DataType<byte[]> type = new TerminatedWrapper<>(new RawBytes(), new byte[] { 0x00 });
     type.skip(buff);
   }
 }

@@ -17,11 +17,6 @@
  */
 package org.apache.hadoop.hbase.regionserver.wal;
 
-import static org.apache.hadoop.hbase.regionserver.wal.WALActionsListener.RollRequestReason.ERROR;
-import static org.apache.hadoop.hbase.regionserver.wal.WALActionsListener.RollRequestReason.LOW_REPLICATION;
-import static org.apache.hadoop.hbase.regionserver.wal.WALActionsListener.RollRequestReason.SIZE;
-import static org.apache.hadoop.hbase.regionserver.wal.WALActionsListener.RollRequestReason.SLOW_SYNC;
-
 import com.lmax.disruptor.BlockingWaitStrategy;
 import com.lmax.disruptor.EventHandler;
 import com.lmax.disruptor.ExceptionHandler;
@@ -29,6 +24,7 @@ import com.lmax.disruptor.LifecycleAware;
 import com.lmax.disruptor.TimeoutException;
 import com.lmax.disruptor.dsl.Disruptor;
 import com.lmax.disruptor.dsl.ProducerType;
+
 import java.io.IOException;
 import java.io.OutputStream;
 import java.util.Arrays;
@@ -38,12 +34,14 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FSDataOutputStream;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hbase.HConstants;
 import org.apache.hadoop.hbase.client.RegionInfo;
+import org.apache.hadoop.hbase.regionserver.HRegion;
 import org.apache.hadoop.hbase.trace.TraceUtil;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.hbase.util.ClassSize;
@@ -61,7 +59,6 @@ import org.apache.htrace.core.TraceScope;
 import org.apache.yetus.audience.InterfaceAudience;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
 import org.apache.hbase.thirdparty.com.google.common.annotations.VisibleForTesting;
 
 /**
@@ -133,6 +130,8 @@ public class FSHLog extends AbstractFSWAL<Writer> {
   // Minimum tolerable replicas, if the actual value is lower than it, rollWriter will be triggered
   private final int minTolerableReplication;
 
+  private final boolean useHsync;
+
   // If live datanode count is lower than the default replicas value,
   // RollWriter will be triggered in each sync(So the RollWriter will be
   // triggered one by one in a short time). Using it as a workaround to slow
@@ -183,7 +182,6 @@ public class FSHLog extends AbstractFSWAL<Writer> {
    * @param logDir dir where wals are stored
    * @param conf configuration to use
    */
-  @VisibleForTesting
   public FSHLog(final FileSystem fs, final Path root, final String logDir, final Configuration conf)
       throws IOException {
     this(fs, root, logDir, HConstants.HREGION_OLDLOGDIR_NAME, conf, null, true, null, null);
@@ -216,6 +214,7 @@ public class FSHLog extends AbstractFSWAL<Writer> {
     this.lowReplicationRollLimit = conf.getInt("hbase.regionserver.hlog.lowreplication.rolllimit",
       5);
     this.closeErrorsTolerated = conf.getInt("hbase.regionserver.logroll.errors.tolerated", 2);
+    this.useHsync = conf.getBoolean(HRegion.WAL_HSYNC_CONF_KEY, HRegion.DEFAULT_WAL_HSYNC);
 
     // This is the 'writer' -- a single threaded executor. This single thread 'consumes' what is
     // put on the ring buffer.
@@ -223,8 +222,7 @@ public class FSHLog extends AbstractFSWAL<Writer> {
     // Using BlockingWaitStrategy. Stuff that is going on here takes so long it makes no sense
     // spinning as other strategies do.
     this.disruptor = new Disruptor<>(RingBufferTruck::new,
-        getPreallocatedEventCount(),
-        Threads.newDaemonThreadFactory(hostingThreadName + ".append"),
+        getPreallocatedEventCount(), Threads.getNamedThreadFactory(hostingThreadName + ".append"),
         ProducerType.MULTI, new BlockingWaitStrategy());
     // Advance the ring buffer sequence so that it starts from 1 instead of 0,
     // because SyncFuture.NOT_DONE = 0.
@@ -240,7 +238,8 @@ public class FSHLog extends AbstractFSWAL<Writer> {
 
   /**
    * Currently, we need to expose the writer's OutputStream to tests so that they can manipulate the
-   * default behavior (such as setting the maxRecoveryErrorCount value). This is
+   * default behavior (such as setting the maxRecoveryErrorCount value for example (see
+   * {@see org.apache.hadoop.hbase.regionserver.wal.AbstractTestWALReplay#testReplayEditsWrittenIntoWAL()}). This is
    * done using reflection on the underlying HDFS OutputStream. NOTE: This could be removed once Hadoop1 support is
    * removed.
    * @return null if underlying stream is not ready.
@@ -258,7 +257,10 @@ public class FSHLog extends AbstractFSWAL<Writer> {
     long startTimeNanos = System.nanoTime();
     try {
       nextWriter.sync(useHsync);
-      postSync(System.nanoTime() - startTimeNanos, 0);
+      boolean doRequestRoll = postSync(System.nanoTime() - startTimeNanos, 0);
+      if (doRequestRoll) {
+        LOG.info("Ignoring a roll request after a sync for a new file");
+      }
     } catch (IOException e) {
       // optimization failed, no need to abort here.
       LOG.warn("pre-sync failed but an optimization so keep going", e);
@@ -382,8 +384,6 @@ public class FSHLog extends AbstractFSWAL<Writer> {
     } finally {
       // Let the writer thread go regardless, whether error or not.
       if (zigzagLatch != null) {
-        // Reset rollRequested status
-        rollRequested.set(false);
         zigzagLatch.releaseSafePoint();
         // syncFuture will be null if we failed our wait on safe point above. Otherwise, if
         // latch was obtained successfully, the sync we threw in either trigger the latch or it
@@ -430,9 +430,11 @@ public class FSHLog extends AbstractFSWAL<Writer> {
     }
   }
 
+  @edu.umd.cs.findbugs.annotations.SuppressWarnings(value = "NP_NULL_ON_SOME_PATH_EXCEPTION",
+      justification = "Will never be null")
   @Override
-  protected long append(final RegionInfo hri, final WALKeyImpl key, final WALEdit edits,
-    final boolean inMemstore) throws IOException {
+  public long append(final RegionInfo hri, final WALKeyImpl key, final WALEdit edits,
+      final boolean inMemstore) throws IOException {
     return stampSequenceIdAndPublishToRingBuffer(hri, key, edits, inMemstore,
       disruptor.getRingBuffer());
   }
@@ -577,9 +579,10 @@ public class FSHLog extends AbstractFSWAL<Writer> {
           //TraceScope scope = Trace.continueSpan(takeSyncFuture.getSpan());
           long start = System.nanoTime();
           Throwable lastException = null;
+          boolean wasRollRequested = false;
           try {
             TraceUtil.addTimelineAnnotation("syncing writer");
-            writer.sync(takeSyncFuture.isForceSync());
+            writer.sync(useHsync);
             TraceUtil.addTimelineAnnotation("writer synced");
             currentSequence = updateHighestSyncedSequence(currentSequence);
           } catch (IOException e) {
@@ -597,12 +600,16 @@ public class FSHLog extends AbstractFSWAL<Writer> {
             // Can we release other syncs?
             syncCount += releaseSyncFutures(currentSequence, lastException);
             if (lastException != null) {
-              requestLogRoll(ERROR);
+              wasRollRequested = true;
+              requestLogRoll();
             } else {
-              checkLogRoll();
+              wasRollRequested = checkLogRoll();
             }
           }
-          postSync(System.nanoTime() - start, syncCount);
+          boolean doRequestRoll = postSync(System.nanoTime() - start, syncCount);
+          if (!wasRollRequested && doRequestRoll) {
+            requestLogRoll();
+          }
         } catch (InterruptedException e) {
           // Presume legit interrupt.
           Thread.currentThread().interrupt();
@@ -617,34 +624,19 @@ public class FSHLog extends AbstractFSWAL<Writer> {
    * Schedule a log roll if needed.
    */
   private boolean checkLogRoll() {
-    // If we have already requested a roll, do nothing
-    if (isLogRollRequested()) {
-      return false;
-    }
     // Will return immediately if we are in the middle of a WAL log roll currently.
     if (!rollWriterLock.tryLock()) {
       return false;
     }
+    boolean lowReplication;
     try {
-      if (doCheckLogLowReplication()) {
-        LOG.warn("Requesting log roll because of low replication, current pipeline: " +
-          Arrays.toString(getPipeline()));
-        requestLogRoll(LOW_REPLICATION);
-        return true;
-      } else if (writer != null && writer.getLength() > logrollsize) {
-        if (LOG.isDebugEnabled()) {
-          LOG.debug("Requesting log roll because of file size threshold; length=" +
-            writer.getLength() + ", logrollsize=" + logrollsize);
-        }
-        requestLogRoll(SIZE);
-        return true;
-      } else if (doCheckSlowSync()) {
-        // We log this already in checkSlowSync
-        requestLogRoll(SLOW_SYNC);
-        return true;
-      }
+      lowReplication = doCheckLogLowReplication();
     } finally {
       rollWriterLock.unlock();
+    }
+    if (lowReplication || (writer != null && writer.getLength() > logrollsize)) {
+      requestLogRoll(lowReplication);
+      return true;
     }
     return false;
   }
@@ -711,7 +703,7 @@ public class FSHLog extends AbstractFSWAL<Writer> {
   @VisibleForTesting
   protected SyncFuture publishSyncOnRingBuffer(long sequence, boolean forceSync) {
     // here we use ring buffer sequence as transaction id
-    SyncFuture syncFuture = getSyncFuture(sequence, forceSync);
+    SyncFuture syncFuture = getSyncFuture(sequence).setForceSync(forceSync);
     try {
       RingBufferTruck truck = this.disruptor.getRingBuffer().get(sequence);
       truck.load(syncFuture);
@@ -782,8 +774,8 @@ public class FSHLog extends AbstractFSWAL<Writer> {
   }
 
   public static final long FIXED_OVERHEAD = ClassSize
-      .align(ClassSize.OBJECT + (5 * ClassSize.REFERENCE) + (2 * ClassSize.ATOMIC_INTEGER)
-          + (3 * Bytes.SIZEOF_INT) + (4 * Bytes.SIZEOF_LONG));
+      .align(ClassSize.OBJECT + (5 * ClassSize.REFERENCE) + ClassSize.ATOMIC_INTEGER
+          + Bytes.SIZEOF_INT + (3 * Bytes.SIZEOF_LONG));
 
   /**
    * This class is used coordinating two threads holding one thread at a 'safe point' while the
@@ -979,6 +971,7 @@ public class FSHLog extends AbstractFSWAL<Writer> {
           //TODO handle htrace API change, see HBASE-18895
           //TraceScope scope = Trace.continueSpan(entry.detachSpan());
           try {
+
             if (this.exception != null) {
               // Return to keep processing events coming off the ringbuffer
               return;
@@ -995,8 +988,6 @@ public class FSHLog extends AbstractFSWAL<Writer> {
                     : new DamagedWALException("On sync", this.exception));
             // Return to keep processing events coming off the ringbuffer
             return;
-          } finally {
-            entry.release();
           }
         } else {
           // What is this if not an append or sync. Fail all up to this!!!
@@ -1032,7 +1023,7 @@ public class FSHLog extends AbstractFSWAL<Writer> {
               this.syncFuturesCount.get());
           } catch (Exception e) {
             // Should NEVER get here.
-            requestLogRoll(ERROR);
+            requestLogRoll();
             this.exception = new DamagedWALException("Failed offering sync", e);
           }
         }
@@ -1094,12 +1085,12 @@ public class FSHLog extends AbstractFSWAL<Writer> {
      */
     void append(final FSWALEntry entry) throws Exception {
       try {
-        FSHLog.this.appendEntry(writer, entry);
+        FSHLog.this.append(writer, entry);
       } catch (Exception e) {
         String msg = "Append sequenceId=" + entry.getKey().getSequenceId()
             + ", requesting roll of WAL";
         LOG.warn(msg, e);
-        requestLogRoll(ERROR);
+        requestLogRoll();
         throw new DamagedWALException(msg, e);
       }
     }
@@ -1130,15 +1121,5 @@ public class FSHLog extends AbstractFSWAL<Writer> {
       }
     }
     return new DatanodeInfo[0];
-  }
-
-  @VisibleForTesting
-  Writer getWriter() {
-    return this.writer;
-  }
-
-  @VisibleForTesting
-  void setWriter(Writer writer) {
-    this.writer = writer;
   }
 }

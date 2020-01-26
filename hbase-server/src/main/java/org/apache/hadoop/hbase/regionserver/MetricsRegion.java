@@ -18,7 +18,6 @@
  */
 package org.apache.hadoop.hbase.regionserver;
 
-import org.apache.hadoop.conf.Configuration;
 import org.apache.yetus.audience.InterfaceAudience;
 import org.apache.hadoop.hbase.CompatibilitySingletonFactory;
 
@@ -30,14 +29,12 @@ import org.apache.hadoop.hbase.CompatibilitySingletonFactory;
 @InterfaceAudience.Private
 public class MetricsRegion {
   private final MetricsRegionSource source;
-  private final MetricsUserAggregate userAggregate;
   private MetricsRegionWrapper regionWrapper;
 
-  public MetricsRegion(final MetricsRegionWrapper wrapper, Configuration conf) {
+  public MetricsRegion(final MetricsRegionWrapper wrapper) {
     source = CompatibilitySingletonFactory.getInstance(MetricsRegionServerSourceFactory.class)
                                              .createRegion(wrapper);
     this.regionWrapper = wrapper;
-    userAggregate = MetricsUserAggregateFactory.getMetricsUserAggregate(conf);
   }
 
   public void close() {
@@ -60,9 +57,6 @@ public class MetricsRegion {
     source.updateScanTime(t);
   }
 
-  public void updateFilteredRecords(){
-    userAggregate.updateFilteredReadRequests();
-  }
   public void updateAppend() {
     source.updateAppend();
   }
@@ -79,7 +73,4 @@ public class MetricsRegion {
     return regionWrapper;
   }
 
-  public void updateReadRequestCount() {
-    userAggregate.updateReadRequestCount();
-  }
 }

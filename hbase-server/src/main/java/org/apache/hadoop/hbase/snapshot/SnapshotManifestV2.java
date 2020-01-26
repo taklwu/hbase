@@ -129,11 +129,7 @@ public final class SnapshotManifestV2 {
       if (storeFile.isReference()) {
         sfManifest.setReference(storeFile.getReference().convert());
       }
-      if (!storeFile.isReference() && !storeFile.isLink()) {
-        sfManifest.setFileSize(storeFile.getSize());
-      } else {
-        sfManifest.setFileSize(storeFile.getReferencedFileStatus(rootFs).getLen());
-      }
+      sfManifest.setFileSize(storeFile.getReferencedFileStatus(rootFs).getLen());
       family.addStoreFiles(sfManifest.build());
     }
   }
@@ -182,7 +178,9 @@ public final class SnapshotManifestV2 {
       if(t instanceof InvalidProtocolBufferException) {
         throw (InvalidProtocolBufferException)t;
       } else {
-        throw new IOException("ExecutionException", e.getCause());
+        IOException ex = new IOException("ExecutionException");
+        ex.initCause(e.getCause());
+        throw ex;
       }
     }
     return regionsManifest;

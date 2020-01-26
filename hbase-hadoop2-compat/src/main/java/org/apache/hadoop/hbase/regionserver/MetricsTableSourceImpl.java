@@ -367,19 +367,19 @@ public class MetricsTableSourceImpl implements MetricsTableSource {
   }
 
   @Override
-  public synchronized void updateFlushMemstoreSize(long bytes) {
+  public void updateFlushMemstoreSize(long bytes) {
     flushMemstoreSizeHisto.add(bytes);
     flushedMemstoreBytes.incr(bytes);
   }
 
   @Override
-  public synchronized void updateFlushOutputSize(long bytes) {
+  public void updateFlushOutputSize(long bytes) {
     flushOutputSizeHisto.add(bytes);
     flushedOutputBytes.incr(bytes);
   }
 
   @Override
-  public synchronized void updateCompactionTime(boolean isMajor, long t) {
+  public void updateCompactionTime(boolean isMajor, long t) {
     compactionTimeHisto.add(t);
     if (isMajor) {
       majorCompactionTimeHisto.add(t);
@@ -387,7 +387,7 @@ public class MetricsTableSourceImpl implements MetricsTableSource {
   }
 
   @Override
-  public synchronized void updateCompactionInputFileCount(boolean isMajor, long c) {
+  public void updateCompactionInputFileCount(boolean isMajor, long c) {
     compactionInputFileCountHisto.add(c);
     if (isMajor) {
       majorCompactionInputFileCountHisto.add(c);
@@ -395,7 +395,7 @@ public class MetricsTableSourceImpl implements MetricsTableSource {
   }
 
   @Override
-  public synchronized void updateCompactionInputSize(boolean isMajor, long bytes) {
+  public void updateCompactionInputSize(boolean isMajor, long bytes) {
     compactionInputSizeHisto.add(bytes);
     compactedInputBytes.incr(bytes);
     if (isMajor) {
@@ -405,7 +405,7 @@ public class MetricsTableSourceImpl implements MetricsTableSource {
   }
 
   @Override
-  public synchronized void updateCompactionOutputFileCount(boolean isMajor, long c) {
+  public void updateCompactionOutputFileCount(boolean isMajor, long c) {
     compactionOutputFileCountHisto.add(c);
     if (isMajor) {
       majorCompactionOutputFileCountHisto.add(c);
@@ -413,7 +413,7 @@ public class MetricsTableSourceImpl implements MetricsTableSource {
   }
 
   @Override
-  public synchronized void updateCompactionOutputSize(boolean isMajor, long bytes) {
+  public void updateCompactionOutputSize(boolean isMajor, long bytes) {
     compactionOutputSizeHisto.add(bytes);
     compactedOutputBytes.incr(bytes);
     if (isMajor) {

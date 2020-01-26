@@ -17,10 +17,6 @@
  */
 package org.apache.hadoop.hbase.http;
 
-import java.io.IOException;
-import java.util.HashMap;
-import java.util.Map;
-
 import javax.servlet.Filter;
 import javax.servlet.FilterChain;
 import javax.servlet.FilterConfig;
@@ -28,38 +24,32 @@ import javax.servlet.ServletException;
 import javax.servlet.ServletRequest;
 import javax.servlet.ServletResponse;
 import javax.servlet.http.HttpServletResponse;
-
-import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.hbase.HBaseInterfaceAudience;
+import java.io.IOException;
 
 import org.apache.yetus.audience.InterfaceAudience;
+import org.apache.hadoop.hbase.HBaseInterfaceAudience;
 
 @InterfaceAudience.LimitedPrivate(HBaseInterfaceAudience.CONFIG)
 public class ClickjackingPreventionFilter implements Filter {
-  private FilterConfig filterConfig;
-  private static final String DEFAULT_XFRAMEOPTIONS = "DENY";
 
-  @Override
-  public void init(FilterConfig filterConfig) throws ServletException {
-    this.filterConfig = filterConfig;
-  }
+    private FilterConfig filterConfig;
 
-  @Override
-  public void doFilter(ServletRequest req, ServletResponse res, FilterChain chain)
-        throws IOException, ServletException {
-    HttpServletResponse httpRes = (HttpServletResponse) res;
-    httpRes.addHeader("X-Frame-Options", filterConfig.getInitParameter("xframeoptions"));
-    chain.doFilter(req, res);
-  }
+    @Override
+    public void init(FilterConfig filterConfig) throws ServletException {
+        this.filterConfig = filterConfig;
+    }
 
-  @Override
-  public void destroy() {
-  }
+    @Override
+    public void doFilter(ServletRequest req, ServletResponse res,
+                         FilterChain chain)
+            throws IOException, ServletException {
+        HttpServletResponse httpRes = (HttpServletResponse) res;
+        httpRes.addHeader("X-Frame-Options", filterConfig.getInitParameter("xframeoptions"));
+        chain.doFilter(req, res);
+    }
 
-  public static Map<String, String> getDefaultParameters(Configuration conf) {
-    Map<String, String> params = new HashMap<>();
-    params.put("xframeoptions", conf.get("hbase.http.filter.xframeoptions.mode",
-        DEFAULT_XFRAMEOPTIONS));
-    return params;
-  }
+    @Override
+    public void destroy() {
+    }
+
 }

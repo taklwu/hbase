@@ -196,9 +196,7 @@ public class MonitoredRPCHandlerImpl extends MonitoredTaskImpl
       long queueTime) {
     this.methodName = methodName;
     this.params = params;
-    long now = System.currentTimeMillis();
-    this.rpcStartTime = now;
-    setWarnTime(now);
+    this.rpcStartTime = System.currentTimeMillis();
     this.rpcQueueTime = queueTime;
     this.state = State.RUNNING;
   }

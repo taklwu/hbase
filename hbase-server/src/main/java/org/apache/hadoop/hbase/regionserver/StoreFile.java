@@ -66,11 +66,6 @@ public interface StoreFile {
   Path getPath();
 
   /**
-   * @return Encoded Path if this StoreFile was made with a Stream.
-   */
-  Path getEncodedPath();
-
-  /**
    * @return Returns the qualified path of this StoreFile
    */
   Path getQualifiedPath();
@@ -99,6 +94,15 @@ public interface StoreFile {
    * @return This files maximum edit sequence id.
    */
   long getMaxSequenceId();
+
+  /**
+   * Get the modification time of this store file. Usually will access the file system so throws
+   * IOException.
+   * @deprecated Since 2.0.0. Will be removed in 3.0.0.
+   * @see #getModificationTimestamp()
+   */
+  @Deprecated
+  long getModificationTimeStamp() throws IOException;
 
   /**
    * Get the modification time of this store file. Usually will access the file system so throws

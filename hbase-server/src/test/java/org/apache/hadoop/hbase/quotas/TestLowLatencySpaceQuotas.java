@@ -17,13 +17,12 @@
 package org.apache.hadoop.hbase.quotas;
 
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 import java.util.Collections;
 import java.util.List;
-import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
+
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.FileSystem;
@@ -32,8 +31,11 @@ import org.apache.hadoop.hbase.HBaseClassTestRule;
 import org.apache.hadoop.hbase.HBaseTestingUtility;
 import org.apache.hadoop.hbase.TableName;
 import org.apache.hadoop.hbase.client.Admin;
+import org.apache.hadoop.hbase.client.ClientServiceCallable;
 import org.apache.hadoop.hbase.client.Connection;
 import org.apache.hadoop.hbase.client.Result;
+import org.apache.hadoop.hbase.client.RpcRetryingCaller;
+import org.apache.hadoop.hbase.client.RpcRetryingCallerFactory;
 import org.apache.hadoop.hbase.client.SnapshotType;
 import org.apache.hadoop.hbase.client.Table;
 import org.apache.hadoop.hbase.quotas.SpaceQuotaHelperForTests.SpaceQuotaSnapshotPredicate;
@@ -41,7 +43,6 @@ import org.apache.hadoop.hbase.regionserver.HRegion;
 import org.apache.hadoop.hbase.regionserver.Region;
 import org.apache.hadoop.hbase.regionserver.Store;
 import org.apache.hadoop.hbase.testclassification.MediumTests;
-import org.apache.hadoop.hbase.tool.BulkLoadHFiles;
 import org.junit.AfterClass;
 import org.junit.Before;
 import org.junit.BeforeClass;
@@ -213,7 +214,7 @@ public class TestLowLatencySpaceQuotas {
         tn, SpaceQuotaHelperForTests.ONE_GIGABYTE, SpaceViolationPolicy.NO_INSERTS);
     admin.setQuota(settings);
 
-    Map<byte[], List<Path>> family2Files = helper.generateFileToLoad(tn, 3, 550);
+    ClientServiceCallable<Boolean> callable = helper.generateFileToLoad(tn, 3, 550);
     // Make sure the files are about as long as we expect
     FileSystem fs = TEST_UTIL.getTestFileSystem();
     FileStatus[] files = fs.listStatus(
@@ -227,13 +228,13 @@ public class TestLowLatencySpaceQuotas {
       totalSize += file.getLen();
     }
 
-    assertFalse("The bulk load failed",
-      BulkLoadHFiles.create(TEST_UTIL.getConfiguration()).bulkLoad(tn, family2Files).isEmpty());
+    RpcRetryingCallerFactory factory = new RpcRetryingCallerFactory(TEST_UTIL.getConfiguration());
+    RpcRetryingCaller<Boolean> caller = factory.<Boolean> newCaller();
+    assertTrue("The bulk load failed", caller.callWithRetries(callable, Integer.MAX_VALUE));
 
     final long finalTotalSize = totalSize;
     TEST_UTIL.waitFor(30 * 1000, 500, new SpaceQuotaSnapshotPredicate(conn, tn) {
-      @Override
-      boolean evaluate(SpaceQuotaSnapshot snapshot) throws Exception {
+      @Override boolean evaluate(SpaceQuotaSnapshot snapshot) throws Exception {
         return snapshot.getUsage() >= finalTotalSize;
       }
     });

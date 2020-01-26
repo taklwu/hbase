@@ -37,6 +37,6 @@ public class TestReplicationKillMasterRS extends TestReplicationKillRS {
 
   @Test
   public void killOneMasterRS() throws Exception {
-    loadTableAndKillRS(UTIL1);
+    loadTableAndKillRS(utility1);
   }
 }

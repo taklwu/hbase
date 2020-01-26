@@ -35,6 +35,7 @@ import org.apache.hadoop.hbase.CompareOperator;
 import org.apache.hadoop.hbase.ExtendedCellBuilder;
 import org.apache.hadoop.hbase.ExtendedCellBuilderFactory;
 import org.apache.hadoop.hbase.HConstants;
+import org.apache.hadoop.hbase.HRegionInfo;
 import org.apache.hadoop.hbase.HRegionLocation;
 import org.apache.hadoop.hbase.HTableDescriptor;
 import org.apache.hadoop.hbase.KeepDeletedCells;
@@ -53,7 +54,6 @@ import org.apache.hadoop.hbase.client.Increment;
 import org.apache.hadoop.hbase.client.Mutation;
 import org.apache.hadoop.hbase.client.OperationWithAttributes;
 import org.apache.hadoop.hbase.client.Put;
-import org.apache.hadoop.hbase.client.RegionInfo;
 import org.apache.hadoop.hbase.client.Result;
 import org.apache.hadoop.hbase.client.RowMutations;
 import org.apache.hadoop.hbase.client.Scan;
@@ -62,6 +62,7 @@ import org.apache.hadoop.hbase.client.TableDescriptor;
 import org.apache.hadoop.hbase.client.TableDescriptorBuilder;
 import org.apache.hadoop.hbase.exceptions.DeserializationException;
 import org.apache.hadoop.hbase.filter.Filter;
+import org.apache.hadoop.hbase.filter.FilterBase;
 import org.apache.hadoop.hbase.filter.ParseFilter;
 import org.apache.hadoop.hbase.io.TimeRange;
 import org.apache.hadoop.hbase.io.compress.Compression;
@@ -77,7 +78,7 @@ import org.apache.hadoop.hbase.thrift2.generated.TColumn;
 import org.apache.hadoop.hbase.thrift2.generated.TColumnFamilyDescriptor;
 import org.apache.hadoop.hbase.thrift2.generated.TColumnIncrement;
 import org.apache.hadoop.hbase.thrift2.generated.TColumnValue;
-import org.apache.hadoop.hbase.thrift2.generated.TCompareOperator;
+import org.apache.hadoop.hbase.thrift2.generated.TCompareOp;
 import org.apache.hadoop.hbase.thrift2.generated.TCompressionAlgorithm;
 import org.apache.hadoop.hbase.thrift2.generated.TConsistency;
 import org.apache.hadoop.hbase.thrift2.generated.TDataBlockEncoding;
@@ -104,9 +105,6 @@ import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.yetus.audience.InterfaceAudience;
 
 import org.apache.hbase.thirdparty.org.apache.commons.collections4.MapUtils;
-
-import org.apache.hadoop.hbase.shaded.protobuf.ProtobufUtil;
-import org.apache.hadoop.hbase.shaded.protobuf.generated.FilterProtos;
 
 @InterfaceAudience.Private
 public final class ThriftUtilities {
@@ -143,7 +141,7 @@ public final class ThriftUtilities {
     }
 
     if (in.isSetMaxVersions()) {
-      out.readVersions(in.getMaxVersions());
+      out.setMaxVersions(in.getMaxVersions());
     }
 
     if (in.isSetFilterString()) {
@@ -180,19 +178,27 @@ public final class ThriftUtilities {
       out.setCheckExistenceOnly(in.isExistence_only());
     }
 
-    if (in.isSetColumns()) {
-      for (TColumn column : in.getColumns()) {
-        if (column.isSetQualifier()) {
-          out.addColumn(column.getFamily(), column.getQualifier());
-        } else {
-          out.addFamily(column.getFamily());
-        }
+
+    if (!in.isSetColumns()) {
+      return out;
+    }
+
+    for (TColumn column : in.getColumns()) {
+      if (column.isSetQualifier()) {
+        out.addColumn(column.getFamily(), column.getQualifier());
+      } else {
+        out.addFamily(column.getFamily());
+      }
+    }
+    if (in.isSetFilterBytes()) {
+      try {
+        Filter filter = FilterBase.parseFrom(in.getFilterBytes());
+        out.setFilter(filter);
+      } catch (DeserializationException e) {
+        throw new RuntimeException(e);
       }
     }
 
-    if (in.isSetFilterBytes()) {
-      out.setFilter(filterFromThrift(in.getFilterBytes()));
-    }
     return out;
   }
 
@@ -593,20 +599,15 @@ public final class ThriftUtilities {
     }
 
     if (in.isSetFilterBytes()) {
-      out.setFilter(filterFromThrift(in.getFilterBytes()));
+      try {
+        Filter filter = FilterBase.parseFrom(in.getFilterBytes());
+        out.setFilter(filter);
+      } catch (DeserializationException e) {
+        throw new RuntimeException(e);
+      }
     }
 
     return out;
-  }
-
-  public static byte[] filterFromHBase(Filter filter) throws IOException {
-    FilterProtos.Filter filterPB = ProtobufUtil.toFilter(filter);
-    return filterPB.toByteArray();
-  }
-
-  public static Filter filterFromThrift(byte[] filterBytes) throws IOException {
-    FilterProtos.Filter filterPB  = FilterProtos.Filter.parseFrom(filterBytes);
-    return ProtobufUtil.toFilter(filterPB);
   }
 
   public static TScan scanFromHBase(Scan in) throws IOException {
@@ -666,7 +667,7 @@ public final class ThriftUtilities {
     }
     if (in.getFilter() != null) {
       try {
-        out.setFilterBytes(filterFromHBase(in.getFilter()));
+        out.setFilterBytes(in.getFilter().toByteArray());
       } catch (IOException ioE) {
         throw new RuntimeException(ioE);
       }
@@ -725,7 +726,7 @@ public final class ThriftUtilities {
   }
 
   public static THRegionLocation regionLocationFromHBase(HRegionLocation hrl) {
-    RegionInfo hri = hrl.getRegion();
+    HRegionInfo hri = hrl.getRegionInfo();
     ServerName serverName = hrl.getServerName();
 
     THRegionInfo thRegionInfo = new THRegionInfo();
@@ -783,7 +784,7 @@ public final class ThriftUtilities {
     }
   }
 
-  public static CompareOperator compareOpFromThrift(TCompareOperator tCompareOp) {
+  public static CompareOperator compareOpFromThrift(TCompareOp tCompareOp) {
     switch (tCompareOp.getValue()) {
       case 0: return CompareOperator.LESS;
       case 1: return CompareOperator.LESS_OR_EQUAL;
@@ -1231,7 +1232,7 @@ public final class ThriftUtilities {
     }
     if (in.getFilter() != null) {
       try {
-        out.setFilterBytes(filterFromHBase(in.getFilter()));
+        out.setFilterBytes(in.getFilter().toByteArray());
       } catch (IOException ioE) {
         throw new RuntimeException(ioE);
       }
@@ -1291,7 +1292,7 @@ public final class ThriftUtilities {
             .setTimestamp(cell.getTimestamp())
             .setValue(CellUtil.cloneValue(cell));
         if (cell.getTagsLength() != 0) {
-          columnValue.setTags(PrivateCellUtil.cloneTags(cell));
+          columnValue.setTags(CellUtil.cloneTags(cell));
         }
         out.addToColumnValues(columnValue);
       }
@@ -1356,7 +1357,7 @@ public final class ThriftUtilities {
             .setTimestamp(cell.getTimestamp())
             .setValue(CellUtil.cloneValue(cell));
         if (cell.getTagsLength() != 0) {
-          columnValue.setTags(PrivateCellUtil.cloneTags(cell));
+          columnValue.setTags(CellUtil.cloneTags(cell));
         }
         out.addToColumns(columnValue);
       }
@@ -1432,15 +1433,15 @@ public final class ThriftUtilities {
     return tRowMutations;
   }
 
-  public static TCompareOperator compareOpFromHBase(CompareOperator compareOp) {
+  public static TCompareOp compareOpFromHBase(CompareOperator compareOp) {
     switch (compareOp) {
-      case LESS: return TCompareOperator.LESS;
-      case LESS_OR_EQUAL: return TCompareOperator.LESS_OR_EQUAL;
-      case EQUAL: return TCompareOperator.EQUAL;
-      case NOT_EQUAL: return TCompareOperator.NOT_EQUAL;
-      case GREATER_OR_EQUAL: return TCompareOperator.GREATER_OR_EQUAL;
-      case GREATER: return TCompareOperator.GREATER;
-      case NO_OP: return TCompareOperator.NO_OP;
+      case LESS: return TCompareOp.LESS;
+      case LESS_OR_EQUAL: return TCompareOp.LESS_OR_EQUAL;
+      case EQUAL: return TCompareOp.EQUAL;
+      case NOT_EQUAL: return TCompareOp.NOT_EQUAL;
+      case GREATER_OR_EQUAL: return TCompareOp.GREATER_OR_EQUAL;
+      case GREATER: return TCompareOp.GREATER;
+      case NO_OP: return TCompareOp.NO_OP;
       default: return null;
     }
   }

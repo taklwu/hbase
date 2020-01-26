@@ -19,6 +19,7 @@
 package org.apache.hadoop.hbase.master.procedure;
 
 import java.io.IOException;
+import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.hbase.HBaseIOException;
 import org.apache.hadoop.hbase.HConstants;
 import org.apache.hadoop.hbase.MetaTableAccessor;
@@ -30,11 +31,10 @@ import org.apache.hadoop.hbase.client.RegionInfo;
 import org.apache.hadoop.hbase.client.TableState;
 import org.apache.hadoop.hbase.constraint.ConstraintException;
 import org.apache.hadoop.hbase.master.MasterCoprocessorHost;
-import org.apache.hadoop.hbase.master.MasterFileSystem;
 import org.apache.hadoop.hbase.master.TableStateManager;
 import org.apache.hadoop.hbase.procedure2.ProcedureStateSerializer;
 import org.apache.hadoop.hbase.util.EnvironmentEdgeManager;
-import org.apache.hadoop.hbase.wal.WALSplitUtil;
+import org.apache.hadoop.hbase.wal.WALSplitter;
 import org.apache.yetus.audience.InterfaceAudience;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -110,14 +110,14 @@ public class DisableTableProcedure
           break;
         case DISABLE_TABLE_ADD_REPLICATION_BARRIER:
           if (env.getMasterServices().getTableDescriptors().get(tableName)
-              .hasGlobalReplicationScope()) {
-            MasterFileSystem fs = env.getMasterFileSystem();
+            .hasGlobalReplicationScope()) {
+            FileSystem walFS = env.getMasterServices().getMasterWalManager().getFileSystem();
             try (BufferedMutator mutator = env.getMasterServices().getConnection()
               .getBufferedMutator(TableName.META_TABLE_NAME)) {
               for (RegionInfo region : env.getAssignmentManager().getRegionStates()
                 .getRegionsOfTable(tableName)) {
-                long maxSequenceId = WALSplitUtil.getMaxRegionSequenceId(
-                  env.getMasterConfiguration(), region, fs::getFileSystem, fs::getWALFileSystem);
+                long maxSequenceId =
+                  WALSplitter.getMaxRegionSequenceId(walFS, getWALRegionDir(env, region));
                 long openSeqNum = maxSequenceId > 0 ? maxSequenceId + 1 : HConstants.NO_SEQNUM;
                 mutator.mutate(MetaTableAccessor.makePutForReplicationBarrier(region, openSeqNum,
                   EnvironmentEdgeManager.currentTime()));
@@ -243,8 +243,7 @@ public class DisableTableProcedure
   private boolean prepareDisable(final MasterProcedureEnv env) throws IOException {
     boolean canTableBeDisabled = true;
     if (tableName.equals(TableName.META_TABLE_NAME)) {
-      setFailure("master-disable-table",
-        new ConstraintException("Cannot disable " + this.tableName));
+      setFailure("master-disable-table", new ConstraintException("Cannot disable catalog table"));
       canTableBeDisabled = false;
     } else if (!MetaTableAccessor.tableExists(env.getMasterServices().getConnection(), tableName)) {
       setFailure("master-disable-table", new TableNotFoundException(tableName));

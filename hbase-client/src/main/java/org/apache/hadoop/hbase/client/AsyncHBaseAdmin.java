@@ -42,8 +42,6 @@ import org.apache.hadoop.hbase.quotas.SpaceQuotaSnapshot;
 import org.apache.hadoop.hbase.replication.ReplicationPeerConfig;
 import org.apache.hadoop.hbase.replication.ReplicationPeerDescription;
 import org.apache.hadoop.hbase.replication.SyncReplicationState;
-import org.apache.hadoop.hbase.security.access.GetUserPermissionsRequest;
-import org.apache.hadoop.hbase.security.access.Permission;
 import org.apache.hadoop.hbase.security.access.UserPermission;
 import org.apache.hadoop.hbase.util.FutureUtils;
 import org.apache.yetus.audience.InterfaceAudience;
@@ -88,11 +86,6 @@ class AsyncHBaseAdmin implements AsyncAdmin {
   public CompletableFuture<List<TableDescriptor>> listTableDescriptors(Pattern pattern,
       boolean includeSysTables) {
     return wrap(rawAdmin.listTableDescriptors(pattern, includeSysTables));
-  }
-
-  @Override
-  public CompletableFuture<List<TableDescriptor>> listTableDescriptors(List<TableName> tableNames) {
-    return wrap(rawAdmin.listTableDescriptors(tableNames));
   }
 
   @Override
@@ -178,6 +171,11 @@ class AsyncHBaseAdmin implements AsyncAdmin {
   }
 
   @Override
+  public CompletableFuture<Boolean> isTableAvailable(TableName tableName, byte[][] splitKeys) {
+    return wrap(rawAdmin.isTableAvailable(tableName, splitKeys));
+  }
+
+  @Override
   public CompletableFuture<Void> addColumnFamily(TableName tableName,
       ColumnFamilyDescriptor columnFamily) {
     return wrap(rawAdmin.addColumnFamily(tableName, columnFamily));
@@ -212,11 +210,6 @@ class AsyncHBaseAdmin implements AsyncAdmin {
   @Override
   public CompletableFuture<NamespaceDescriptor> getNamespaceDescriptor(String name) {
     return wrap(rawAdmin.getNamespaceDescriptor(name));
-  }
-
-  @Override
-  public CompletableFuture<List<String>> listNamespaces() {
-    return wrap(rawAdmin.listNamespaces());
   }
 
   @Override
@@ -303,8 +296,8 @@ class AsyncHBaseAdmin implements AsyncAdmin {
   }
 
   @Override
-  public CompletableFuture<Boolean> mergeSwitch(boolean enabled, boolean drainMerges) {
-    return wrap(rawAdmin.mergeSwitch(enabled, drainMerges));
+  public CompletableFuture<Boolean> mergeSwitch(boolean on) {
+    return wrap(rawAdmin.mergeSwitch(on));
   }
 
   @Override
@@ -313,8 +306,8 @@ class AsyncHBaseAdmin implements AsyncAdmin {
   }
 
   @Override
-  public CompletableFuture<Boolean> splitSwitch(boolean enabled, boolean drainSplits) {
-    return wrap(rawAdmin.splitSwitch(enabled, drainSplits));
+  public CompletableFuture<Boolean> splitSwitch(boolean on) {
+    return wrap(rawAdmin.splitSwitch(on));
   }
 
   @Override
@@ -323,8 +316,9 @@ class AsyncHBaseAdmin implements AsyncAdmin {
   }
 
   @Override
-  public CompletableFuture<Void> mergeRegions(List<byte[]> nameOfRegionsToMerge, boolean forcible) {
-    return wrap(rawAdmin.mergeRegions(nameOfRegionsToMerge, forcible));
+  public CompletableFuture<Void> mergeRegions(byte[] nameOfRegionA, byte[] nameOfRegionB,
+      boolean forcible) {
+    return wrap(rawAdmin.mergeRegions(nameOfRegionA, nameOfRegionB, forcible));
   }
 
   @Override
@@ -473,15 +467,13 @@ class AsyncHBaseAdmin implements AsyncAdmin {
   }
 
   @Override
-  public CompletableFuture<Void> restoreSnapshot(String snapshotName, boolean takeFailSafeSnapshot,
-      boolean restoreAcl) {
-    return wrap(rawAdmin.restoreSnapshot(snapshotName, takeFailSafeSnapshot, restoreAcl));
+  public CompletableFuture<Void> restoreSnapshot(String snapshotName, boolean takeFailSafeSnapshot) {
+    return wrap(rawAdmin.restoreSnapshot(snapshotName, takeFailSafeSnapshot));
   }
 
   @Override
-  public CompletableFuture<Void> cloneSnapshot(String snapshotName, TableName tableName,
-      boolean restoreAcl) {
-    return wrap(rawAdmin.cloneSnapshot(snapshotName, tableName, restoreAcl));
+  public CompletableFuture<Void> cloneSnapshot(String snapshotName, TableName tableName) {
+    return wrap(rawAdmin.cloneSnapshot(snapshotName, tableName));
   }
 
   @Override
@@ -670,8 +662,8 @@ class AsyncHBaseAdmin implements AsyncAdmin {
   }
 
   @Override
-  public CompletableFuture<Boolean> balancerSwitch(boolean on, boolean drainRITs) {
-    return wrap(rawAdmin.balancerSwitch(on, drainRITs));
+  public CompletableFuture<Boolean> balancerSwitch(boolean on) {
+    return wrap(rawAdmin.balancerSwitch(on));
   }
 
   @Override
@@ -814,28 +806,4 @@ class AsyncHBaseAdmin implements AsyncAdmin {
   public CompletableFuture<Void> revoke(UserPermission userPermission) {
     return wrap(rawAdmin.revoke(userPermission));
   }
-
-  @Override
-  public CompletableFuture<List<UserPermission>>
-      getUserPermissions(GetUserPermissionsRequest getUserPermissionsRequest) {
-    return wrap(rawAdmin.getUserPermissions(getUserPermissionsRequest));
-  }
-
-  @Override
-  public CompletableFuture<List<Boolean>> hasUserPermissions(String userName,
-      List<Permission> permissions) {
-    return wrap(rawAdmin.hasUserPermissions(userName, permissions));
-  }
-
-  @Override
-  public CompletableFuture<Boolean> snapshotCleanupSwitch(final boolean on,
-      final boolean sync) {
-    return wrap(rawAdmin.snapshotCleanupSwitch(on, sync));
-  }
-
-  @Override
-  public CompletableFuture<Boolean> isSnapshotCleanupEnabled() {
-    return wrap(rawAdmin.isSnapshotCleanupEnabled());
-  }
-
 }

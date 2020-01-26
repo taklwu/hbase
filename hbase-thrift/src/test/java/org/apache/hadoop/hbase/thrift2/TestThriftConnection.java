@@ -29,6 +29,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
+
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hbase.Cell;
 import org.apache.hadoop.hbase.CellUtil;
@@ -40,11 +41,11 @@ import org.apache.hadoop.hbase.HConstants;
 import org.apache.hadoop.hbase.NamespaceDescriptor;
 import org.apache.hadoop.hbase.TableName;
 import org.apache.hadoop.hbase.client.Admin;
+import org.apache.hadoop.hbase.client.ClusterConnection;
 import org.apache.hadoop.hbase.client.ColumnFamilyDescriptor;
 import org.apache.hadoop.hbase.client.ColumnFamilyDescriptorBuilder;
 import org.apache.hadoop.hbase.client.Connection;
 import org.apache.hadoop.hbase.client.ConnectionFactory;
-import org.apache.hadoop.hbase.client.ConnectionUtils;
 import org.apache.hadoop.hbase.client.Delete;
 import org.apache.hadoop.hbase.client.Durability;
 import org.apache.hadoop.hbase.client.Get;
@@ -55,7 +56,6 @@ import org.apache.hadoop.hbase.client.Scan;
 import org.apache.hadoop.hbase.client.Table;
 import org.apache.hadoop.hbase.client.TableDescriptor;
 import org.apache.hadoop.hbase.client.TableDescriptorBuilder;
-import org.apache.hadoop.hbase.filter.ColumnCountGetFilter;
 import org.apache.hadoop.hbase.filter.ColumnValueFilter;
 import org.apache.hadoop.hbase.filter.FilterList;
 import org.apache.hadoop.hbase.filter.PrefixFilter;
@@ -143,7 +143,7 @@ public class TestThriftConnection {
 
   private static Connection createConnection(int port, boolean useHttp) throws IOException {
     Configuration conf = HBaseConfiguration.create(TEST_UTIL.getConfiguration());
-    conf.set(ConnectionUtils.HBASE_CLIENT_CONNECTION_IMPL,
+    conf.set(ClusterConnection.HBASE_CLIENT_CONNECTION_IMPL,
         ThriftConnection.class.getName());
     if (useHttp) {
       conf.set(Constants.HBASE_THRIFT_CLIENT_BUIDLER_CLASS,
@@ -168,7 +168,7 @@ public class TestThriftConnection {
     httpPort = HBaseTestingUtility.randomFreePort();
     // Start a thrift server
     thriftServer = startThriftServer(thriftPort, false);
-    // Start an HTTP thrift server
+    // Start a HTTP thrift server
     thriftHttpServer = startThriftServer(httpPort, true);
     thriftConnection = createConnection(thriftPort, false);
     thriftHttpConnection = createConnection(httpPort, true);
@@ -297,7 +297,7 @@ public class TestThriftConnection {
 
       get = new Get(ROW_2);
       get.addFamily(FAMILYA);
-      get.readVersions(2);
+      get.setMaxVersions(2);
       result = table.get(get);
       int count = 0;
       for (Cell kv: result.listCells()) {
@@ -313,26 +313,6 @@ public class TestThriftConnection {
       assertEquals(2, count);
     }
 
-  }
-
-  @Test
-  public void testHBASE22011()throws Exception{
-    testHBASE22011(thriftConnection, "testHBASE22011Table");
-    testHBASE22011(thriftHttpConnection, "testHBASE22011HttpTable");
-  }
-
-  public void testHBASE22011(Connection connection, String tableName) throws IOException {
-    createTable(thriftAdmin, tableName);
-    try (Table table = connection.getTable(TableName.valueOf(tableName))){
-      Get get = new Get(ROW_2);
-      Result result = table.get(get);
-      assertEquals(2, result.listCells().size());
-
-      ColumnCountGetFilter filter = new ColumnCountGetFilter(1);
-      get.setFilter(filter);
-      result = table.get(get);
-      assertEquals(1, result.listCells().size());
-    }
   }
 
   @Test
@@ -356,10 +336,10 @@ public class TestThriftConnection {
       //Test Versions
       gets = new ArrayList<>(2);
       Get g = new Get(ROW_1);
-      g.readVersions(3);
+      g.setMaxVersions(3);
       gets.add(g);
       Get get2 = new Get(ROW_2);
-      get2.readVersions(3);
+      get2.setMaxVersions(3);
       gets.add(get2);
       results = table.get(gets);
       assertNotNull(results);
@@ -613,7 +593,7 @@ public class TestThriftConnection {
       assertTrue(Bytes.equals(VALUE_1, value1));
       assertNull(value2);
       assertTrue(table.exists(get));
-      assertEquals(1, table.exists(Collections.singletonList(get)).length);
+      assertEquals(1, table.existsAll(Collections.singletonList(get)).length);
       Delete delete = new Delete(ROW_1);
 
       table.checkAndMutate(ROW_1, FAMILYA).qualifier(QUALIFIER_1)
@@ -717,8 +697,8 @@ public class TestThriftConnection {
 
   @Test
   public void testScanWithFilters() throws Exception {
-    testScanWithFilters(thriftConnection, "testScanWithFiltersTable");
-    testScanWithFilters(thriftHttpConnection, "testScanWithFiltersHttpTable");
+    testIteratorScanner(thriftConnection, "testScanWithFiltersTable");
+    testIteratorScanner(thriftHttpConnection, "testScanWithFiltersHttpTable");
   }
 
   private void testScanWithFilters(Connection connection, String tableName) throws IOException {
@@ -732,7 +712,6 @@ public class TestThriftConnection {
       filterList.addFilter(columnValueFilter);
       Scan scan = new Scan();
       scan.setMaxVersions(2);
-      scan.setFilter(filterList);
       ResultScanner scanner = table.getScanner(scan);
       Iterator<Result> iterator = scanner.iterator();
       assertTrue(iterator.hasNext());

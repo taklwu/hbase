@@ -27,7 +27,6 @@ import org.apache.hadoop.hbase.TableName;
 import org.apache.hadoop.hbase.client.Put;
 import org.apache.hadoop.hbase.client.RegionInfo;
 import org.apache.hadoop.hbase.client.Table;
-import org.apache.hadoop.hbase.master.HMaster;
 import org.apache.hadoop.hbase.master.ServerManager;
 import org.apache.hadoop.hbase.master.procedure.MasterProcedureEnv;
 import org.apache.hadoop.hbase.master.procedure.ServerCrashProcedure;
@@ -150,7 +149,8 @@ public class TestCloseRegionWhileRSCrash {
     if (!srcRs.getRegions(TableName.META_TABLE_NAME).isEmpty()) {
       RegionInfo metaRegion = srcRs.getRegions(TableName.META_TABLE_NAME).get(0).getRegionInfo();
       HRegionServer dstRs = UTIL.getOtherRegionServer(srcRs);
-      UTIL.getAdmin().move(metaRegion.getEncodedNameAsBytes(), dstRs.getServerName());
+      UTIL.getAdmin().move(metaRegion.getEncodedNameAsBytes(),
+        Bytes.toBytes(dstRs.getServerName().getServerName()));
       UTIL.waitFor(30000, () -> !dstRs.getRegions(TableName.META_TABLE_NAME).isEmpty());
     }
   }
@@ -167,14 +167,15 @@ public class TestCloseRegionWhileRSCrash {
     HRegionServer dstRs = UTIL.getOtherRegionServer(srcRs);
     ProcedureExecutor<MasterProcedureEnv> procExec =
       UTIL.getMiniHBaseCluster().getMaster().getMasterProcedureExecutor();
-    procExec.submitProcedure(new DummyServerProcedure(srcRs.getServerName()));
+    long dummyProcId = procExec.submitProcedure(new DummyServerProcedure(srcRs.getServerName()));
     ARRIVE.await();
     UTIL.getMiniHBaseCluster().killRegionServer(srcRs.getServerName());
     UTIL.waitFor(30000,
       () -> procExec.getProcedures().stream().anyMatch(p -> p instanceof ServerCrashProcedure));
     Thread t = new Thread(() -> {
       try {
-        UTIL.getAdmin().move(region.getEncodedNameAsBytes(), dstRs.getServerName());
+        UTIL.getAdmin().move(region.getEncodedNameAsBytes(),
+          Bytes.toBytes(dstRs.getServerName().getServerName()));
       } catch (IOException e) {
       }
     });
@@ -184,12 +185,13 @@ public class TestCloseRegionWhileRSCrash {
       30000);
     // wait until the timeout value increase three times
     ProcedureTestUtil.waitUntilProcedureTimeoutIncrease(UTIL, TransitRegionStateProcedure.class, 3);
-    // close connection to make sure that we can not finish the TRSP
-    HMaster master = UTIL.getMiniHBaseCluster().getMaster();
-    master.getConnection().close();
+    // let's close the connection to make sure that the SCP can not update meta successfully
+    UTIL.getMiniHBaseCluster().getMaster().getConnection().close();
     RESUME.countDown();
-    UTIL.waitFor(30000, () -> !master.isAlive());
-    // here we start a new master
+    UTIL.waitFor(30000, () -> procExec.isFinished(dummyProcId));
+    Thread.sleep(2000);
+    // here we restart
+    UTIL.getMiniHBaseCluster().stopMaster(0).join();
     UTIL.getMiniHBaseCluster().startMaster();
     t.join();
     // Make sure that the region is online, it may not on the original target server, as we will set

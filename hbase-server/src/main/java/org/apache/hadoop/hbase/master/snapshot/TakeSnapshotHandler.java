@@ -59,7 +59,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import org.apache.hbase.thirdparty.com.google.common.base.Preconditions;
-import org.apache.hadoop.hbase.shaded.protobuf.ProtobufUtil;
+
 import org.apache.hadoop.hbase.shaded.protobuf.generated.SnapshotProtos.SnapshotDescription;
 
 /**
@@ -228,10 +228,6 @@ public abstract class TakeSnapshotHandler extends EventHandler implements Snapsh
       status.markComplete(msg);
       LOG.info(msg);
       metricsSnapshot.addSnapshot(status.getCompletionTimestamp() - status.getStartTime());
-      if (master.getMasterCoprocessorHost() != null) {
-        master.getMasterCoprocessorHost()
-            .postCompletedSnapshotAction(ProtobufUtil.createSnapshotDesc(snapshot), this.htd);
-      }
     } catch (Exception e) { // FindBugs: REC_CATCH_EXCEPTION
       status.abort("Failed to complete snapshot " + snapshot.getName() + " on table " +
           snapshotTable + " because " + e.getMessage());
@@ -281,7 +277,6 @@ public abstract class TakeSnapshotHandler extends EventHandler implements Snapsh
     URI workingURI = workingDirFs.getUri();
     URI rootURI = fs.getUri();
     if ((!workingURI.getScheme().equals(rootURI.getScheme()) ||
-        workingURI.getAuthority() == null ||
         !workingURI.getAuthority().equals(rootURI.getAuthority()) ||
         workingURI.getUserInfo() == null ||
         !workingURI.getUserInfo().equals(rootURI.getUserInfo()) ||
@@ -370,4 +365,5 @@ public abstract class TakeSnapshotHandler extends EventHandler implements Snapsh
   public ForeignException getException() {
     return monitor.getException();
   }
+
 }

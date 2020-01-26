@@ -395,7 +395,8 @@ public class FavoredNodeAssignmentHelper {
     rackSkipSet.add(primaryRack);
     String secondaryRack = getOneRandomRack(rackSkipSet);
     List<ServerName> serverList = getServersFromRack(secondaryRack);
-    Set<ServerName> serverSet = new HashSet<>(serverList);
+    Set<ServerName> serverSet = new HashSet<>();
+    serverSet.addAll(serverList);
     ServerName[] favoredNodes;
     if (serverList.size() >= 2) {
       // Randomly pick up two servers from this secondary rack
@@ -432,7 +433,8 @@ public class FavoredNodeAssignmentHelper {
         }
         secondaryRack = getOneRandomRack(rackSkipSet);
         serverList = getServersFromRack(secondaryRack);
-        serverSet = new HashSet<>(serverList);
+        serverSet = new HashSet<>();
+        serverSet.addAll(serverList);
       }
 
       // Place the secondary RS

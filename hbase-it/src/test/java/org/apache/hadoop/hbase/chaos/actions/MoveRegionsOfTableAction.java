@@ -21,23 +21,22 @@ package org.apache.hadoop.hbase.chaos.actions;
 import java.io.IOException;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.EnumSet;
 import java.util.List;
-
 import org.apache.commons.lang3.RandomUtils;
+import org.apache.hadoop.hbase.ClusterMetrics.Option;
+import org.apache.hadoop.hbase.HRegionInfo;
 import org.apache.hadoop.hbase.ServerName;
 import org.apache.hadoop.hbase.TableName;
 import org.apache.hadoop.hbase.chaos.factories.MonkeyConstants;
 import org.apache.hadoop.hbase.client.Admin;
 import org.apache.hadoop.hbase.client.RegionInfo;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import org.apache.hadoop.hbase.util.Bytes;
 
 /**
 * Action that tries to move every region of a table.
 */
 public class MoveRegionsOfTableAction extends Action {
-  private static final Logger LOG =
-      LoggerFactory.getLogger(MoveRegionsOfTableAction.class);
   private final long sleepTime;
   private final TableName tableName;
   private final long maxTime;
@@ -62,7 +61,7 @@ public class MoveRegionsOfTableAction extends Action {
     ServerName[] servers = getServers(admin);
 
     LOG.info("Performing action: Move regions of table {}", tableName);
-    List<RegionInfo> regions = admin.getRegions(tableName);
+    List<HRegionInfo> regions = admin.getTableRegions(tableName);
     if (regions == null || regions.isEmpty()) {
       LOG.info("Table {} doesn't have regions to move", tableName);
       return;
@@ -71,7 +70,8 @@ public class MoveRegionsOfTableAction extends Action {
     Collections.shuffle(regions);
 
     long start = System.currentTimeMillis();
-    for (RegionInfo regionInfo : regions) {
+    for (HRegionInfo regionInfo:regions) {
+
       // Don't try the move if we're stopping
       if (context.isStopping()) {
         return;
@@ -91,15 +91,16 @@ public class MoveRegionsOfTableAction extends Action {
   }
 
   static ServerName [] getServers(Admin admin) throws IOException {
-    Collection<ServerName> serversList = admin.getRegionServers();
+    Collection<ServerName> serversList =
+        admin.getClusterMetrics(EnumSet.of(Option.LIVE_SERVERS)).getLiveServerMetrics().keySet();
     return serversList.toArray(new ServerName[serversList.size()]);
   }
 
   static void moveRegion(Admin admin, ServerName [] servers, RegionInfo regionInfo) {
     try {
-      ServerName destServerName = servers[RandomUtils.nextInt(0, servers.length)];
+      String destServerName = servers[RandomUtils.nextInt(0, servers.length)].getServerName();
       LOG.debug("Moving {} to {}", regionInfo.getRegionNameAsString(), destServerName);
-      admin.move(regionInfo.getEncodedNameAsBytes(), destServerName);
+      admin.move(regionInfo.getEncodedNameAsBytes(), Bytes.toBytes(destServerName));
     } catch (Exception ex) {
       LOG.warn("Move failed, might be caused by other chaos: {}", ex.getMessage());
     }

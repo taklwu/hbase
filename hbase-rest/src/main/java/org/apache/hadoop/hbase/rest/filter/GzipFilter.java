@@ -16,6 +16,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package org.apache.hadoop.hbase.rest.filter;
 
 import java.io.IOException;
@@ -34,16 +35,15 @@ import javax.servlet.ServletResponse;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
-import org.apache.hadoop.hbase.HBaseInterfaceAudience;
-
 import org.apache.yetus.audience.InterfaceAudience;
+import org.apache.hadoop.hbase.HBaseInterfaceAudience;
 
 @InterfaceAudience.LimitedPrivate(HBaseInterfaceAudience.CONFIG)
 public class GzipFilter implements Filter {
   private Set<String> mimeTypes = new HashSet<>();
 
   @Override
-  public void init(FilterConfig filterConfig) {
+  public void init(FilterConfig filterConfig) throws ServletException {
     String s = filterConfig.getInitParameter("mimeTypes");
     if (s != null) {
       StringTokenizer tok = new StringTokenizer(s, ",", false);
@@ -66,11 +66,11 @@ public class GzipFilter implements Filter {
     String acceptEncoding = request.getHeader("accept-encoding");
     String contentType = request.getHeader("content-type");
     if ((contentEncoding != null) &&
-        (contentEncoding.toLowerCase(Locale.ROOT).contains("gzip"))) {
+        (contentEncoding.toLowerCase(Locale.ROOT).indexOf("gzip") > -1)) {
       request = new GZIPRequestWrapper(request);
     }
     if (((acceptEncoding != null) &&
-          (acceptEncoding.toLowerCase(Locale.ROOT).contains("gzip"))) ||
+          (acceptEncoding.toLowerCase(Locale.ROOT).indexOf("gzip") > -1)) ||
         ((contentType != null) && mimeTypes.contains(contentType))) {
       response = new GZIPResponseWrapper(response);
     }
@@ -82,4 +82,5 @@ public class GzipFilter implements Filter {
       }
     }
   }
+
 }

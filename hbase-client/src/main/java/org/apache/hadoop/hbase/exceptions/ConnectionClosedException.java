@@ -33,13 +33,4 @@ public class ConnectionClosedException extends HBaseIOException {
     super(string);
   }
 
-  /**
-   * ConnectionClosedException with cause
-   *
-   * @param message the message for this exception
-   * @param cause the cause for this exception
-   */
-  public ConnectionClosedException(String message, Throwable cause) {
-    super(message, cause);
-  }
 }

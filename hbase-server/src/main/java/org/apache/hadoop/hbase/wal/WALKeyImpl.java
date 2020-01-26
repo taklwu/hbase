@@ -19,13 +19,11 @@ package org.apache.hadoop.hbase.wal;
 
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.NavigableMap;
 import java.util.TreeMap;
 import java.util.UUID;
-
 import org.apache.hadoop.hbase.HBaseInterfaceAudience;
 import org.apache.hadoop.hbase.HConstants;
 import org.apache.hadoop.hbase.TableName;
@@ -118,16 +116,14 @@ public class WALKeyImpl implements WALKey {
    */
   private MultiVersionConcurrencyControl.WriteEntry writeEntry;
 
-  private Map<String, byte[]> extendedAttributes;
-
   public WALKeyImpl() {
     init(null, null, 0L, HConstants.LATEST_TIMESTAMP,
-        new ArrayList<>(), HConstants.NO_NONCE, HConstants.NO_NONCE, null, null, null);
+        new ArrayList<>(), HConstants.NO_NONCE, HConstants.NO_NONCE, null, null);
   }
 
   public WALKeyImpl(final NavigableMap<byte[], Integer> replicationScope) {
     init(null, null, 0L, HConstants.LATEST_TIMESTAMP,
-        new ArrayList<>(), HConstants.NO_NONCE, HConstants.NO_NONCE, null, replicationScope, null);
+        new ArrayList<>(), HConstants.NO_NONCE, HConstants.NO_NONCE, null, replicationScope);
   }
 
   @VisibleForTesting
@@ -136,7 +132,7 @@ public class WALKeyImpl implements WALKey {
     List<UUID> clusterIds = new ArrayList<>(1);
     clusterIds.add(clusterId);
     init(encodedRegionName, tablename, logSeqNum, now, clusterIds, HConstants.NO_NONCE,
-      HConstants.NO_NONCE, null, null, null);
+      HConstants.NO_NONCE, null, null);
   }
 
   @VisibleForTesting
@@ -145,7 +141,7 @@ public class WALKeyImpl implements WALKey {
     List<UUID> clusterIds = new ArrayList<>(1);
     clusterIds.add(clusterId);
     init(encodedRegionName, tablename, logSeqNum, now, clusterIds, HConstants.NO_NONCE,
-      HConstants.NO_NONCE, mvcc, null, null);
+      HConstants.NO_NONCE, mvcc, null);
   }
 
   // TODO: Fix being able to pass in sequenceid.
@@ -157,28 +153,20 @@ public class WALKeyImpl implements WALKey {
         EMPTY_UUIDS,
         HConstants.NO_NONCE,
         HConstants.NO_NONCE,
-        null, null, null);
+        null, null);
   }
 
   // TODO: Fix being able to pass in sequenceid.
   public WALKeyImpl(final byte[] encodedRegionName, final TableName tablename, final long now,
       final NavigableMap<byte[], Integer> replicationScope) {
     init(encodedRegionName, tablename, NO_SEQUENCE_ID, now, EMPTY_UUIDS, HConstants.NO_NONCE,
-        HConstants.NO_NONCE, null, replicationScope, null);
+        HConstants.NO_NONCE, null, replicationScope);
   }
 
   public WALKeyImpl(final byte[] encodedRegionName, final TableName tablename, final long now,
       MultiVersionConcurrencyControl mvcc, final NavigableMap<byte[], Integer> replicationScope) {
     init(encodedRegionName, tablename, NO_SEQUENCE_ID, now, EMPTY_UUIDS, HConstants.NO_NONCE,
-        HConstants.NO_NONCE, mvcc, replicationScope, null);
-  }
-
-  public WALKeyImpl(final byte[] encodedRegionName, final TableName tablename, final long now,
-                    MultiVersionConcurrencyControl mvcc,
-                    final NavigableMap<byte[], Integer> replicationScope,
-                    Map<String, byte[]> extendedAttributes) {
-    init(encodedRegionName, tablename, NO_SEQUENCE_ID, now, EMPTY_UUIDS, HConstants.NO_NONCE,
-        HConstants.NO_NONCE, mvcc, replicationScope, extendedAttributes);
+        HConstants.NO_NONCE, mvcc, replicationScope);
   }
 
   public WALKeyImpl(final byte[] encodedRegionName,
@@ -192,40 +180,9 @@ public class WALKeyImpl implements WALKey {
         EMPTY_UUIDS,
         HConstants.NO_NONCE,
         HConstants.NO_NONCE,
-        mvcc, null, null);
+        mvcc, null);
   }
 
-  /**
-   * Copy constructor that takes in an existing WALKeyImpl plus some extended attributes.
-   * Intended for coprocessors to add annotations to a system-generated WALKey
-   * for persistence to the WAL.
-   * @param key Key to be copied into this new key
-   * @param extendedAttributes Extra attributes to copy into the new key
-   */
-  public WALKeyImpl(WALKeyImpl key,
-                    Map<String, byte[]> extendedAttributes){
-    init(key.getEncodedRegionName(), key.getTableName(), key.getSequenceId(),
-        key.getWriteTime(), key.getClusterIds(), key.getNonceGroup(), key.getNonce(),
-        key.getMvcc(), key.getReplicationScopes(), extendedAttributes);
-
-  }
-
-  /**
-   * Copy constructor that takes in an existing WALKey, the extra WALKeyImpl fields that the
-   * parent interface is missing, plus some extended attributes. Intended
-   * for coprocessors to add annotations to a system-generated WALKey for
-   * persistence to the WAL.
-   */
-  public WALKeyImpl(WALKey key,
-                    List<UUID> clusterIds,
-                    MultiVersionConcurrencyControl mvcc,
-                    final NavigableMap<byte[], Integer> replicationScopes,
-                    Map<String, byte[]> extendedAttributes){
-    init(key.getEncodedRegionName(), key.getTableName(), key.getSequenceId(),
-        key.getWriteTime(), clusterIds, key.getNonceGroup(), key.getNonce(),
-        mvcc, replicationScopes, extendedAttributes);
-
-  }
   /**
    * Create the log key for writing to somewhere.
    * We maintain the tablename mainly for debugging purposes.
@@ -249,7 +206,7 @@ public class WALKeyImpl implements WALKey {
       final long now, List<UUID> clusterIds, long nonceGroup, long nonce,
       MultiVersionConcurrencyControl mvcc, final NavigableMap<byte[], Integer> replicationScope) {
     init(encodedRegionName, tablename, logSeqNum, now, clusterIds, nonceGroup, nonce, mvcc,
-        replicationScope, null);
+        replicationScope);
   }
 
   /**
@@ -274,8 +231,7 @@ public class WALKeyImpl implements WALKey {
                 long nonceGroup,
                 long nonce,
                 MultiVersionConcurrencyControl mvcc) {
-    init(encodedRegionName, tablename, logSeqNum, now, clusterIds, nonceGroup,
-        nonce, mvcc, null, null);
+    init(encodedRegionName, tablename, logSeqNum, now, clusterIds, nonceGroup, nonce, mvcc, null);
   }
 
   /**
@@ -296,7 +252,7 @@ public class WALKeyImpl implements WALKey {
                 final long now, List<UUID> clusterIds, long nonceGroup,
                 final long nonce, final MultiVersionConcurrencyControl mvcc) {
     init(encodedRegionName, tablename, NO_SEQUENCE_ID, now, clusterIds, nonceGroup, nonce, mvcc,
-        null, null);
+        null);
   }
 
   /**
@@ -319,7 +275,7 @@ public class WALKeyImpl implements WALKey {
                 final long nonce, final MultiVersionConcurrencyControl mvcc,
                 NavigableMap<byte[], Integer> replicationScope) {
     init(encodedRegionName, tablename, NO_SEQUENCE_ID, now, clusterIds, nonceGroup, nonce, mvcc,
-        replicationScope, null);
+        replicationScope);
   }
 
   /**
@@ -348,22 +304,7 @@ public class WALKeyImpl implements WALKey {
         EMPTY_UUIDS,
         nonceGroup,
         nonce,
-        mvcc, null, null);
-  }
-
-  public WALKeyImpl(final byte[] encodedRegionName, final TableName tablename,
-                    final long now, List<UUID> clusterIds, long nonceGroup,
-                    final long nonce, final MultiVersionConcurrencyControl mvcc,
-                    NavigableMap<byte[], Integer> replicationScope,
-                    Map<String, byte[]> extendedAttributes){
-    init(encodedRegionName,
-        tablename,
-        NO_SEQUENCE_ID,
-        now,
-        clusterIds,
-        nonceGroup,
-        nonce,
-        mvcc, replicationScope, extendedAttributes);
+        mvcc, null);
   }
 
   @InterfaceAudience.Private
@@ -375,8 +316,7 @@ public class WALKeyImpl implements WALKey {
                       long nonceGroup,
                       long nonce,
                       MultiVersionConcurrencyControl mvcc,
-                      NavigableMap<byte[], Integer> replicationScope,
-                      Map<String, byte[]> extendedAttributes) {
+                      NavigableMap<byte[], Integer> replicationScope) {
     this.sequenceId = logSeqNum;
     this.writeTime = now;
     this.clusterIds = clusterIds;
@@ -389,7 +329,6 @@ public class WALKeyImpl implements WALKey {
       setSequenceId(logSeqNum);
     }
     this.replicationScope = replicationScope;
-    this.extendedAttributes = extendedAttributes;
   }
 
   // For deserialization. DO NOT USE. See setWriteEntry below.
@@ -408,6 +347,14 @@ public class WALKeyImpl implements WALKey {
   @Override
   public TableName getTableName() {
     return tablename;
+  }
+
+  /** @return log sequence number
+   * @deprecated Use {@link #getSequenceId()}
+   */
+  @Deprecated
+  public long getLogSeqNum() {
+    return getSequenceId();
   }
 
   /**
@@ -493,25 +440,6 @@ public class WALKeyImpl implements WALKey {
   @Override
   public UUID getOriginatingClusterId(){
     return clusterIds.isEmpty()? HConstants.DEFAULT_CLUSTER_ID: clusterIds.get(0);
-  }
-
-  @Override
-  public void addExtendedAttribute(String attributeKey, byte[] attributeValue){
-    if (extendedAttributes == null){
-      extendedAttributes = new HashMap<String, byte[]>();
-    }
-    extendedAttributes.put(attributeKey, attributeValue);
-  }
-
-  @Override
-  public byte[] getExtendedAttribute(String attributeKey){
-    return extendedAttributes != null ? extendedAttributes.get(attributeKey) : null;
-  }
-
-  @Override
-  public Map<String, byte[]> getExtendedAttributes(){
-    return extendedAttributes != null ? new HashMap<String, byte[]>(extendedAttributes) :
-        new HashMap<String, byte[]>();
   }
 
   @Override
@@ -619,14 +547,6 @@ public class WALKeyImpl implements WALKey {
             .setScopeType(ScopeType.forNumber(e.getValue())));
       }
     }
-    if (extendedAttributes != null){
-      for (Map.Entry<String, byte[]> e : extendedAttributes.entrySet()){
-        WALProtos.Attribute attr = WALProtos.Attribute.newBuilder().
-            setKey(e.getKey()).setValue(compressor.compress(e.getValue(),
-            CompressionContext.DictionaryIndex.TABLE)).build();
-        builder.addExtendedAttributes(attr);
-      }
-    }
     return builder;
   }
 
@@ -660,14 +580,6 @@ public class WALKeyImpl implements WALKey {
     this.writeTime = walKey.getWriteTime();
     if (walKey.hasOrigSequenceNumber()) {
       this.origLogSeqNum = walKey.getOrigSequenceNumber();
-    }
-    if (walKey.getExtendedAttributesCount() > 0){
-      this.extendedAttributes = new HashMap<>(walKey.getExtendedAttributesCount());
-      for (WALProtos.Attribute attr : walKey.getExtendedAttributesList()){
-        byte[] value =
-            uncompressor.uncompress(attr.getValue(), CompressionContext.DictionaryIndex.TABLE);
-        extendedAttributes.put(attr.getKey(), value);
-      }
     }
   }
 

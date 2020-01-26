@@ -123,6 +123,12 @@ public class ColumnRangeFilter extends FilterBase {
   }
 
   @Override
+  @Deprecated
+  public ReturnCode filterKeyValue(final Cell c) {
+    return filterCell(c);
+  }
+
+  @Override
   public ReturnCode filterCell(final Cell c) {
     int cmpMin = 1;
 

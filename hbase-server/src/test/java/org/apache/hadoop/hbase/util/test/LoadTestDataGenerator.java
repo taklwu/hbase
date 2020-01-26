@@ -165,7 +165,8 @@ public abstract class LoadTestDataGenerator {
   }
 
   /**
-   * @return the arguments passed to the generator as a list of objects.
+   * Return the arguments passed to the generator as list of object
+   * @return
    */
   public String[] getArgs() {
     return this.args;

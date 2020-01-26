@@ -392,31 +392,22 @@ public class ReplicationPeerConfig {
    * @return true if the table need replicate to the peer cluster
    */
   public boolean needToReplicate(TableName table) {
-    String namespace = table.getNamespaceAsString();
     if (replicateAllUserTables) {
-      // replicate all user tables, but filter by exclude namespaces and table-cfs config
-      if (excludeNamespaces != null && excludeNamespaces.contains(namespace)) {
+      if (excludeNamespaces != null && excludeNamespaces.contains(table.getNamespaceAsString())) {
         return false;
       }
-      // trap here, must check existence first since HashMap allows null value.
-      if (excludeTableCFsMap == null || !excludeTableCFsMap.containsKey(table)) {
-        return true;
+      if (excludeTableCFsMap != null && excludeTableCFsMap.containsKey(table)) {
+        return false;
       }
-      Collection<String> cfs = excludeTableCFsMap.get(table);
-      // if cfs is null or empty then we can make sure that we do not need to replicate this table,
-      // otherwise, we may still need to replicate the table but filter out some families.
-      return cfs != null && !cfs.isEmpty();
+      return true;
     } else {
-      // Not replicate all user tables, so filter by namespaces and table-cfs config
-      if (namespaces == null && tableCFsMap == null) {
-        return false;
-      }
-      // First filter by namespaces config
-      // If table's namespace in peer config, all the tables data are applicable for replication
-      if (namespaces != null && namespaces.contains(namespace)) {
+      if (namespaces != null && namespaces.contains(table.getNamespaceAsString())) {
         return true;
       }
-      return tableCFsMap != null && tableCFsMap.containsKey(table);
+      if (tableCFsMap != null && tableCFsMap.containsKey(table)) {
+        return true;
+      }
+      return false;
     }
   }
 }

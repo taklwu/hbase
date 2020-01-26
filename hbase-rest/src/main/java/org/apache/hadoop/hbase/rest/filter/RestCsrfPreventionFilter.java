@@ -18,7 +18,6 @@
 package org.apache.hadoop.hbase.rest.filter;
 
 import java.io.IOException;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
@@ -35,12 +34,11 @@ import javax.servlet.ServletResponse;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
-import org.apache.hadoop.conf.Configuration;
-
 import org.apache.yetus.audience.InterfaceAudience;
-
+import org.apache.yetus.audience.InterfaceStability;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.apache.hadoop.conf.Configuration;
 
 /**
  * This filter provides protection against cross site request forgery (CSRF)
@@ -51,6 +49,7 @@ import org.slf4j.LoggerFactory;
  */
 @InterfaceAudience.Public
 public class RestCsrfPreventionFilter implements Filter {
+
   private static final Logger LOG =
       LoggerFactory.getLogger(RestCsrfPreventionFilter.class);
 
@@ -68,7 +67,7 @@ public class RestCsrfPreventionFilter implements Filter {
   private Set<Pattern> browserUserAgents;
 
   @Override
-  public void init(FilterConfig filterConfig) {
+  public void init(FilterConfig filterConfig) throws ServletException {
     String customHeader = filterConfig.getInitParameter(CUSTOM_HEADER_PARAM);
     if (customHeader != null) {
       headerName = customHeader;
@@ -102,7 +101,9 @@ public class RestCsrfPreventionFilter implements Filter {
   void parseMethodsToIgnore(String mti) {
     String[] methods = mti.split(",");
     methodsToIgnore = new HashSet<>();
-    Collections.addAll(methodsToIgnore, methods);
+    for (int i = 0; i < methods.length; i++) {
+      methodsToIgnore.add(methods[i]);
+    }
   }
 
   /**
@@ -143,6 +144,7 @@ public class RestCsrfPreventionFilter implements Filter {
    * container configuration mechanisms to insert the filter.
    */
   public interface HttpInteraction {
+
     /**
      * Returns the value of a header.
      *
@@ -222,7 +224,8 @@ public class RestCsrfPreventionFilter implements Filter {
    * @return mapping of configuration properties to be used for filter
    *     initialization
    */
-  public static Map<String, String> getFilterParams(Configuration conf, String confPrefix) {
+  public static Map<String, String> getFilterParams(Configuration conf,
+      String confPrefix) {
     Map<String, String> filterConfigMap = new HashMap<>();
     for (Map.Entry<String, String> entry : conf) {
       String name = entry.getKey();
@@ -238,7 +241,9 @@ public class RestCsrfPreventionFilter implements Filter {
   /**
    * {@link HttpInteraction} implementation for use in the servlet filter.
    */
-  private static final class ServletFilterHttpInteraction implements HttpInteraction {
+  private static final class ServletFilterHttpInteraction
+      implements HttpInteraction {
+
     private final FilterChain chain;
     private final HttpServletRequest httpRequest;
     private final HttpServletResponse httpResponse;

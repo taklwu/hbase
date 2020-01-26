@@ -27,6 +27,7 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.times;
@@ -44,9 +45,7 @@ import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FSDataOutputStream;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hbase.Cell;
-import org.apache.hadoop.hbase.CellBuilderType;
 import org.apache.hadoop.hbase.CellUtil;
-import org.apache.hadoop.hbase.ExtendedCellBuilderFactory;
 import org.apache.hadoop.hbase.HBaseClassTestRule;
 import org.apache.hadoop.hbase.HBaseTestingUtility;
 import org.apache.hadoop.hbase.HConstants;
@@ -63,7 +62,7 @@ import org.apache.hadoop.hbase.client.TableDescriptor;
 import org.apache.hadoop.hbase.client.TableDescriptorBuilder;
 import org.apache.hadoop.hbase.executor.ExecutorService;
 import org.apache.hadoop.hbase.io.hfile.HFile;
-import org.apache.hadoop.hbase.io.hfile.HFileContextBuilder;
+import org.apache.hadoop.hbase.io.hfile.HFileContext;
 import org.apache.hadoop.hbase.regionserver.HRegion.FlushResultImpl;
 import org.apache.hadoop.hbase.regionserver.HRegion.PrepareFlushResult;
 import org.apache.hadoop.hbase.regionserver.throttle.NoLimitThroughputController;
@@ -78,7 +77,7 @@ import org.apache.hadoop.hbase.wal.WAL;
 import org.apache.hadoop.hbase.wal.WALEdit;
 import org.apache.hadoop.hbase.wal.WALFactory;
 import org.apache.hadoop.hbase.wal.WALKeyImpl;
-import org.apache.hadoop.hbase.wal.WALSplitUtil.MutationReplay;
+import org.apache.hadoop.hbase.wal.WALSplitter.MutationReplay;
 import org.apache.hadoop.util.StringUtils;
 import org.junit.After;
 import org.junit.AfterClass;
@@ -1163,8 +1162,8 @@ public class TestHRegionReplayEvents {
 
     // test for region open and close
     secondaryRegion = HRegion.openHRegion(secondaryHri, htd, walSecondary, CONF, rss, null);
-    verify(walSecondary, times(0)).appendData(any(RegionInfo.class), any(WALKeyImpl.class),
-      any(WALEdit.class));
+    verify(walSecondary, times(0)).append(any(RegionInfo.class), any(WALKeyImpl.class),
+      any(WALEdit.class), anyBoolean());
 
     // test for replay prepare flush
     putDataByReplay(secondaryRegion, 0, 10, cq, families);
@@ -1179,12 +1178,12 @@ public class TestHRegionReplayEvents {
           primaryRegion.getRegionInfo().getRegionName()))
       .build());
 
-    verify(walSecondary, times(0)).appendData(any(RegionInfo.class), any(WALKeyImpl.class),
-      any(WALEdit.class));
+    verify(walSecondary, times(0)).append(any(RegionInfo.class), any(WALKeyImpl.class),
+      any(WALEdit.class), anyBoolean());
 
     secondaryRegion.close();
-    verify(walSecondary, times(0)).appendData(any(RegionInfo.class), any(WALKeyImpl.class),
-      any(WALEdit.class));
+    verify(walSecondary, times(0)).append(any(RegionInfo.class), any(WALKeyImpl.class),
+      any(WALEdit.class), anyBoolean());
   }
 
   /**
@@ -1657,17 +1656,11 @@ public class TestHRegionReplayEvents {
     FSDataOutputStream out = TEST_UTIL.getTestFileSystem().create(testFile);
     try {
       hFileFactory.withOutputStream(out);
-      hFileFactory.withFileContext(new HFileContextBuilder().build());
+      hFileFactory.withFileContext(new HFileContext());
       HFile.Writer writer = hFileFactory.create();
       try {
-        writer.append(new KeyValue(ExtendedCellBuilderFactory.create(CellBuilderType.DEEP_COPY)
-          .setRow(valueBytes)
-          .setFamily(family)
-          .setQualifier(valueBytes)
-          .setTimestamp(0L)
-          .setType(KeyValue.Type.Put.getCode())
-          .setValue(valueBytes)
-          .build()));
+        writer.append(new KeyValue(CellUtil.createCell(valueBytes, family, valueBytes, 0L,
+          KeyValue.Type.Put.getCode(), valueBytes)));
       } finally {
         writer.close();
       }

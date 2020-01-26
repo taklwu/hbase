@@ -147,6 +147,11 @@ final public class FilterList extends FilterBase {
   }
 
   @Override
+  public boolean filterRowKey(byte[] rowKey, int offset, int length) throws IOException {
+    return filterListBase.filterRowKey(rowKey, offset, length);
+  }
+
+  @Override
   public boolean filterRowKey(Cell firstRowCell) throws IOException {
     return filterListBase.filterRowKey(firstRowCell);
   }
@@ -159,6 +164,12 @@ final public class FilterList extends FilterBase {
   @Override
   public Cell transformCell(Cell c) throws IOException {
     return filterListBase.transformCell(c);
+  }
+
+  @Override
+  @Deprecated
+  public ReturnCode filterKeyValue(final Cell c) throws IOException {
+    return filterCell(c);
   }
 
   @Override

@@ -550,10 +550,6 @@ public class FanOutOneBlockAsyncDFSOutput implements AsyncFSOutput {
    */
   @Override
   public void recoverAndClose(CancelableProgressable reporter) throws IOException {
-    if (buf != null) {
-      buf.release();
-      buf = null;
-    }
     datanodeList.forEach(ch -> ch.close());
     datanodeList.forEach(ch -> ch.closeFuture().awaitUninterruptibly());
     endFileLease(client, fileId);

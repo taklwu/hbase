@@ -53,8 +53,6 @@ import org.apache.hadoop.hbase.NamespaceDescriptor;
 import org.apache.hadoop.hbase.TableName;
 import org.apache.hadoop.hbase.client.Admin;
 import org.apache.hadoop.hbase.client.BufferedMutator;
-import org.apache.hadoop.hbase.client.ColumnFamilyDescriptor;
-import org.apache.hadoop.hbase.client.ColumnFamilyDescriptorBuilder;
 import org.apache.hadoop.hbase.client.CompactType;
 import org.apache.hadoop.hbase.client.CompactionState;
 import org.apache.hadoop.hbase.client.Connection;
@@ -68,7 +66,6 @@ import org.apache.hadoop.hbase.client.Result;
 import org.apache.hadoop.hbase.client.ResultScanner;
 import org.apache.hadoop.hbase.client.Scan;
 import org.apache.hadoop.hbase.client.Table;
-import org.apache.hadoop.hbase.client.TableDescriptorBuilder;
 import org.apache.hadoop.hbase.coprocessor.ObserverContext;
 import org.apache.hadoop.hbase.coprocessor.RegionCoprocessor;
 import org.apache.hadoop.hbase.coprocessor.RegionCoprocessorEnvironment;
@@ -95,6 +92,7 @@ import org.apache.hadoop.hbase.security.User;
 import org.apache.hadoop.hbase.testclassification.LargeTests;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.hbase.util.EnvironmentEdgeManager;
+import org.apache.hadoop.hbase.util.Pair;
 import org.apache.hadoop.hbase.util.Threads;
 import org.junit.AfterClass;
 import org.junit.Assert;
@@ -122,9 +120,9 @@ public class TestMobCompactor {
   private BufferedMutator bufMut;
   private Table table;
   private static Admin admin;
-  private TableDescriptorBuilder desc;
-  private ColumnFamilyDescriptorBuilder cfdb1;
-  private ColumnFamilyDescriptorBuilder cfdb2;
+  private HTableDescriptor desc;
+  private HColumnDescriptor hcd1;
+  private HColumnDescriptor hcd2;
   private static FileSystem fs;
   private static final String family1 = "family1";
   private static final String family2 = "family2";
@@ -235,16 +233,16 @@ public class TestMobCompactor {
 
   public void setUp(String tableNameAsString) throws IOException {
     tableName = TableName.valueOf(tableNameAsString);
-    cfdb1 = ColumnFamilyDescriptorBuilder.newBuilder(Bytes.toBytes(family1));
-    cfdb1.setMobEnabled(true);
-    cfdb1.setMobThreshold(5);
-    cfdb2 = ColumnFamilyDescriptorBuilder.newBuilder(Bytes.toBytes(family2));
-    cfdb2.setMobEnabled(true);
-    cfdb2.setMobThreshold(5);
-    desc = TableDescriptorBuilder.newBuilder(tableName);
-    desc.setColumnFamily(cfdb1.build());
-    desc.setColumnFamily(cfdb2.build());
-    admin.createTable(desc.build(), getSplitKeys());
+    hcd1 = new HColumnDescriptor(family1);
+    hcd1.setMobEnabled(true);
+    hcd1.setMobThreshold(5);
+    hcd2 = new HColumnDescriptor(family2);
+    hcd2.setMobEnabled(true);
+    hcd2.setMobThreshold(5);
+    desc = new HTableDescriptor(tableName);
+    desc.addFamily(hcd1);
+    desc.addFamily(hcd2);
+    admin.createTable(desc, getSplitKeys());
     table = conn.getTable(tableName);
     bufMut = conn.getBufferedMutator(tableName);
   }
@@ -253,13 +251,13 @@ public class TestMobCompactor {
   private void setUpForPolicyTest(String tableNameAsString, MobCompactPartitionPolicy type)
       throws IOException {
     tableName = TableName.valueOf(tableNameAsString);
-    cfdb1 = ColumnFamilyDescriptorBuilder.newBuilder(Bytes.toBytes(family1));
-    cfdb1.setMobEnabled(true);
-    cfdb1.setMobThreshold(10);
-    cfdb1.setMobCompactPartitionPolicy(type);
-    desc = TableDescriptorBuilder.newBuilder(tableName);
-    desc.setColumnFamily(cfdb1.build());
-    admin.createTable(desc.build());
+    hcd1 = new HColumnDescriptor(family1);
+    hcd1.setMobEnabled(true);
+    hcd1.setMobThreshold(10);
+    hcd1.setMobCompactPartitionPolicy(type);
+    desc = new HTableDescriptor(tableName);
+    desc.addFamily(hcd1);
+    admin.createTable(desc);
     table = conn.getTable(tableName);
     bufMut = conn.getBufferedMutator(tableName);
   }
@@ -268,9 +266,15 @@ public class TestMobCompactor {
   private void alterForPolicyTest(final MobCompactPartitionPolicy type)
       throws Exception {
 
-    cfdb1.setMobCompactPartitionPolicy(type);
-    desc.modifyColumnFamily(cfdb1.build());
-    admin.modifyTable(desc.build());
+    hcd1.setMobCompactPartitionPolicy(type);
+    desc.modifyFamily(hcd1);
+    admin.modifyTable(tableName, desc);
+    Pair<Integer, Integer> st;
+
+    while (null != (st = admin.getAlterStatus(tableName)) && st.getFirst() > 0) {
+      LOG.debug(st.getFirst() + " regions left to update");
+      Thread.sleep(40);
+    }
     LOG.info("alter status finished");
   }
 
@@ -315,8 +319,7 @@ public class TestMobCompactor {
       countFiles(tableName, false, family2));
 
     // do the mob file compaction
-    MobCompactor compactor = new PartitionedMobCompactor(conf, fs, tableName,
-      cfdb1.build(), pool);
+    MobCompactor compactor = new PartitionedMobCompactor(conf, fs, tableName, hcd1, pool);
     compactor.compact();
 
     assertEquals("After compaction: mob rows count", regionNum * (rowNumPerRegion - delRowNum),
@@ -436,7 +439,7 @@ public class TestMobCompactor {
     int rowNumPerRegion = count * rowNumPerFile;
 
     long tid = System.currentTimeMillis();
-    String snapshotName1 = "snaptb-" + tid;
+    byte[] snapshotName1 = Bytes.toBytes("snaptb-" + tid);
     // take a snapshot
     admin.snapshot(snapshotName1, tableName);
 
@@ -456,8 +459,7 @@ public class TestMobCompactor {
       countFiles(tableName, false, family2));
 
     // do the mob compaction
-    MobCompactor compactor = new PartitionedMobCompactor(conf, fs, tableName,
-      cfdb1.build(), pool);
+    MobCompactor compactor = new PartitionedMobCompactor(conf, fs, tableName, hcd1, pool);
     compactor.compact();
 
     assertEquals("After first compaction: mob rows count", regionNum
@@ -529,23 +531,18 @@ public class TestMobCompactor {
     byte[] encryptionKey = EncryptionUtil.wrapKey(conf,
       conf.get(HConstants.CRYPTO_MASTERKEY_NAME_CONF_KEY, User.getCurrent().getShortName()), cfKey);
     final TableName tableName = TableName.valueOf(name.getMethodName());
-    TableDescriptorBuilder tableDescriptorBuilder =
-      TableDescriptorBuilder.newBuilder(tableName);
-    ColumnFamilyDescriptor cfd1 =
-      ColumnFamilyDescriptorBuilder
-        .newBuilder(Bytes.toBytes(family1))
-        .setMobEnabled(true)
-        .setMobThreshold(0)
-        .setEncryptionType(algorithm)
-        .setEncryptionKey(encryptionKey).build();
-    ColumnFamilyDescriptor cfd2 =
-      ColumnFamilyDescriptorBuilder
-        .newBuilder(Bytes.toBytes(family2))
-        .setMobEnabled(true)
-        .setMobThreshold(0).build();
-    tableDescriptorBuilder.setColumnFamily(cfd1);
-    tableDescriptorBuilder.setColumnFamily(cfd2);
-    admin.createTable(tableDescriptorBuilder.build(), getSplitKeys());
+    HTableDescriptor desc = new HTableDescriptor(tableName);
+    HColumnDescriptor hcd1 = new HColumnDescriptor(family1);
+    hcd1.setMobEnabled(true);
+    hcd1.setMobThreshold(0);
+    hcd1.setEncryptionType(algorithm);
+    hcd1.setEncryptionKey(encryptionKey);
+    HColumnDescriptor hcd2 = new HColumnDescriptor(family2);
+    hcd2.setMobEnabled(true);
+    hcd2.setMobThreshold(0);
+    desc.addFamily(hcd1);
+    desc.addFamily(hcd2);
+    admin.createTable(desc, getSplitKeys());
     Table table = conn.getTable(tableName);
     BufferedMutator bufMut = conn.getBufferedMutator(tableName);
     int count = 4;
@@ -576,7 +573,7 @@ public class TestMobCompactor {
       countFiles(tableName, false, family2));
 
     // do the major mob compaction, it will force all files to compaction
-    admin.majorCompact(tableName, cfd1.getName(), CompactType.MOB);
+    admin.majorCompact(tableName, hcd1.getName(), CompactType.MOB);
 
     waitUntilMobCompactionFinished(tableName);
     assertEquals("After compaction: mob rows count", regionNum * (rowNumPerRegion - delRowNum),
@@ -616,27 +613,25 @@ public class TestMobCompactor {
     // read the latest cell of key0.
     Get get = new Get(key0);
     Result result = table.get(get);
-    ColumnFamilyDescriptor cfd1 = cfdb1.build();
-    Cell cell = result.getColumnLatestCell(cfd1.getName(), Bytes.toBytes(qf1));
+    Cell cell = result.getColumnLatestCell(hcd1.getName(), Bytes.toBytes(qf1));
     assertEquals("Before compaction: mob value of k0", newValue0,
       Bytes.toString(CellUtil.cloneValue(cell)));
-    admin.majorCompact(tableName, cfd1.getName(), CompactType.MOB);
+    admin.majorCompact(tableName, hcd1.getName(), CompactType.MOB);
     waitUntilMobCompactionFinished(tableName);
     // read the latest cell of key0, the cell seqId in bulk loaded file is not reset in the
     // scanner. The cell that has "new" value is still visible.
     result = table.get(get);
-    cell = result.getColumnLatestCell(cfd1.getName(), Bytes.toBytes(qf1));
+    cell = result.getColumnLatestCell(hcd1.getName(), Bytes.toBytes(qf1));
     assertEquals("After compaction: mob value of k0", newValue0,
       Bytes.toString(CellUtil.cloneValue(cell)));
     // read the ref cell, not read further to the mob cell.
     get = new Get(key1);
     get.setAttribute(MobConstants.MOB_SCAN_RAW, Bytes.toBytes(true));
     result = table.get(get);
-    cell = result.getColumnLatestCell(cfd1.getName(), Bytes.toBytes(qf1));
+    cell = result.getColumnLatestCell(hcd1.getName(), Bytes.toBytes(qf1));
     // the ref name is the new file
     Path mobFamilyPath =
-      MobUtils.getMobFamilyPath(TEST_UTIL.getConfiguration(), tableName,
-        cfdb1.getNameAsString());
+      MobUtils.getMobFamilyPath(TEST_UTIL.getConfiguration(), tableName, hcd1.getNameAsString());
     List<Path> paths = new ArrayList<>();
     if (fs.exists(mobFamilyPath)) {
       FileStatus[] files = fs.listStatus(mobFamilyPath);
@@ -1178,9 +1173,9 @@ public class TestMobCompactor {
     }
 
     if (majorCompact) {
-      admin.majorCompact(tableName, cfdb1.build().getName(), CompactType.MOB);
+      admin.majorCompact(tableName, hcd1.getName(), CompactType.MOB);
     } else {
-      admin.compact(tableName, cfdb1.build().getName(), CompactType.MOB);
+      admin.compact(tableName, hcd1.getName(), CompactType.MOB);
     }
 
     waitUntilMobCompactionFinished(tableName);

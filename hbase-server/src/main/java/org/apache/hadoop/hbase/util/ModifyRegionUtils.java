@@ -28,6 +28,7 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.CompletionService;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorCompletionService;
+import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
@@ -218,7 +219,9 @@ public abstract class ModifyRegionUtils {
     } catch (InterruptedException e) {
       throw new InterruptedIOException(e.getMessage());
     } catch (ExecutionException e) {
-      throw new IOException(e.getCause());
+      IOException ex = new IOException();
+      ex.initCause(e.getCause());
+      throw ex;
     }
   }
 
@@ -232,7 +235,14 @@ public abstract class ModifyRegionUtils {
         "hbase.hregion.open.and.init.threads.max", 16));
     ThreadPoolExecutor regionOpenAndInitThreadPool = Threads
     .getBoundedCachedThreadPool(maxThreads, 30L, TimeUnit.SECONDS,
-        Threads.newDaemonThreadFactory(threadNamePrefix));
+        new ThreadFactory() {
+          private int count = 1;
+
+          @Override
+          public Thread newThread(Runnable r) {
+            return new Thread(r, threadNamePrefix + "-" + count++);
+          }
+        });
     return regionOpenAndInitThreadPool;
   }
 }

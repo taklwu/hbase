@@ -125,13 +125,13 @@ public class TestSplitWalDataLoss {
       Matchers.<Collection<HStore>> any());
     // Find region key; don't pick up key for hbase:meta by mistake.
     String key = null;
-    for (Map.Entry<String, HRegion> entry: rs.getOnlineRegions().entrySet()) {
+    for (Map.Entry<String, HRegion> entry: rs.onlineRegions.entrySet()) {
       if (entry.getValue().getRegionInfo().getTable().equals(this.tableName)) {
         key = entry.getKey();
         break;
       }
     }
-    rs.getOnlineRegions().put(key, spiedRegion);
+    rs.onlineRegions.put(key, spiedRegion);
     Connection conn = testUtil.getConnection();
 
     try (Table table = conn.getTable(tableName)) {
@@ -141,7 +141,7 @@ public class TestSplitWalDataLoss {
     long oldestSeqIdOfStore = region.getOldestSeqIdOfStore(family);
     LOG.info("CHANGE OLDEST " + oldestSeqIdOfStore);
     assertTrue(oldestSeqIdOfStore > HConstants.NO_SEQNUM);
-    rs.getMemStoreFlusher().requestFlush(spiedRegion, false, FlushLifeCycleTracker.DUMMY);
+    rs.cacheFlusher.requestFlush(spiedRegion, false, FlushLifeCycleTracker.DUMMY);
     synchronized (flushed) {
       while (!flushed.booleanValue()) {
         flushed.wait();

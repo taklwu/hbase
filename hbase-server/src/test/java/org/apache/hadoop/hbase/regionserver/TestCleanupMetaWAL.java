@@ -65,7 +65,7 @@ public class TestCleanupMetaWAL {
     HRegionServer serverWithMeta = TEST_UTIL.getMiniHBaseCluster()
         .getRegionServer(TEST_UTIL.getMiniHBaseCluster().getServerWithMeta());
     TEST_UTIL.getAdmin()
-        .move(RegionInfoBuilder.FIRST_META_REGIONINFO.getEncodedNameAsBytes());
+        .move(RegionInfoBuilder.FIRST_META_REGIONINFO.getEncodedNameAsBytes(), null);
     LOG.info("KILL");
     TEST_UTIL.getMiniHBaseCluster().killRegionServer(serverWithMeta.getServerName());
     LOG.info("WAIT");

@@ -28,7 +28,6 @@ import javax.servlet.FilterConfig;
 import javax.servlet.ServletException;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hbase.HBaseConfiguration;
-import org.apache.hadoop.hbase.rest.RESTServer;
 import org.apache.hadoop.hbase.util.DNS;
 import org.apache.hadoop.hbase.util.Strings;
 import org.apache.hadoop.security.SecurityUtil;
@@ -58,14 +57,7 @@ public class AuthFilter extends AuthenticationFilter {
     //setting the cookie path to root '/' so it is used for all resources.
     props.setProperty(AuthenticationFilter.COOKIE_PATH, "/");
 
-    Configuration conf = null;
-    // Dirty hack to get at the RESTServer's configuration. These should be pulled out
-    // of the FilterConfig.
-    if (RESTServer.conf != null) {
-      conf = RESTServer.conf;
-    } else {
-      conf = HBaseConfiguration.create();
-    }
+    Configuration conf = HBaseConfiguration.create();
     for (Map.Entry<String, String> entry : conf) {
       String name = entry.getKey();
       if (name.startsWith(REST_PREFIX)) {

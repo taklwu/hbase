@@ -44,6 +44,7 @@ import org.junit.experimental.categories.Category;
 
 @Category(MediumTests.class)
 public class TestRefreshHFilesEndpoint extends TestRefreshHFilesBase {
+
   @ClassRule
   public static final HBaseClassTestRule CLASS_RULE =
       HBaseClassTestRule.forClass(TestRefreshHFilesEndpoint.class);
@@ -68,9 +69,8 @@ public class TestRefreshHFilesEndpoint extends TestRefreshHFilesBase {
       RefreshHFilesClient refreshHFilesClient = new RefreshHFilesClient(CONF);
       refreshHFilesClient.refreshHFiles(TABLE_NAME);
     } catch (RetriesExhaustedException rex) {
-      if (rex.getCause() instanceof IOException) {
+      if (rex.getCause() instanceof IOException)
         throw new IOException();
-      }
     } catch (Throwable ex) {
       LOG.error(ex.toString(), ex);
       fail("Couldn't call the RefreshRegionHFilesEndpoint");
@@ -81,15 +81,15 @@ public class TestRefreshHFilesEndpoint extends TestRefreshHFilesBase {
     HStoreWithFaultyRefreshHFilesAPI store;
 
     public HRegionForRefreshHFilesEP(final Path tableDir, final WAL wal, final FileSystem fs,
-        final Configuration confParam, final RegionInfo regionInfo, final TableDescriptor htd,
-        final RegionServerServices rsServices) {
+                                     final Configuration confParam, final RegionInfo regionInfo,
+                                     final TableDescriptor htd, final RegionServerServices rsServices) {
       super(tableDir, wal, fs, confParam, regionInfo, htd, rsServices);
     }
 
     @Override
     public List<HStore> getStores() {
       List<HStore> list = new ArrayList<>(stores.size());
-      /*
+      /**
        * This is used to trigger the custom definition (faulty)
        * of refresh HFiles API.
        */
@@ -109,9 +109,9 @@ public class TestRefreshHFilesEndpoint extends TestRefreshHFilesBase {
   }
 
   public static class HStoreWithFaultyRefreshHFilesAPI extends HStore {
-    public HStoreWithFaultyRefreshHFilesAPI(final HRegion region,
-        final ColumnFamilyDescriptor family, final Configuration confParam) throws IOException {
-      super(region, family, confParam, false);
+    public HStoreWithFaultyRefreshHFilesAPI(final HRegion region, final ColumnFamilyDescriptor family,
+                                            final Configuration confParam) throws IOException {
+      super(region, family, confParam);
     }
 
     @Override

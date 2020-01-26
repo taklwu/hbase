@@ -36,12 +36,9 @@ import org.apache.hadoop.hbase.HTableDescriptor;
 import org.apache.hadoop.hbase.KeyValue;
 import org.apache.hadoop.hbase.KeyValueTestUtil;
 import org.apache.hadoop.hbase.TableName;
-import org.apache.hadoop.hbase.client.ColumnFamilyDescriptor;
-import org.apache.hadoop.hbase.client.ColumnFamilyDescriptorBuilder;
 import org.apache.hadoop.hbase.client.Durability;
 import org.apache.hadoop.hbase.client.Put;
 import org.apache.hadoop.hbase.client.Scan;
-import org.apache.hadoop.hbase.client.TableDescriptorBuilder;
 import org.apache.hadoop.hbase.testclassification.MediumTests;
 import org.apache.hadoop.hbase.testclassification.RegionServerTests;
 import org.apache.hadoop.hbase.util.Bytes;
@@ -185,16 +182,13 @@ public class TestColumnSeeking {
     byte[] familyBytes = Bytes.toBytes("Family");
     TableName table = TableName.valueOf(name.getMethodName());
 
-    TableDescriptorBuilder tableDescriptorBuilder =
-      TableDescriptorBuilder.newBuilder(table);
-    ColumnFamilyDescriptor columnFamilyDescriptor =
-      ColumnFamilyDescriptorBuilder
-        .newBuilder(Bytes.toBytes(family))
-        .setMaxVersions(3).build();
-    tableDescriptorBuilder.setColumnFamily(columnFamilyDescriptor);
+    HTableDescriptor htd = new HTableDescriptor(table);
+    HColumnDescriptor hcd = new HColumnDescriptor(family);
+    hcd.setMaxVersions(3);
+    htd.addFamily(hcd);
 
     HRegionInfo info = new HRegionInfo(table, null, null, false);
-    HRegion region = TEST_UTIL.createLocalHRegion(info, tableDescriptorBuilder.build());
+    HRegion region = TEST_UTIL.createLocalHRegion(info, htd);
 
     List<String> rows = generateRandomWords(10, "row");
     List<String> allColumns = generateRandomWords(100, "column");

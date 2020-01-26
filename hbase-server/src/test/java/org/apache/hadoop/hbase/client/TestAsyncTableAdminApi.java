@@ -22,6 +22,8 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
+
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Iterator;
@@ -50,7 +52,7 @@ import org.junit.runners.Parameterized;
 /**
  * Class to test asynchronous table admin operations.
  * @see TestAsyncTableAdminApi2 This test and it used to be joined it was taking longer than our
- *     ten minute timeout so they were split.
+ * ten minute timeout so they were split.
  * @see TestAsyncTableAdminApi3 Another split out from this class so each runs under ten minutes.
  */
 @RunWith(Parameterized.class)
@@ -85,20 +87,22 @@ public class TestAsyncTableAdminApi extends TestAsyncAdminBase {
     AsyncTable<AdvancedScanResultConsumer> metaTable = ASYNC_CONN.getTable(META_TABLE_NAME);
 
     createTableWithDefaultConf(tableName);
-    List<HRegionLocation> regionLocations = AsyncMetaTableAccessor
-      .getTableHRegionLocations(metaTable, tableName).get();
+    List<HRegionLocation> regionLocations =
+      AsyncMetaTableAccessor.getTableHRegionLocations(metaTable, Optional.of(tableName)).get();
     assertEquals("Table should have only 1 region", 1, regionLocations.size());
 
     final TableName tableName2 = TableName.valueOf(tableName.getNameAsString() + "_2");
     createTableWithDefaultConf(tableName2, new byte[][] { new byte[] { 42 } });
-    regionLocations = AsyncMetaTableAccessor.getTableHRegionLocations(metaTable, tableName2).get();
+    regionLocations =
+      AsyncMetaTableAccessor.getTableHRegionLocations(metaTable, Optional.of(tableName2)).get();
     assertEquals("Table should have only 2 region", 2, regionLocations.size());
 
     final TableName tableName3 = TableName.valueOf(tableName.getNameAsString() + "_3");
     TableDescriptorBuilder builder = TableDescriptorBuilder.newBuilder(tableName3);
     builder.setColumnFamily(ColumnFamilyDescriptorBuilder.of(FAMILY));
     admin.createTable(builder.build(), Bytes.toBytes("a"), Bytes.toBytes("z"), 3).join();
-    regionLocations = AsyncMetaTableAccessor.getTableHRegionLocations(metaTable, tableName3).get();
+    regionLocations =
+      AsyncMetaTableAccessor.getTableHRegionLocations(metaTable, Optional.of(tableName3)).get();
     assertEquals("Table should have only 3 region", 3, regionLocations.size());
 
     final TableName tableName4 = TableName.valueOf(tableName.getNameAsString() + "_4");
@@ -115,7 +119,8 @@ public class TestAsyncTableAdminApi extends TestAsyncAdminBase {
     builder = TableDescriptorBuilder.newBuilder(tableName5);
     builder.setColumnFamily(ColumnFamilyDescriptorBuilder.of(FAMILY));
     admin.createTable(builder.build(), new byte[] { 1 }, new byte[] { 127 }, 16).join();
-    regionLocations = AsyncMetaTableAccessor.getTableHRegionLocations(metaTable, tableName5).get();
+    regionLocations =
+      AsyncMetaTableAccessor.getTableHRegionLocations(metaTable, Optional.of(tableName5)).get();
     assertEquals("Table should have 16 region", 16, regionLocations.size());
   }
 
@@ -128,12 +133,12 @@ public class TestAsyncTableAdminApi extends TestAsyncAdminBase {
     boolean tablesOnMaster = LoadBalancer.isTablesOnMaster(TEST_UTIL.getConfiguration());
     createTableWithDefaultConf(tableName, splitKeys);
 
-    boolean tableAvailable = admin.isTableAvailable(tableName).get();
+    boolean tableAvailable = admin.isTableAvailable(tableName, splitKeys).get();
     assertTrue("Table should be created with splitKyes + 1 rows in META", tableAvailable);
 
     AsyncTable<AdvancedScanResultConsumer> metaTable = ASYNC_CONN.getTable(META_TABLE_NAME);
-    List<HRegionLocation> regions = AsyncMetaTableAccessor
-      .getTableHRegionLocations(metaTable, tableName).get();
+    List<HRegionLocation> regions =
+      AsyncMetaTableAccessor.getTableHRegionLocations(metaTable, Optional.of(tableName)).get();
     Iterator<HRegionLocation> hris = regions.iterator();
 
     assertEquals(
@@ -191,7 +196,8 @@ public class TestAsyncTableAdminApi extends TestAsyncAdminBase {
     builder.setColumnFamily(ColumnFamilyDescriptorBuilder.of(FAMILY));
     admin.createTable(builder.build(), startKey, endKey, expectedRegions).join();
 
-    regions = AsyncMetaTableAccessor.getTableHRegionLocations(metaTable, tableName2).get();
+    regions =
+      AsyncMetaTableAccessor.getTableHRegionLocations(metaTable, Optional.of(tableName2)).get();
     assertEquals(
       "Tried to create " + expectedRegions + " regions " + "but only found " + regions.size(),
       expectedRegions, regions.size());
@@ -243,8 +249,8 @@ public class TestAsyncTableAdminApi extends TestAsyncAdminBase {
     builder.setColumnFamily(ColumnFamilyDescriptorBuilder.of(FAMILY));
     admin.createTable(builder.build(), startKey, endKey, expectedRegions).join();
 
-    regions = AsyncMetaTableAccessor.getTableHRegionLocations(metaTable, tableName3)
-      .get();
+    regions =
+      AsyncMetaTableAccessor.getTableHRegionLocations(metaTable, Optional.of(tableName3)).get();
     assertEquals(
       "Tried to create " + expectedRegions + " regions " + "but only found " + regions.size(),
       expectedRegions, regions.size());
@@ -266,8 +272,9 @@ public class TestAsyncTableAdminApi extends TestAsyncAdminBase {
     }
   }
 
-  private void verifyRoundRobinDistribution(List<HRegionLocation> regions, int expectedRegions) {
-    int numRS = TEST_UTIL.getMiniHBaseCluster().getNumLiveRegionServers();
+  private void verifyRoundRobinDistribution(List<HRegionLocation> regions, int expectedRegions)
+      throws IOException {
+    int numRS = ((ClusterConnection) TEST_UTIL.getConnection()).getCurrentNrHRS();
 
     Map<ServerName, List<RegionInfo>> server2Regions = new HashMap<>();
     regions.stream().forEach((loc) -> {
@@ -399,7 +406,7 @@ public class TestAsyncTableAdminApi extends TestAsyncAdminBase {
 
     assertEquals(NUM_REGIONS, TEST_UTIL.getHBaseCluster().getRegions(tableName).size());
     assertTrue("Table should be created with splitKyes + 1 rows in META",
-        admin.isTableAvailable(tableName).get());
+        admin.isTableAvailable(tableName, splitKeys).get());
 
     // Clone & Verify
     admin.cloneTableSchema(tableName, newTableName, preserveSplits).join();
@@ -414,7 +421,7 @@ public class TestAsyncTableAdminApi extends TestAsyncAdminBase {
     if (preserveSplits) {
       assertEquals(NUM_REGIONS, TEST_UTIL.getHBaseCluster().getRegions(newTableName).size());
       assertTrue("New table should be created with splitKyes + 1 rows in META",
-          admin.isTableAvailable(newTableName).get());
+          admin.isTableAvailable(newTableName, splitKeys).get());
     } else {
       assertEquals(1, TEST_UTIL.getHBaseCluster().getRegions(newTableName).size());
     }
@@ -445,12 +452,5 @@ public class TestAsyncTableAdminApi extends TestAsyncAdminBase {
     } catch (CompletionException e) {
       assertTrue(e.getCause() instanceof TableExistsException);
     }
-  }
-
-  @Test
-  public void testIsTableAvailableWithInexistantTable() throws Exception {
-    final TableName newTableName = TableName.valueOf(tableName.getNameAsString() + "_new");
-    // test for inexistant table
-    assertFalse(admin.isTableAvailable(newTableName).get());
   }
 }

@@ -36,12 +36,14 @@ import org.apache.hadoop.hbase.client.VersionInfoUtil;
 import org.apache.hadoop.hbase.exceptions.RequestTooBigException;
 import org.apache.hadoop.hbase.ipc.RpcServer.CallCleanup;
 import org.apache.hadoop.hbase.nio.ByteBuff;
+import org.apache.hadoop.hbase.nio.SingleByteBuff;
 import org.apache.hbase.thirdparty.com.google.protobuf.BlockingService;
 import org.apache.hbase.thirdparty.com.google.protobuf.CodedInputStream;
 import org.apache.hbase.thirdparty.com.google.protobuf.Descriptors.MethodDescriptor;
 import org.apache.hbase.thirdparty.com.google.protobuf.Message;
 import org.apache.hadoop.hbase.shaded.protobuf.ProtobufUtil;
 import org.apache.hadoop.hbase.shaded.protobuf.generated.RPCProtos.RequestHeader;
+import org.apache.hadoop.hbase.util.Pair;
 
 /** Reads calls from a connection and queues them for handling. */
 @edu.umd.cs.findbugs.annotations.SuppressWarnings(value = "VO_VOLATILE_INCREMENT",
@@ -210,7 +212,7 @@ class SimpleServerRpcConnection extends ServerRpcConnection {
           // Notify the client about the offending request
           SimpleServerCall reqTooBig = new SimpleServerCall(header.getCallId(), this.service, null,
               null, null, null, this, 0, this.addr, System.currentTimeMillis(), 0,
-              this.rpcServer.bbAllocator, this.rpcServer.cellBlockBuilder, null, responder);
+              this.rpcServer.reservoir, this.rpcServer.cellBlockBuilder, null, responder);
           this.rpcServer.metrics.exception(SimpleRpcServer.REQUEST_TOO_BIG_EXCEPTION);
           // Make sure the client recognizes the underlying exception
           // Otherwise, throw a DoNotRetryIOException.
@@ -253,8 +255,24 @@ class SimpleServerRpcConnection extends ServerRpcConnection {
 
   // It creates the ByteBuff and CallCleanup and assign to Connection instance.
   private void initByteBuffToReadInto(int length) {
-    this.data = rpcServer.bbAllocator.allocate(length);
-    this.callCleanup = data::release;
+    // We create random on heap buffers are read into those when
+    // 1. ByteBufferPool is not there.
+    // 2. When the size of the req is very small. Using a large sized (64 KB) buffer from pool is
+    // waste then. Also if all the reqs are of this size, we will be creating larger sized
+    // buffers and pool them permanently. This include Scan/Get request and DDL kind of reqs like
+    // RegionOpen.
+    // 3. If it is an initial handshake signal or initial connection request. Any way then
+    // condition 2 itself will match
+    // 4. When SASL use is ON.
+    if (this.rpcServer.reservoir == null || skipInitialSaslHandshake || !connectionHeaderRead ||
+        useSasl || length < this.rpcServer.minSizeForReservoirUse) {
+      this.data = new SingleByteBuff(ByteBuffer.allocate(length));
+    } else {
+      Pair<ByteBuff, CallCleanup> pair = RpcServer.allocateByteBuffToReadInto(
+        this.rpcServer.reservoir, this.rpcServer.minSizeForReservoirUse, length);
+      this.data = pair.getFirst();
+      this.callCleanup = pair.getSecond();
+    }
   }
 
   protected int channelDataRead(ReadableByteChannel channel, ByteBuff buf) throws IOException {
@@ -327,7 +345,7 @@ class SimpleServerRpcConnection extends ServerRpcConnection {
       RequestHeader header, Message param, CellScanner cellScanner, long size,
       InetAddress remoteAddress, int timeout, CallCleanup reqCleanup) {
     return new SimpleServerCall(id, service, md, header, param, cellScanner, this, size,
-        remoteAddress, System.currentTimeMillis(), timeout, this.rpcServer.bbAllocator,
+        remoteAddress, System.currentTimeMillis(), timeout, this.rpcServer.reservoir,
         this.rpcServer.cellBlockBuilder, reqCleanup, this.responder);
   }
 

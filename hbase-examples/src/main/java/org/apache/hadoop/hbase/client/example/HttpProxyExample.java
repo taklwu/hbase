@@ -21,6 +21,7 @@ import static org.apache.hadoop.hbase.util.FutureUtils.addListener;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
+import java.util.Optional;
 import java.util.concurrent.ExecutionException;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hbase.HBaseConfiguration;
@@ -134,15 +135,12 @@ public class HttpProxyExample {
       ctx.fireChannelInactive();
     }
 
-    private void write(ChannelHandlerContext ctx, HttpResponseStatus status) {
-      write(ctx, status, null);
-    }
-
     private void write(ChannelHandlerContext ctx, HttpResponseStatus status,
-        String content) {
+        Optional<String> content) {
       DefaultFullHttpResponse resp;
-      if (content != null) {
-        ByteBuf buf = ctx.alloc().buffer().writeBytes(Bytes.toBytes(content));
+      if (content.isPresent()) {
+        ByteBuf buf =
+            ctx.alloc().buffer().writeBytes(Bytes.toBytes(content.get()));
         resp = new DefaultFullHttpResponse(HttpVersion.HTTP_1_1, status, buf);
         resp.headers().set(HttpHeaderNames.CONTENT_LENGTH, buf.readableBytes());
       } else {
@@ -173,9 +171,9 @@ public class HttpProxyExample {
             byte[] value =
               r.getValue(Bytes.toBytes(params.family), Bytes.toBytes(params.qualifier));
             if (value != null) {
-              write(ctx, HttpResponseStatus.OK, Bytes.toStringBinary(value));
+              write(ctx, HttpResponseStatus.OK, Optional.of(Bytes.toStringBinary(value)));
             } else {
-              write(ctx, HttpResponseStatus.NOT_FOUND);
+              write(ctx, HttpResponseStatus.NOT_FOUND, Optional.empty());
             }
           }
         });
@@ -192,7 +190,7 @@ public class HttpProxyExample {
           if (e != null) {
             exceptionCaught(ctx, e);
           } else {
-            write(ctx, HttpResponseStatus.OK);
+            write(ctx, HttpResponseStatus.OK, Optional.empty());
           }
         });
     }
@@ -207,7 +205,7 @@ public class HttpProxyExample {
           put(ctx, req);
           break;
         default:
-          write(ctx, HttpResponseStatus.METHOD_NOT_ALLOWED);
+          write(ctx, HttpResponseStatus.METHOD_NOT_ALLOWED, Optional.empty());
           break;
       }
     }
@@ -215,10 +213,10 @@ public class HttpProxyExample {
     @Override
     public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
       if (cause instanceof IllegalArgumentException) {
-        write(ctx, HttpResponseStatus.BAD_REQUEST, cause.getMessage());
+        write(ctx, HttpResponseStatus.BAD_REQUEST, Optional.of(cause.getMessage()));
       } else {
         write(ctx, HttpResponseStatus.INTERNAL_SERVER_ERROR,
-          Throwables.getStackTraceAsString(cause));
+          Optional.of(Throwables.getStackTraceAsString(cause)));
       }
     }
   }

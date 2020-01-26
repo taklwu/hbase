@@ -25,13 +25,13 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
+
 import org.apache.hadoop.hbase.HBaseClassTestRule;
 import org.apache.hadoop.hbase.HBaseTestingUtility;
 import org.apache.hadoop.hbase.ServerName;
 import org.apache.hadoop.hbase.TableName;
 import org.apache.hadoop.hbase.client.Admin;
 import org.apache.hadoop.hbase.client.RegionInfo;
-import org.apache.hadoop.hbase.master.assignment.TransitRegionStateProcedure.TransitionType;
 import org.apache.hadoop.hbase.master.procedure.MasterProcedureEnv;
 import org.apache.hadoop.hbase.procedure2.Procedure;
 import org.apache.hadoop.hbase.procedure2.ProcedureSuspendedException;
@@ -88,7 +88,7 @@ public class TestRegionBypass {
   }
 
   @Test
-  public void testBypass() throws IOException, InterruptedException {
+  public void testBypass() throws IOException {
     Admin admin = TEST_UTIL.getAdmin();
     MasterProcedureEnv env =
         TEST_UTIL.getHBaseCluster().getMaster().getMasterProcedureExecutor().getEnvironment();
@@ -99,13 +99,14 @@ public class TestRegionBypass {
     List<Long> pids = new ArrayList<>(regions.size());
     for (RegionInfo ri: regions) {
       Procedure<MasterProcedureEnv> p = new StallingAssignProcedure(env, ri, null, false,
-          TransitionType.ASSIGN);
+          RegionStateTransitionState.REGION_STATE_TRANSITION_GET_ASSIGN_CANDIDATE,
+          RegionStateTransitionState.REGION_STATE_TRANSITION_CONFIRM_OPENED);
       pids.add(TEST_UTIL.getHBaseCluster().getMaster().getMasterProcedureExecutor().
           submitProcedure(p));
     }
     for (Long pid: pids) {
       while (!TEST_UTIL.getHBaseCluster().getMaster().getMasterProcedureExecutor().isStarted(pid)) {
-        Thread.sleep(100);
+        Thread.currentThread().yield();
       }
     }
     List<Procedure<MasterProcedureEnv>> ps =
@@ -130,7 +131,7 @@ public class TestRegionBypass {
     }
     while (!TEST_UTIL.getHBaseCluster().getMaster().getMasterProcedureExecutor().
         getActiveProcIds().isEmpty()) {
-      Thread.sleep(100);
+      Thread.currentThread().yield();
     }
     // Now assign with the override flag.
     for (RegionInfo ri: regions) {
@@ -138,7 +139,7 @@ public class TestRegionBypass {
     }
     while (!TEST_UTIL.getHBaseCluster().getMaster().getMasterProcedureExecutor().
         getActiveProcIds().isEmpty()) {
-      Thread.sleep(100);
+      Thread.currentThread().yield();
     }
     for (RegionInfo ri: regions) {
       assertTrue(ri.toString(), TEST_UTIL.getMiniHBaseCluster().getMaster().getAssignmentManager().
@@ -155,8 +156,9 @@ public class TestRegionBypass {
     public StallingAssignProcedure(){}
 
     public StallingAssignProcedure(MasterProcedureEnv env, RegionInfo hri,
-        ServerName assignCandidate, boolean forceNewPlan, TransitionType type) {
-      super(env, hri, assignCandidate, forceNewPlan, type);
+        ServerName assignCandidate, boolean forceNewPlan, RegionStateTransitionState initialState,
+        RegionStateTransitionState lastState) {
+      super(env, hri, assignCandidate, forceNewPlan, initialState, lastState);
       init(env);
     }
 

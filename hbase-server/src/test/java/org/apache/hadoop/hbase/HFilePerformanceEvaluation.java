@@ -91,25 +91,11 @@ public class HFilePerformanceEvaluation {
   }
 
   static Cell createCell(final byte [] keyRow) {
-    return ExtendedCellBuilderFactory.create(CellBuilderType.DEEP_COPY)
-      .setRow(keyRow)
-      .setFamily(HConstants.EMPTY_BYTE_ARRAY)
-      .setQualifier(HConstants.EMPTY_BYTE_ARRAY)
-      .setTimestamp(HConstants.LATEST_TIMESTAMP)
-      .setType(KeyValue.Type.Maximum.getCode())
-      .setValue(HConstants.EMPTY_BYTE_ARRAY)
-      .build();
+    return CellUtil.createCell(keyRow);
   }
 
   static Cell createCell(final byte [] keyRow, final byte [] value) {
-    return ExtendedCellBuilderFactory.create(CellBuilderType.DEEP_COPY)
-      .setRow(keyRow)
-      .setFamily(HConstants.EMPTY_BYTE_ARRAY)
-      .setQualifier(HConstants.EMPTY_BYTE_ARRAY)
-      .setTimestamp(HConstants.LATEST_TIMESTAMP)
-      .setType(KeyValue.Type.Maximum.getCode())
-      .setValue(value)
-      .build();
+    return CellUtil.createCell(keyRow, value);
   }
 
   /**
@@ -380,6 +366,7 @@ public class HFilePerformanceEvaluation {
       writer = HFile.getWriterFactoryNoCache(conf)
           .withPath(fs, mf)
           .withFileContext(hFileContext)
+          .withComparator(CellComparator.getInstance())
           .create();
     }
     
@@ -417,6 +404,7 @@ public class HFilePerformanceEvaluation {
     @Override
     void setUp() throws Exception {
       reader = HFile.createReader(this.fs, this.mf, new CacheConfig(this.conf), true, this.conf);
+      this.reader.loadFileInfo();
     }
 
     @Override

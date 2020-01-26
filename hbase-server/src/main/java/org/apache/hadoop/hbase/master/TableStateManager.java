@@ -1,4 +1,4 @@
-/*
+/**
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -36,7 +36,6 @@ import org.apache.hadoop.hbase.client.TableDescriptor;
 import org.apache.hadoop.hbase.client.TableState;
 import org.apache.hadoop.hbase.exceptions.IllegalArgumentIOException;
 import org.apache.hadoop.hbase.util.IdReadWriteLock;
-import org.apache.hadoop.hbase.util.IdReadWriteLockWithObjectPool;
 import org.apache.hadoop.hbase.util.ZKDataMigrator;
 import org.apache.hadoop.hbase.zookeeper.ZKUtil;
 import org.apache.hadoop.hbase.zookeeper.ZNodePaths;
@@ -63,13 +62,13 @@ public class TableStateManager {
   private static final String MIGRATE_TABLE_STATE_FROM_ZK_KEY =
     "hbase.migrate.table.state.from.zookeeper";
 
-  private final IdReadWriteLock<TableName> tnLock = new IdReadWriteLockWithObjectPool<>();
+  private final IdReadWriteLock<TableName> tnLock = new IdReadWriteLock<>();
   protected final MasterServices master;
 
   private final ConcurrentMap<TableName, TableState.State> tableName2State =
     new ConcurrentHashMap<>();
 
-  TableStateManager(MasterServices master) {
+  public TableStateManager(MasterServices master) {
     this.master = master;
   }
 
@@ -88,6 +87,61 @@ public class TableStateManager {
     }
   }
 
+  /**
+   * Set table state to provided but only if table in specified states Caller should lock table on
+   * write.
+   * @param tableName table to change state for
+   * @param newState new state
+   * @param states states to check against
+   * @return null if succeed or table state if failed
+   */
+  public TableState setTableStateIfInStates(TableName tableName, TableState.State newState,
+      TableState.State... states) throws IOException {
+    ReadWriteLock lock = tnLock.getLock(tableName);
+    lock.writeLock().lock();
+    try {
+      TableState currentState = readMetaState(tableName);
+      if (currentState == null) {
+        throw new TableNotFoundException(tableName);
+      }
+      if (currentState.inStates(states)) {
+        updateMetaState(tableName, newState);
+        return null;
+      } else {
+        return currentState;
+      }
+    } finally {
+      lock.writeLock().unlock();
+    }
+  }
+
+  /**
+   * Set table state to provided but only if table not in specified states Caller should lock table
+   * on write.
+   * @param tableName table to change state for
+   * @param newState new state
+   * @param states states to check against
+   */
+  public boolean setTableStateIfNotInStates(TableName tableName, TableState.State newState,
+      TableState.State... states) throws IOException {
+    ReadWriteLock lock = tnLock.getLock(tableName);
+    lock.writeLock().lock();
+    try {
+      TableState currentState = readMetaState(tableName);
+      if (currentState == null) {
+        throw new TableNotFoundException(tableName);
+      }
+      if (!currentState.inStates(states)) {
+        updateMetaState(tableName, newState);
+        return true;
+      } else {
+        return false;
+      }
+    } finally {
+      lock.writeLock().unlock();
+    }
+  }
+
   public boolean isTableState(TableName tableName, TableState.State... states) {
     try {
       TableState tableState = getTableState(tableName);
@@ -101,7 +155,6 @@ public class TableStateManager {
 
   public void setDeletedTable(TableName tableName) throws IOException {
     if (tableName.equals(TableName.META_TABLE_NAME)) {
-      // Can't delete the hbase:meta table.
       return;
     }
     ReadWriteLock lock = tnLock.getLock(tableName);
@@ -130,7 +183,7 @@ public class TableStateManager {
    * @param states filter by states
    * @return tables in given states
    */
-  Set<TableName> getTablesInStates(TableState.State... states) throws IOException {
+  public Set<TableName> getTablesInStates(TableState.State... states) throws IOException {
     // Only be called in region normalizer, will not use cache.
     final Set<TableName> rv = Sets.newHashSet();
     MetaTableAccessor.fullScanTables(master.getConnection(), new MetaTableAccessor.Visitor() {
@@ -146,6 +199,12 @@ public class TableStateManager {
     return rv;
   }
 
+  public static class TableStateNotFoundException extends TableNotFoundException {
+    TableStateNotFoundException(TableName tableName) {
+      super(tableName.getNameAsString());
+    }
+  }
+
   @NonNull
   public TableState getTableState(TableName tableName) throws IOException {
     ReadWriteLock lock = tnLock.getLock(tableName);
@@ -153,7 +212,7 @@ public class TableStateManager {
     try {
       TableState currentState = readMetaState(tableName);
       if (currentState == null) {
-        throw new TableNotFoundException("No state found for " + tableName);
+        throw new TableStateNotFoundException(tableName);
       }
       return currentState;
     } finally {
@@ -164,8 +223,8 @@ public class TableStateManager {
   private void updateMetaState(TableName tableName, TableState.State newState) throws IOException {
     if (tableName.equals(TableName.META_TABLE_NAME)) {
       if (TableState.State.DISABLING.equals(newState) ||
-          TableState.State.DISABLED.equals(newState)) {
-        throw new IllegalArgumentIOException("Cannot disable meta table; " + newState);
+        TableState.State.DISABLED.equals(newState)) {
+        throw new IllegalArgumentIOException("Cannot disable the meta table; " + newState);
       }
       // Otherwise, just return; no need to set ENABLED on meta -- it is always ENABLED.
       return;
@@ -177,7 +236,7 @@ public class TableStateManager {
       succ = true;
     } finally {
       if (!succ) {
-        this.tableName2State.remove(tableName);
+        tableName2State.remove(tableName);
       }
     }
     metaStateUpdated(tableName, newState);
@@ -204,12 +263,15 @@ public class TableStateManager {
   }
 
   public void start() throws IOException {
+    TableDescriptors tableDescriptors = master.getTableDescriptors();
     migrateZooKeeper();
-    fixTableStates(master.getTableDescriptors(), master.getConnection());
+    Connection connection = master.getConnection();
+    fixTableStates(tableDescriptors, connection);
   }
 
   private void fixTableStates(TableDescriptors tableDescriptors, Connection connection)
       throws IOException {
+    Map<String, TableDescriptor> allDescriptors = tableDescriptors.getAll();
     Map<String, TableState> states = new HashMap<>();
     // NOTE: Full hbase:meta table scan!
     MetaTableAccessor.fullScanTables(connection, new MetaTableAccessor.Visitor() {
@@ -220,15 +282,15 @@ public class TableStateManager {
         return true;
       }
     });
-    for (TableDescriptor tableDesc : tableDescriptors.getAll().values()) {
-      TableName tableName = tableDesc.getTableName();
+    for (Map.Entry<String, TableDescriptor> entry : allDescriptors.entrySet()) {
+      TableName tableName = TableName.valueOf(entry.getKey());
       if (TableName.isMetaTableName(tableName)) {
         // This table is always enabled. No fixup needed. No entry in hbase:meta needed.
         // Call through to fixTableState though in case a super class wants to do something.
         fixTableState(new TableState(tableName, TableState.State.ENABLED));
         continue;
       }
-      TableState tableState = states.get(tableName.getNameAsString());
+      TableState tableState = states.get(entry.getKey());
       if (tableState == null) {
         LOG.warn(tableName + " has no table state in hbase:meta, assuming ENABLED");
         MetaTableAccessor.updateTableState(connection, tableName, TableState.State.ENABLED);
@@ -274,7 +336,7 @@ public class TableStateManager {
         TableState ts = null;
         try {
           ts = getTableState(entry.getKey());
-        } catch (TableNotFoundException e) {
+        } catch (TableStateNotFoundException e) {
           // This can happen; table exists but no TableState.
         }
         if (ts == null) {

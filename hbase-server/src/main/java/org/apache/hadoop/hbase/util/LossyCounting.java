@@ -19,13 +19,10 @@
 
 package org.apache.hadoop.hbase.util;
 
+import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
-import java.util.concurrent.atomic.AtomicReference;
 
 import org.apache.hadoop.hbase.HBaseConfiguration;
 import org.apache.hadoop.hbase.HConstants;
@@ -33,8 +30,7 @@ import org.apache.yetus.audience.InterfaceAudience;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import org.apache.hbase.thirdparty.com.google.common.annotations.VisibleForTesting;
-import org.apache.hbase.thirdparty.com.google.common.util.concurrent.ThreadFactoryBuilder;
+
 
 /**
  * LossyCounting utility, bounded data structure that maintains approximate high frequency
@@ -47,26 +43,17 @@ import org.apache.hbase.thirdparty.com.google.common.util.concurrent.ThreadFacto
  * http://www.vldb.org/conf/2002/S10P03.pdf
  */
 
-@InterfaceAudience.Private
-public class LossyCounting<T> {
+@InterfaceAudience.Public
+public class LossyCounting {
   private static final Logger LOG = LoggerFactory.getLogger(LossyCounting.class);
-  private final ExecutorService executor;
   private long bucketSize;
-  private int currentTerm;
+  private long currentTerm;
   private double errorRate;
-  private Map<T, Integer> data;
+  private Map<String, Integer> data;
   private long totalDataCount;
-  private final String name;
-  private LossyCountingListener listener;
-  private static AtomicReference<Future> fut = new AtomicReference<>(null);
 
-  public interface LossyCountingListener<T> {
-    void sweep(T key);
-  }
-
-  public LossyCounting(double errorRate, String name, LossyCountingListener listener) {
+  public LossyCounting(double errorRate) {
     this.errorRate = errorRate;
-    this.name = name;
     if (errorRate < 0.0 || errorRate > 1.0) {
       throw new IllegalArgumentException(" Lossy Counting error rate should be within range [0,1]");
     }
@@ -74,63 +61,47 @@ public class LossyCounting<T> {
     this.currentTerm = 1;
     this.totalDataCount = 0;
     this.data = new ConcurrentHashMap<>();
-    this.listener = listener;
     calculateCurrentTerm();
-    executor = Executors.newSingleThreadExecutor(
-      new ThreadFactoryBuilder().setDaemon(true).setNameFormat("lossy-count-%d").build());
   }
 
-  public LossyCounting(String name, LossyCountingListener listener) {
-    this(HBaseConfiguration.create().getDouble(HConstants.DEFAULT_LOSSY_COUNTING_ERROR_RATE, 0.02),
-        name, listener);
+  public LossyCounting() {
+    this(HBaseConfiguration.create().getDouble(HConstants.DEFAULT_LOSSY_COUNTING_ERROR_RATE, 0.02));
   }
 
-  private void addByOne(T key) {
-    //If entry exists, we update the entry by incrementing its frequency by one. Otherwise,
-    //we create a new entry starting with currentTerm so that it will not be pruned immediately
-    data.put(key, data.getOrDefault(key, currentTerm != 0 ? currentTerm - 1 : 0) + 1);
-
-    //update totalDataCount and term
+  public Set<String> addByOne(String key) {
+    data.put(key, data.getOrDefault(key, 0) + 1);
     totalDataCount++;
     calculateCurrentTerm();
-  }
-
-  public void add(T key) {
-    addByOne(key);
+    Set<String> dataToBeSwept = new HashSet<>();
     if(totalDataCount % bucketSize == 0) {
-      //sweep the entries at bucket boundaries
-      //run Sweep
-      Future future = fut.get();
-      if (future != null && !future.isDone()){
-        return;
-      }
-      future = executor.submit(new SweepRunnable());
-      fut.set(future);
+      dataToBeSwept = sweep();
     }
+    return dataToBeSwept;
   }
-
 
   /**
    * sweep low frequency data
+   * @return Names of elements got swept
    */
-  @VisibleForTesting
-  public void sweep() {
-    for(Map.Entry<T, Integer> entry : data.entrySet()) {
-      if(entry.getValue() < currentTerm) {
-        T metric = entry.getKey();
-        data.remove(metric);
-        if (listener != null) {
-          listener.sweep(metric);
-        }
+  private Set<String> sweep() {
+    Set<String> dataToBeSwept = new HashSet<>();
+    for(Map.Entry<String, Integer> entry : data.entrySet()) {
+      if(entry.getValue() + errorRate < currentTerm) {
+        dataToBeSwept.add(entry.getKey());
       }
     }
+    for(String key : dataToBeSwept) {
+      data.remove(key);
+    }
+    LOG.debug(String.format("Swept %d elements.", dataToBeSwept.size()));
+    return dataToBeSwept;
   }
 
   /**
    * Calculate and set current term
    */
   private void calculateCurrentTerm() {
-    this.currentTerm = (int) Math.ceil(1.0 * totalDataCount / (double) bucketSize);
+    this.currentTerm = (int) Math.ceil(1.0 * totalDataCount / bucketSize);
   }
 
   public long getBucketSize(){
@@ -141,33 +112,12 @@ public class LossyCounting<T> {
     return data.size();
   }
 
-  public boolean contains(T key) {
+  public boolean contains(String key) {
     return data.containsKey(key);
-  }
-
-  public Set<T> getElements(){
-    return data.keySet();
   }
 
   public long getCurrentTerm() {
     return currentTerm;
-  }
-
-  class SweepRunnable implements Runnable {
-    @Override public void run() {
-      if (LOG.isTraceEnabled()) {
-        LOG.trace("Starting sweep of lossyCounting-" + name);
-      }
-      try {
-        sweep();
-      } catch (Exception exception) {
-        LOG.debug("Error while sweeping of lossyCounting-{}", name, exception);
-      }
-    }
-  }
-
-  @VisibleForTesting public Future getSweepFuture() {
-    return fut.get();
   }
 }
 

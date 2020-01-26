@@ -44,7 +44,7 @@ import org.apache.hadoop.hbase.HBaseClassTestRule;
 import org.apache.hadoop.hbase.HBaseTestingUtility;
 import org.apache.hadoop.hbase.Server;
 import org.apache.hadoop.hbase.ServerName;
-import org.apache.hadoop.hbase.client.AsyncClusterConnection;
+import org.apache.hadoop.hbase.client.ClusterConnection;
 import org.apache.hadoop.hbase.client.Connection;
 import org.apache.hadoop.hbase.client.ConnectionFactory;
 import org.apache.hadoop.hbase.coprocessor.HasRegionServerServices;
@@ -210,7 +210,7 @@ public class TestTokenAuthentication {
     }
 
     @Override
-    public Connection getConnection() {
+    public ClusterConnection getConnection() {
       return null;
     }
 
@@ -354,12 +354,13 @@ public class TestTokenAuthentication {
     }
 
     @Override
-    public Connection createConnection(Configuration conf) throws IOException {
+    public ClusterConnection getClusterConnection() {
+      // TODO Auto-generated method stub
       return null;
     }
 
     @Override
-    public AsyncClusterConnection getAsyncClusterConnection() {
+    public Connection createConnection(Configuration conf) throws IOException {
       return null;
     }
   }

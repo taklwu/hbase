@@ -20,19 +20,15 @@ package org.apache.hadoop.hbase.quotas;
 
 import static org.apache.hadoop.hbase.util.ConcurrentMapUtils.computeIfAbsent;
 
-import org.apache.hadoop.hbase.ClusterMetrics.Option;
-import org.apache.hadoop.hbase.MetaTableAccessor;
 import org.apache.hadoop.hbase.regionserver.HRegionServer;
 import org.apache.hbase.thirdparty.com.google.common.annotations.VisibleForTesting;
 
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hbase.ScheduledChore;
@@ -70,16 +66,12 @@ public class QuotaCache implements Stoppable {
   // for testing purpose only, enforce the cache to be always refreshed
   static boolean TEST_FORCE_REFRESH = false;
 
-  private final ConcurrentMap<String, QuotaState> namespaceQuotaCache = new ConcurrentHashMap<>();
-  private final ConcurrentMap<TableName, QuotaState> tableQuotaCache = new ConcurrentHashMap<>();
-  private final ConcurrentMap<String, UserQuotaState> userQuotaCache = new ConcurrentHashMap<>();
-  private final ConcurrentMap<String, QuotaState> regionServerQuotaCache =
+  private final ConcurrentHashMap<String, QuotaState> namespaceQuotaCache = new ConcurrentHashMap<>();
+  private final ConcurrentHashMap<TableName, QuotaState> tableQuotaCache = new ConcurrentHashMap<>();
+  private final ConcurrentHashMap<String, UserQuotaState> userQuotaCache = new ConcurrentHashMap<>();
+  private final ConcurrentHashMap<String, QuotaState> regionServerQuotaCache =
       new ConcurrentHashMap<>();
   private volatile boolean exceedThrottleQuotaEnabled = false;
-  // factors used to divide cluster scope quota into machine scope quota
-  private volatile double machineQuotaFactor = 1;
-  private final ConcurrentHashMap<TableName, Double> tableMachineQuotaFactors =
-      new ConcurrentHashMap<>();
   private final RegionServerServices rsServices;
 
   private QuotaRefresherChore refreshChore;
@@ -175,7 +167,7 @@ public class QuotaCache implements Stoppable {
    * Returns the QuotaState requested. If the quota info is not in cache an empty one will be
    * returned and the quota request will be enqueued for the next cache refresh.
    */
-  private <K> QuotaState getQuotaState(final ConcurrentMap<K, QuotaState> quotasMap,
+  private <K> QuotaState getQuotaState(final ConcurrentHashMap<K, QuotaState> quotasMap,
       final K key) {
     return computeIfAbsent(quotasMap, key, QuotaState::new, this::triggerCacheRefresh);
   }
@@ -224,20 +216,18 @@ public class QuotaCache implements Stoppable {
     protected void chore() {
       // Prefetch online tables/namespaces
       for (TableName table: ((HRegionServer)QuotaCache.this.rsServices).getOnlineTables()) {
-        if (table.isSystemTable()) {
-          continue;
+        if (table.isSystemTable()) continue;
+        if (!QuotaCache.this.tableQuotaCache.containsKey(table)) {
+          QuotaCache.this.tableQuotaCache.putIfAbsent(table, new QuotaState());
         }
-        QuotaCache.this.tableQuotaCache.computeIfAbsent(table, key -> new QuotaState());
-
-        final String ns = table.getNamespaceAsString();
-
-        QuotaCache.this.namespaceQuotaCache.computeIfAbsent(ns, key -> new QuotaState());
+        String ns = table.getNamespaceAsString();
+        if (!QuotaCache.this.namespaceQuotaCache.containsKey(ns)) {
+          QuotaCache.this.namespaceQuotaCache.putIfAbsent(ns, new QuotaState());
+        }
       }
+      QuotaCache.this.regionServerQuotaCache.putIfAbsent(QuotaTableUtil.QUOTA_REGION_SERVER_ROW_KEY,
+        new QuotaState());
 
-      QuotaCache.this.regionServerQuotaCache.computeIfAbsent(
-          QuotaTableUtil.QUOTA_REGION_SERVER_ROW_KEY, key -> new QuotaState());
-
-      updateQuotaFactors();
       fetchNamespaceQuotaState();
       fetchTableQuotaState();
       fetchUserQuotaState();
@@ -256,8 +246,7 @@ public class QuotaCache implements Stoppable {
         @Override
         public Map<String, QuotaState> fetchEntries(final List<Get> gets)
             throws IOException {
-          return QuotaUtil.fetchNamespaceQuotas(rsServices.getConnection(), gets,
-            machineQuotaFactor);
+          return QuotaUtil.fetchNamespaceQuotas(rsServices.getConnection(), gets);
         }
       });
     }
@@ -272,8 +261,7 @@ public class QuotaCache implements Stoppable {
         @Override
         public Map<TableName, QuotaState> fetchEntries(final List<Get> gets)
             throws IOException {
-          return QuotaUtil.fetchTableQuotas(rsServices.getConnection(), gets,
-            tableMachineQuotaFactors);
+          return QuotaUtil.fetchTableQuotas(rsServices.getConnection(), gets);
         }
       });
     }
@@ -290,8 +278,7 @@ public class QuotaCache implements Stoppable {
         @Override
         public Map<String, UserQuotaState> fetchEntries(final List<Get> gets)
             throws IOException {
-          return QuotaUtil.fetchUserQuotas(rsServices.getConnection(), gets,
-            tableMachineQuotaFactors, machineQuotaFactor);
+          return QuotaUtil.fetchUserQuotas(rsServices.getConnection(), gets);
         }
       });
     }
@@ -321,7 +308,7 @@ public class QuotaCache implements Stoppable {
     }
 
     private <K, V extends QuotaState> void fetch(final String type,
-        final ConcurrentMap<K, V> quotasMap, final Fetcher<K, V> fetcher) {
+        final ConcurrentHashMap<K, V> quotasMap, final Fetcher<K, V> fetcher) {
       long now = EnvironmentEdgeManager.currentTime();
       long refreshPeriod = getPeriod();
       long evictPeriod = refreshPeriod * EVICT_PERIOD_FACTOR;
@@ -362,46 +349,6 @@ public class QuotaCache implements Stoppable {
         } catch (IOException e) {
           LOG.warn("Unable to read " + type + " from quota table", e);
         }
-      }
-    }
-
-    /**
-     * Update quota factors which is used to divide cluster scope quota into machine scope quota
-     *
-     * For user/namespace/user over namespace quota, use [1 / RSNum] as machine factor.
-     * For table/user over table quota, use [1 / TotalTableRegionNum * MachineTableRegionNum]
-     * as machine factor.
-     */
-    private void updateQuotaFactors() {
-      // Update machine quota factor
-      try {
-        int rsSize = rsServices.getConnection().getAdmin()
-            .getClusterMetrics(EnumSet.of(Option.SERVERS_NAME)).getServersName().size();
-        if (rsSize != 0) {
-          // TODO if use rs group, the cluster limit should be shared by the rs group
-          machineQuotaFactor = 1.0 / rsSize;
-        }
-      } catch (IOException e) {
-        LOG.warn("Get live region servers failed", e);
-      }
-
-      // Update table machine quota factors
-      for (TableName tableName : tableQuotaCache.keySet()) {
-        double factor = 1;
-        try {
-          long regionSize =
-              MetaTableAccessor.getTableRegions(rsServices.getConnection(), tableName, true)
-                  .stream().filter(regionInfo -> !regionInfo.isOffline()).count();
-          if (regionSize == 0) {
-            factor = 0;
-          } else {
-            int localRegionSize = rsServices.getRegions(tableName).size();
-            factor = 1.0 * localRegionSize / regionSize;
-          }
-        } catch (IOException e) {
-          LOG.warn("Get table regions failed: {}", tableName, e);
-        }
-        tableMachineQuotaFactors.put(tableName, factor);
       }
     }
   }

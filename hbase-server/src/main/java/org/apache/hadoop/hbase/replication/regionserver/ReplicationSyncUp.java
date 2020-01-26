@@ -29,7 +29,7 @@ import org.apache.hadoop.hbase.HBaseConfiguration;
 import org.apache.hadoop.hbase.HConstants;
 import org.apache.hadoop.hbase.Server;
 import org.apache.hadoop.hbase.ServerName;
-import org.apache.hadoop.hbase.client.AsyncClusterConnection;
+import org.apache.hadoop.hbase.client.ClusterConnection;
 import org.apache.hadoop.hbase.client.Connection;
 import org.apache.hadoop.hbase.util.FSUtils;
 import org.apache.hadoop.hbase.zookeeper.ZKWatcher;
@@ -104,7 +104,7 @@ public class ReplicationSyncUp extends Configured implements Tool {
     ZKWatcher zkw;
 
     DummyServer(ZKWatcher zkw) {
-      // a unique name in case the first run fails
+      // an unique name in case the first run fails
       hostname = System.currentTimeMillis() + ".SyncUpTool.replication.org";
       this.zkw = zkw;
     }
@@ -152,12 +152,17 @@ public class ReplicationSyncUp extends Configured implements Tool {
     }
 
     @Override
-    public Connection getConnection() {
+    public ClusterConnection getConnection() {
       return null;
     }
 
     @Override
     public ChoreService getChoreService() {
+      return null;
+    }
+
+    @Override
+    public ClusterConnection getClusterConnection() {
       return null;
     }
 
@@ -173,11 +178,6 @@ public class ReplicationSyncUp extends Configured implements Tool {
 
     @Override
     public Connection createConnection(Configuration conf) throws IOException {
-      return null;
-    }
-
-    @Override
-    public AsyncClusterConnection getAsyncClusterConnection() {
       return null;
     }
   }

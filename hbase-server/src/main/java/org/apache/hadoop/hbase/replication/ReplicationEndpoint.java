@@ -29,7 +29,6 @@ import org.apache.yetus.audience.InterfaceAudience;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.hbase.HBaseInterfaceAudience;
-import org.apache.hadoop.hbase.Server;
 import org.apache.hadoop.hbase.TableDescriptors;
 import org.apache.hadoop.hbase.wal.WAL.Entry;
 import org.apache.hadoop.hbase.replication.regionserver.MetricsSource;
@@ -54,7 +53,6 @@ public interface ReplicationEndpoint extends ReplicationPeerConfigListener {
 
   @InterfaceAudience.LimitedPrivate(HBaseInterfaceAudience.REPLICATION)
   class Context {
-    private final Server server;
     private final Configuration localConf;
     private final Configuration conf;
     private final FileSystem fs;
@@ -66,11 +64,16 @@ public interface ReplicationEndpoint extends ReplicationPeerConfigListener {
     private final Abortable abortable;
 
     @InterfaceAudience.Private
-    public Context(final Server server, final Configuration localConf, final Configuration conf,
-        final FileSystem fs, final String peerId, final UUID clusterId,
-        final ReplicationPeer replicationPeer, final MetricsSource metrics,
-        final TableDescriptors tableDescriptors, final Abortable abortable) {
-      this.server = server;
+    public Context(
+        final Configuration localConf,
+        final Configuration conf,
+        final FileSystem fs,
+        final String peerId,
+        final UUID clusterId,
+        final ReplicationPeer replicationPeer,
+        final MetricsSource metrics,
+        final TableDescriptors tableDescriptors,
+        final Abortable abortable) {
       this.localConf = localConf;
       this.conf = conf;
       this.fs = fs;
@@ -81,50 +84,34 @@ public interface ReplicationEndpoint extends ReplicationPeerConfigListener {
       this.tableDescriptors = tableDescriptors;
       this.abortable = abortable;
     }
-
-    public Server getServer() {
-      return server;
-    }
-
     public Configuration getConfiguration() {
       return conf;
     }
-
     public Configuration getLocalConfiguration() {
       return localConf;
     }
-
     public FileSystem getFilesystem() {
       return fs;
     }
-
     public UUID getClusterId() {
       return clusterId;
     }
-
     public String getPeerId() {
       return peerId;
     }
-
     public ReplicationPeerConfig getPeerConfig() {
       return replicationPeer.getPeerConfig();
     }
-
     public ReplicationPeer getReplicationPeer() {
       return replicationPeer;
     }
-
     public MetricsSource getMetrics() {
       return metrics;
     }
-
     public TableDescriptors getTableDescriptors() {
       return tableDescriptors;
     }
-
-    public Abortable getAbortable() {
-      return abortable;
-    }
+    public Abortable getAbortable() { return abortable; }
   }
 
   /**
@@ -161,7 +148,6 @@ public interface ReplicationEndpoint extends ReplicationPeerConfigListener {
     List<Entry> entries;
     int size;
     String walGroupId;
-    int timeout;
     @InterfaceAudience.Private
     public ReplicateContext() {
     }
@@ -186,12 +172,6 @@ public interface ReplicationEndpoint extends ReplicationPeerConfigListener {
     }
     public String getWalGroupId(){
       return walGroupId;
-    }
-    public void setTimeout(int timeout) {
-      this.timeout = timeout;
-    }
-    public int getTimeout() {
-      return this.timeout;
     }
   }
 

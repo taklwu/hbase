@@ -53,7 +53,7 @@ public class TestStoreHotnessProtector {
   @ClassRule public static final HBaseClassTestRule CLASS_RULE =
       HBaseClassTestRule.forClass(TestStoreHotnessProtector.class);
 
-  @Test
+  @Test(timeout = 60000)
   public void testPreparePutCounter() throws Exception {
 
     ExecutorService executorService = Executors.newFixedThreadPool(10);

@@ -25,7 +25,8 @@ import org.apache.hadoop.hbase.HRegionInfo;
 import org.apache.hadoop.hbase.TableName;
 import org.apache.hadoop.hbase.testclassification.MiscTests;
 import org.apache.hadoop.hbase.testclassification.SmallTests;
-import org.apache.hadoop.hbase.util.HbckRegionInfo.MetaEntry;
+import org.apache.hadoop.hbase.util.HBaseFsck.HbckInfo;
+import org.apache.hadoop.hbase.util.HBaseFsck.MetaEntry;
 import org.junit.ClassRule;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
@@ -50,57 +51,58 @@ public class TestHBaseFsckComparator {
   byte[] keyC = Bytes.toBytes("C");
   byte[] keyEnd = Bytes.toBytes("");
 
-  static HbckRegionInfo genHbckInfo(TableName table, byte[] start, byte[] end, int time) {
-    return new HbckRegionInfo(new MetaEntry(new HRegionInfo(table, start, end), null,
+  static HbckInfo genHbckInfo(TableName table, byte[] start, byte[] end, int time) {
+    return new HbckInfo(new MetaEntry(new HRegionInfo(table, start, end), null,
         time));
   }
 
   @Test
   public void testEquals() {
-    HbckRegionInfo hi1 = genHbckInfo(table, keyA, keyB, 0);
-    HbckRegionInfo hi2 = genHbckInfo(table, keyA, keyB, 0);
-    assertEquals(0, HbckRegionInfo.COMPARATOR.compare(hi1, hi2));
-    assertEquals(0, HbckRegionInfo.COMPARATOR.compare(hi2, hi1));
+    HbckInfo hi1 = genHbckInfo(table, keyA, keyB, 0);
+    HbckInfo hi2 = genHbckInfo(table, keyA, keyB, 0);
+    assertEquals(0, HBaseFsck.cmp.compare(hi1, hi2));
+    assertEquals(0, HBaseFsck.cmp.compare(hi2, hi1));
   }
 
   @Test
   public void testEqualsInstance() {
-    HbckRegionInfo hi1 = genHbckInfo(table, keyA, keyB, 0);
-    HbckRegionInfo hi2 = hi1;
-    assertEquals(0, HbckRegionInfo.COMPARATOR.compare(hi1, hi2));
-    assertEquals(0, HbckRegionInfo.COMPARATOR.compare(hi2, hi1));
+    HbckInfo hi1 = genHbckInfo(table, keyA, keyB, 0);
+    HbckInfo hi2 = hi1;
+    assertEquals(0, HBaseFsck.cmp.compare(hi1, hi2));
+    assertEquals(0, HBaseFsck.cmp.compare(hi2, hi1));
   }
 
   @Test
   public void testDiffTable() {
-    HbckRegionInfo hi1 = genHbckInfo(table, keyA, keyC, 0);
-    HbckRegionInfo hi2 = genHbckInfo(table2, keyA, keyC, 0);
-    assertTrue(HbckRegionInfo.COMPARATOR.compare(hi1, hi2) < 0);
-    assertTrue(HbckRegionInfo.COMPARATOR.compare(hi2, hi1) > 0);
+    HbckInfo hi1 = genHbckInfo(table, keyA, keyC, 0);
+    HbckInfo hi2 = genHbckInfo(table2, keyA, keyC, 0);
+    assertTrue(HBaseFsck.cmp.compare(hi1, hi2) < 0);
+    assertTrue(HBaseFsck.cmp.compare(hi2, hi1) > 0);
   }
 
   @Test
   public void testDiffStartKey() {
-    HbckRegionInfo hi1 = genHbckInfo(table, keyStart, keyC, 0);
-    HbckRegionInfo hi2 = genHbckInfo(table, keyA, keyC, 0);
-    assertTrue(HbckRegionInfo.COMPARATOR.compare(hi1, hi2) < 0);
-    assertTrue(HbckRegionInfo.COMPARATOR.compare(hi2, hi1) > 0);
+    HbckInfo hi1 = genHbckInfo(table, keyStart, keyC, 0);
+    HbckInfo hi2 = genHbckInfo(table, keyA, keyC, 0);
+    assertTrue(HBaseFsck.cmp.compare(hi1, hi2) < 0);
+    assertTrue(HBaseFsck.cmp.compare(hi2, hi1) > 0);
   }
 
   @Test
   public void testDiffEndKey() {
-    HbckRegionInfo hi1 = genHbckInfo(table, keyA, keyB, 0);
-    HbckRegionInfo hi2 = genHbckInfo(table, keyA, keyC, 0);
-    assertTrue(HbckRegionInfo.COMPARATOR.compare(hi1, hi2) < 0);
-    assertTrue(HbckRegionInfo.COMPARATOR.compare(hi2, hi1) > 0);
+    HbckInfo hi1 = genHbckInfo(table, keyA, keyB, 0);
+    HbckInfo hi2 = genHbckInfo(table, keyA, keyC, 0);
+    assertTrue(HBaseFsck.cmp.compare(hi1, hi2) < 0);
+    assertTrue(HBaseFsck.cmp.compare(hi2, hi1) > 0);
   }
 
   @Test
   public void testAbsEndKey() {
-    HbckRegionInfo hi1 = genHbckInfo(table, keyA, keyC, 0);
-    HbckRegionInfo hi2 = genHbckInfo(table, keyA, keyEnd, 0);
-    assertTrue(HbckRegionInfo.COMPARATOR.compare(hi1, hi2) < 0);
-    assertTrue(HbckRegionInfo.COMPARATOR.compare(hi2, hi1) > 0);
+    HbckInfo hi1 = genHbckInfo(table, keyA, keyC, 0);
+    HbckInfo hi2 = genHbckInfo(table, keyA, keyEnd, 0);
+    assertTrue(HBaseFsck.cmp.compare(hi1, hi2) < 0);
+    assertTrue(HBaseFsck.cmp.compare(hi2, hi1) > 0);
   }
+
 }
 

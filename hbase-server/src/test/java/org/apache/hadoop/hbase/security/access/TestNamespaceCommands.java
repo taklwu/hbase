@@ -156,7 +156,7 @@ public class TestNamespaceCommands extends SecureTestUtil {
     UTIL.getConfiguration().setInt(HConstants.HBASE_CLIENT_RETRIES_NUMBER, 2);
     UTIL.startMiniCluster();
     // Wait for the ACL table to become available
-    UTIL.waitTableAvailable(PermissionStorage.ACL_TABLE_NAME.getName(), 30 * 1000);
+    UTIL.waitTableAvailable(AccessControlLists.ACL_TABLE_NAME.getName(), 30 * 1000);
 
     // Find the Access Controller CP. Could be on master or if master is not serving regions, is
     // on an arbitrary server.
@@ -204,10 +204,10 @@ public class TestNamespaceCommands extends SecureTestUtil {
   @Test
   public void testAclTableEntries() throws Exception {
     String userTestNamespace = "userTestNsp";
-    Table acl = UTIL.getConnection().getTable(PermissionStorage.ACL_TABLE_NAME);
+    Table acl = UTIL.getConnection().getTable(AccessControlLists.ACL_TABLE_NAME);
     try {
       ListMultimap<String, UserPermission> perms =
-          PermissionStorage.getNamespacePermissions(conf, TEST_NAMESPACE);
+        AccessControlLists.getNamespacePermissions(conf, TEST_NAMESPACE);
       for (Map.Entry<String, UserPermission> entry : perms.entries()) {
         LOG.debug(Objects.toString(entry));
       }
@@ -219,7 +219,7 @@ public class TestNamespaceCommands extends SecureTestUtil {
 
       Result result = acl.get(new Get(Bytes.toBytes(userTestNamespace)));
       assertTrue(result != null);
-      perms = PermissionStorage.getNamespacePermissions(conf, TEST_NAMESPACE);
+      perms = AccessControlLists.getNamespacePermissions(conf, TEST_NAMESPACE);
       assertEquals(7, perms.size());
       List<UserPermission> namespacePerms = perms.get(userTestNamespace);
       assertTrue(perms.containsKey(userTestNamespace));
@@ -233,7 +233,7 @@ public class TestNamespaceCommands extends SecureTestUtil {
       revokeFromNamespace(UTIL, userTestNamespace, TEST_NAMESPACE,
         Permission.Action.WRITE);
 
-      perms = PermissionStorage.getNamespacePermissions(conf, TEST_NAMESPACE);
+      perms = AccessControlLists.getNamespacePermissions(conf, TEST_NAMESPACE);
       assertEquals(6, perms.size());
     } finally {
       acl.close();
@@ -363,8 +363,8 @@ public class TestNamespaceCommands extends SecureTestUtil {
       @Override
       public Object run() throws Exception {
         try (Connection connection = ConnectionFactory.createConnection(conf)) {
-          connection.getAdmin().grant(new UserPermission(testUser,
-              Permission.newBuilder(TEST_NAMESPACE).withActions(Action.WRITE).build()),
+          connection.getAdmin().grant(
+            new UserPermission(testUser, new NamespacePermission(TEST_NAMESPACE, Action.WRITE)),
             false);
         }
         return null;
@@ -374,8 +374,8 @@ public class TestNamespaceCommands extends SecureTestUtil {
       @Override
       public Object run() throws Exception {
         try (Connection conn = ConnectionFactory.createConnection(conf)) {
-          conn.getAdmin().grant(new UserPermission(USER_GROUP_NS_ADMIN.getShortName(),
-              Permission.newBuilder(TEST_NAMESPACE).withActions(Action.READ).build()),
+          conn.getAdmin().grant(
+            new UserPermission(USER_GROUP_NS_ADMIN.getShortName(), TEST_NAMESPACE, Action.READ),
             false);
         }
         return null;
@@ -386,8 +386,8 @@ public class TestNamespaceCommands extends SecureTestUtil {
       @Override
       public Object run() throws Exception {
         try (Connection connection = ConnectionFactory.createConnection(conf)) {
-          connection.getAdmin().revoke(new UserPermission(testUser,
-              Permission.newBuilder(TEST_NAMESPACE).withActions(Action.WRITE).build()));
+          connection.getAdmin().revoke(
+            new UserPermission(testUser, new NamespacePermission(TEST_NAMESPACE, Action.WRITE)));
         }
         return null;
       }
@@ -397,7 +397,7 @@ public class TestNamespaceCommands extends SecureTestUtil {
       public Object run() throws Exception {
         try (Connection connection = ConnectionFactory.createConnection(conf)) {
           connection.getAdmin().revoke(new UserPermission(USER_GROUP_NS_ADMIN.getShortName(),
-              Permission.newBuilder(TEST_NAMESPACE).withActions(Action.READ).build()));
+              new NamespacePermission(TEST_NAMESPACE, Action.READ)));
         }
         return null;
       }
@@ -406,9 +406,12 @@ public class TestNamespaceCommands extends SecureTestUtil {
     AccessTestAction getPermissionsAction = new AccessTestAction() {
       @Override
       public Object run() throws Exception {
-        try (Connection connection = ConnectionFactory.createConnection(conf)) {
-          connection.getAdmin()
-              .getUserPermissions(GetUserPermissionsRequest.newBuilder(TEST_NAMESPACE).build());
+        try (Connection connection = ConnectionFactory.createConnection(conf);
+            Table acl = connection.getTable(AccessControlLists.ACL_TABLE_NAME)) {
+          BlockingRpcChannel service = acl.coprocessorService(HConstants.EMPTY_START_ROW);
+          AccessControlService.BlockingInterface protocol =
+              AccessControlService.newBlockingStub(service);
+          AccessControlUtil.getUserPermissions(null, protocol, Bytes.toBytes(TEST_NAMESPACE));
         }
         return null;
       }
@@ -418,8 +421,7 @@ public class TestNamespaceCommands extends SecureTestUtil {
       @Override
       public Object run() throws Exception {
         ACCESS_CONTROLLER.preGrant(ObserverContextImpl.createAndPrepare(CP_ENV),
-          new UserPermission(testUser,
-              Permission.newBuilder(TEST_NAMESPACE).withActions(Action.WRITE).build()),
+          new UserPermission(testUser, new NamespacePermission(TEST_NAMESPACE, Action.WRITE)),
           false);
         return null;
       }
@@ -428,8 +430,7 @@ public class TestNamespaceCommands extends SecureTestUtil {
       @Override
       public Object run() throws Exception {
         ACCESS_CONTROLLER.preRevoke(ObserverContextImpl.createAndPrepare(CP_ENV),
-          new UserPermission(testUser,
-              Permission.newBuilder(TEST_NAMESPACE).withActions(Action.WRITE).build()));
+          new UserPermission(testUser, new NamespacePermission(TEST_NAMESPACE, Action.WRITE)));
         return null;
       }
     };
@@ -438,7 +439,7 @@ public class TestNamespaceCommands extends SecureTestUtil {
       @Override
       public Object run() throws Exception {
         try (Connection connection = ConnectionFactory.createConnection(conf);
-            Table acl = connection.getTable(PermissionStorage.ACL_TABLE_NAME)) {
+            Table acl = connection.getTable(AccessControlLists.ACL_TABLE_NAME)) {
           BlockingRpcChannel service = acl.coprocessorService(HConstants.EMPTY_START_ROW);
           AccessControlService.BlockingInterface protocol =
               AccessControlService.newBlockingStub(service);
@@ -451,7 +452,7 @@ public class TestNamespaceCommands extends SecureTestUtil {
       @Override
       public Object run() throws Exception {
         try (Connection connection = ConnectionFactory.createConnection(conf);
-            Table acl = connection.getTable(PermissionStorage.ACL_TABLE_NAME)) {
+            Table acl = connection.getTable(AccessControlLists.ACL_TABLE_NAME)) {
           BlockingRpcChannel service = acl.coprocessorService(HConstants.EMPTY_START_ROW);
           AccessControlService.BlockingInterface protocol =
               AccessControlService.newBlockingStub(service);

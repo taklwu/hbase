@@ -27,12 +27,13 @@ import org.junit.experimental.categories.Category;
 
 @Category({ClientTests.class, SmallTests.class})
 public class TestQuotaFilter {
+
   @ClassRule
   public static final HBaseClassTestRule CLASS_RULE =
       HBaseClassTestRule.forClass(TestQuotaFilter.class);
 
-  @Test
-  public void testClassMethodsAreBuilderStyle() {
+    @Test
+    public void testClassMethodsAreBuilderStyle() {
     /* ReplicationPeerConfig should have a builder style setup where setXXX/addXXX methods
      * can be chainable together:
      * . For example:
@@ -45,6 +46,7 @@ public class TestQuotaFilter {
      * This test ensures that all methods starting with "set" returns the declaring object
      */
 
-    BuilderStyleTest.assertClassesAreBuilderStyle(QuotaFilter.class);
-  }
+        BuilderStyleTest.assertClassesAreBuilderStyle(QuotaFilter.class);
+    }
+
 }

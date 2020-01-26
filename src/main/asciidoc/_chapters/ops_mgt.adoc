@@ -421,8 +421,6 @@ This will generate `HBCK2` usage describing commands and options.
 See <<hfile_tool>>.
 
 === WAL Tools
-For bulk replaying WAL files or _recovered.edits_ files, see
-<<walplayer>>. For reading/verifying individual files, read on.
 
 [[hlog_tool]]
 ==== FSHLog tool
@@ -530,13 +528,6 @@ Caching for the input Scan is configured via `hbase.client.scanner.caching`     
 By default, CopyTable utility only copies the latest version of row cells unless `--versions=n` is explicitly specified in the command.
 ====
 
-.Data Load
-[NOTE]
-====
-CopyTable does not perform a diff, it copies all Cells in between the specified startrow/stoprow starttime/endtime range.
-This means that already existing cells with same values will still be copied.
-====
-
 See Jonathan Hsieh's link:https://blog.cloudera.com/blog/2012/06/online-hbase-backups-with-copytable-2/[Online
           HBase Backups with CopyTable] blog post for more on `CopyTable`.
 
@@ -637,16 +628,6 @@ Setting doDeletes to false modifies default behaviour to not delete target cells
 Similarly, setting doPuts to false modifies default behaviour to not add missing cells on target. Setting both doDeletes
 and doPuts to false would give same effect as setting dryrun to true.
 
-.Additional info on doDeletes/doPuts
-[NOTE]
-====
-"doDeletes/doPuts" were only added by
-link:https://jira.apache.org/jira/browse/HBASE-20305[HBASE-20305], so these may not be available on
-all released versions.
-For major 1.x versions, minimum minor release including it is *1.4.10*.
-For major 2.x versions, minimum minor release including it is *2.1.5*.
-====
-
 .Set doDeletes to false on Two-Way Replication scenarios
 [NOTE]
 ====
@@ -664,11 +645,8 @@ which does not give any meaningful result.
 .Remote Clusters on different Kerberos Realms
 [NOTE]
 ====
-Often, remote clusters may be deployed on different Kerberos Realms.
-link:https://jira.apache.org/jira/browse/HBASE-20586[HBASE-20586] added SyncTable support for
-cross realm authentication, allowing a SyncTable process running on target cluster to connect to
-source cluster and read both HashTable output files and the given HBase table when performing the
-required comparisons.
+Currently, SyncTable can't be ran for remote clusters on different Kerberos realms.
+There's some work in progress to resolve this on link:https://jira.apache.org/jira/browse/HBASE-20586[HBASE-20586]
 ====
 
 [[export]]
@@ -860,7 +838,7 @@ $ bin/hbase org.apache.hadoop.hbase.tool.LoadIncrementalHFiles <hdfs://storefile
 
 .Driver
 ----
-HADOOP_CLASSPATH=`${HBASE_HOME}/bin/hbase classpath` ${HADOOP_HOME}/bin/hadoop jar ${HBASE_HOME}/hbase-mapreduce-VERSION.jar completebulkload <hdfs://storefileoutput> <tablename>
+HADOOP_CLASSPATH=`${HBASE_HOME}/bin/hbase classpath` ${HADOOP_HOME}/bin/hadoop jar ${HBASE_HOME}/hbase-server-VERSION.jar completebulkload <hdfs://storefileoutput> <tablename>
 ----
 
 [[completebulkload.warning]]
@@ -880,13 +858,6 @@ The WAL can be replayed for a set of tables or all tables, and a timerange can b
 The output can optionally be mapped to another set of tables.
 
 WALPlayer can also generate HFiles for later bulk importing, in that case only a single table and no mapping can be specified.
-
-.WALPrettyPrinter/FSHLog Tool
-[NOTE]
-====
-To read or verify single WAL files or _recovered.edits_ files, since they share the WAL format,
-see <<_wal_tools>>.
-====
 
 Invoke via:
 
@@ -1438,7 +1409,7 @@ But usually disks do the "John Wayne" -- i.e.
 take a while to go down spewing errors in _dmesg_ -- or for some reason, run much slower than their companions.
 In this case you want to decommission the disk.
 You have two options.
-You can link:https://hadoop.apache.org/docs/current/hadoop-project-dist/hadoop-hdfs/HdfsDataNodeAdminGuide.html[decommission
+You can link:https://wiki.apache.org/hadoop/FAQ#I_want_to_make_a_large_cluster_smaller_by_taking_out_a_bunch_of_nodes_simultaneously._How_can_this_be_done.3F[decommission
             the datanode] or, less disruptive in that only the bad disks data will be rereplicated, can stop the datanode, unmount the bad volume (You can't umount a volume while the datanode is using it), and then restart the datanode (presuming you have set dfs.datanode.failed.volumes.tolerated > 0). The regionserver will throw some errors in its logs as it recalibrates where to get its data from -- it will likely roll its WAL log too -- but in general but for some latency spikes, it should keep on chugging.
 
 .Short Circuit Reads
@@ -1754,100 +1725,6 @@ hbase.regionserver.authenticationFailures::
 hbase.regionserver.mutationsWithoutWALCount ::
   Count of writes submitted with a flag indicating they should bypass the write ahead log
 
-[[rs_meta_metrics]]
-=== Meta Table Load Metrics
-
-HBase meta table metrics collection feature is available in HBase 1.4+ but it is disabled by default, as it can
-affect the performance of the cluster. When it is enabled, it helps to monitor client access patterns by collecting
-the following statistics:
-
-* number of get, put and delete operations on the `hbase:meta` table
-* number of get, put and delete operations made by the top-N clients
-* number of operations related to each table
-* number of operations related to the top-N regions
-
-
-When to use the feature::
-  This feature can help to identify hot spots in the meta table by showing the regions or tables where the meta info is
-  modified (e.g. by create, drop, split or move tables) or retrieved most frequently. It can also help to find misbehaving
-  client applications by showing which clients are using the meta table most heavily, which can for example suggest the
-  lack of meta table buffering or the lack of re-using open client connections in the client application.
-
-.Possible side-effects of enabling this feature
-[WARNING]
-====
-Having large number of clients and regions in the cluster can cause the registration and tracking of a large amount of
-metrics, which can increase the memory and CPU footprint of the HBase region server handling the `hbase:meta` table.
-It can also cause the significant increase of the JMX dump size, which can affect the monitoring or log aggregation
-system you use beside HBase. It is recommended to turn on this feature only during debugging.
-====
-
-Where to find the metrics in JMX::
-  Each metric attribute name will start with the ‘MetaTable_’ prefix. For all the metrics you will see five different
-  JMX attributes: count, mean rate, 1 minute rate, 5 minute rate and 15 minute rate. You will find these metrics in JMX
-  under the following MBean:
-  `Hadoop -> HBase -> RegionServer -> Coprocessor.Region.CP_org.apache.hadoop.hbase.coprocessor.MetaTableMetrics`.
-
-.Examples: some Meta Table metrics you can see in your JMX dump
-[source,json]
-----
-{
-  "MetaTable_get_request_count": 77309,
-  "MetaTable_put_request_mean_rate": 0.06339092997186495,
-  "MetaTable_table_MyTestTable_request_15min_rate": 1.1020599841623246,
-  "MetaTable_client_/172.30.65.42_lossy_request_count": 1786
-  "MetaTable_client_/172.30.65.45_put_request_5min_rate": 0.6189810954855728,
-  "MetaTable_region_1561131112259.c66e4308d492936179352c80432ccfe0._lossy_request_count": 38342,
-  "MetaTable_region_1561131043640.5bdffe4b9e7e334172065c853cf0caa6._lossy_request_1min_rate": 0.04925099917433935,
-}
-----
-
-Configuration::
-  To turn on this feature, you have to enable a custom coprocessor by adding the following section to hbase-site.xml.
-  This coprocessor will run on all the HBase RegionServers, but will be active (i.e. consume memory / CPU) only on
-  the server, where the `hbase:meta` table is located. It will produce JMX metrics which can be downloaded from the
-  web UI of the given RegionServer or by a simple REST call. These metrics will not be present in the JMX dump of the
-  other RegionServers.
-
-.Enabling the Meta Table Metrics feature
-[source,xml]
-----
-<property>
-    <name>hbase.coprocessor.region.classes</name>
-    <value>org.apache.hadoop.hbase.coprocessor.MetaTableMetrics</value>
-</property>
-----
-
-.How the top-N metrics are calculated?
-[NOTE]
-====
-The 'top-N' type of metrics will be counted using the Lossy Counting Algorithm (as defined in
-link:http://www.vldb.org/conf/2002/S10P03.pdf[Motwani, R; Manku, G.S (2002). "Approximate frequency counts over data streams"]),
-which is designed to identify elements in a data stream whose frequency count exceed a user-given threshold.
-The frequency computed by this algorithm is not always accurate but has an error threshold that can be specified by the
-user as a configuration parameter. The run time space required by the algorithm is inversely proportional to the
-specified error threshold, hence larger the error parameter, the smaller the footprint and the less accurate are the
-metrics.
-
-You can specify the error rate of the algorithm as a floating-point value between 0 and 1 (exclusive), it's default
-value is 0.02. Having the error rate set to `E` and having `N` as the total number of meta table operations, then
-(assuming the uniform distribution of the activity of low frequency elements) at most `7 / E` meters will be kept and
-each kept element will have a frequency higher than `E * N`.
-
-An example: Let’s assume we are interested in the HBase clients that are most active in accessing the meta table.
-When there was 1,000,000 operations on the meta table so far and the error rate parameter is set to 0.02, then we can
-assume that only at most 350 client IP address related counters will be present in JMX and each of these clients
-accessed the meta table at least 20,000 times.
-
-[source,xml]
-----
-<property>
-    <name>hbase.util.default.lossycounting.errorrate</name>
-    <value>0.02</value>
-</property>
-----
-====
-
 [[ops.monitoring]]
 == HBase Monitoring
 
@@ -1917,19 +1794,19 @@ This particular example, for example, would indicate that the likely cause of sl
 === Block Cache Monitoring
 
 Starting with HBase 0.98, the HBase Web UI includes the ability to monitor and report on the performance of the block cache.
-To view the block cache reports, see the Block Cache section of the region server UI.
+To view the block cache reports, click .
 Following are a few examples of the reporting capabilities.
 
-.Basic Info shows the cache implementation.
+.Basic Info
 image::bc_basic.png[]
 
-.Config shows all cache configuration options.
+.Config
 image::bc_config.png[]
 
-.Stats shows statistics about the performance of the cache.
+.Stats
 image::bc_stats.png[]
 
-.L1 and L2 show information about the L1 and L2 caches.
+.L1 and L2
 image::bc_l1.png[]
 
 This is not an exhaustive list of all the screens and reports available.
@@ -2642,7 +2519,6 @@ take when the quota subject's usage exceeds the `LIMIT`. The following are valid
 * `NO_INSERTS` - No new data may be written (e.g. `Put`, `Increment`, `Append`).
 * `NO_WRITES` - Same as `NO_INSERTS` but `Deletes` are also disallowed.
 * `NO_WRITES_COMPACTIONS` - Same as `NO_WRITES` but compactions are also disallowed.
-** This policy only prevents user-submitted compactions. System can still run compactions.
 * `DISABLE` - The table(s) are disabled, preventing all read/write access.
 
 .Setting simple space quotas
@@ -2798,7 +2674,7 @@ Since the cluster is up, there is a risk that edits could be missed in the copy 
 The <<export,export>> approach dumps the content of a table to HDFS on the same cluster.
 To restore the data, the <<import,import>> utility would be used.
 
-Since the cluster is up, there is a risk that edits could be missed in the export process. If you want to know more about HBase back-up and restore see the page on link:http://hbase.apache.org/book.html#backuprestore[Backup and Restore].
+Since the cluster is up, there is a risk that edits could be missed in the export process.
 
 [[ops.snapshots]]
 == HBase Snapshots
@@ -2854,77 +2730,6 @@ WARNING: There is no way to determine or predict whether a very concurrent inser
 A snapshot is only a representation of a table during a window of time.
 The amount of time the snapshot operation will take to reach each Region Server may vary from a few seconds to a minute, depending on the resource load and speed of the hardware or network, among other factors.
 There is also no way to know whether a given insert or update is in memory or has been flushed.
-
-
-.Take a Snapshot With TTL
-Snapshots have a lifecycle that is independent from the table from which they are created.
-Although data in a table may be stored with TTL the data files containing them become
-frozen by the snapshot. Space consumed by expired cells will not be reclaimed by normal
-table housekeeping like compaction. While this is expected it can be inconvenient at scale.
-When many snapshots are under management and the data in various tables is expired by
-TTL some notion of optional TTL (and optional default TTL) for snapshots could be useful.
-
-
-----
-hbase> snapshot 'mytable', 'snapshot1234', {TTL => 86400}
-----
-
-The above command creates snapshot `snapshot1234` with TTL of 86400 sec(24 hours)
-and hence, the snapshot is supposed to be cleaned up after 24 hours
-
-
-
-.Default Snapshot TTL:
-
-- FOREVER by default
-- User specified Default TTL with config `hbase.master.snapshot.ttl`
-
-
-While creating a Snapshot, if TTL in seconds is not specified, by default the snapshot
-would not be deleted automatically. i.e. it would be retained forever until it is
-manually deleted. However, the user can update this default TTL behavior by
-providing default TTL in sec for key: `hbase.master.snapshot.ttl`.
-Value 0 for this config indicates TTL: FOREVER
-
-
-
-.Enable/Disable Snapshot Auto Cleanup on running cluster:
-
-By default, snapshot auto cleanup based on TTL would be enabled
-for any new cluster.
-At any point in time, if snapshot cleanup is supposed to be stopped due to
-some snapshot restore activity or any other reason, it is advisable
-to disable it using shell command:
-
-----
-hbase> snapshot_cleanup_switch false
-----
-
-We can re-enable it using:
-
-----
-hbase> snapshot_cleanup_switch true
-----
-
-The shell command with switch false would disable snapshot auto
-cleanup activity based on TTL and return the previous state of
-the activity(true: running already, false: disabled already)
-
-A sample output for above commands:
-----
-Previous snapshot cleanup state : true
-Took 0.0069 seconds
-=> "true"
-----
-
-We can query whether snapshot auto cleanup is enabled for
-cluster using:
-
-----
-hbase> snapshot_cleanup_enabled
-----
-
-The command would return output in true/false.
 
 [[ops.snapshots.list]]
 === Listing Snapshots
@@ -3618,26 +3423,3 @@ have auto normalization turned on …..…..….
 server=hbase-test-rc-5.openstacklocal,16020,1469419333913}
 2016-07-26 07:39:46,246 DEBUG [AM.ZK.Worker-pool2-t278] master.RegionStates: Onlined d6b5625df331cfec84dce4f1122c567f on hbase-test-rc-5.openstacklocal,16020,1469419333913 {ENCODED => d6b5625df331cfec84dce4f1122c567f, NAME => 'table_h2osxu3wat,154717,1469518785661.d6b5625df331cfec84dce4f1122c567f.', STARTKEY => '154717', ENDKEY => '3'}
 ----
-
-
-
-[[auto_reopen_regions]]
-== Auto Region Reopen
-
-We can leak store reader references if a coprocessor or core function somehow
-opens a scanner, or wraps one, and then does not take care to call close on the
-scanner or the wrapped instance. Leaked store files can not be removed even
-after it is invalidated via compaction.
-A reasonable mitigation for a reader reference
-leak would be a fast reopen of the region on the same server.
-This will release all resources, like the refcount, leases, etc.
-The clients should gracefully ride over this like any other region in
-transition.
-By default this auto reopen of region feature would be disabled.
-To enabled it, please provide high ref count value for config
-`hbase.regions.recovery.store.file.ref.count`.
-
-Please refer to config descriptions for
-`hbase.master.regions.recovery.check.interval` and
-`hbase.regions.recovery.store.file.ref.count`.
-

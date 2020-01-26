@@ -101,9 +101,7 @@ public class ProcessBasedLocalHBaseCluster {
 
   /**
    * Constructor. Modifies the passed configuration.
-   * @param conf the {@link Configuration} to use
-   * @param numDataNodes the number of data nodes
-   * @param numRegionServers the number of region servers
+   * @param hbaseHome the top directory of the HBase source tree
    */
   public ProcessBasedLocalHBaseCluster(Configuration conf,
       int numDataNodes, int numRegionServers) {

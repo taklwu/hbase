@@ -25,10 +25,7 @@ import org.apache.yetus.audience.InterfaceAudience;
  * Utilities related to atomic operations.
  */
 @InterfaceAudience.Private
-public final class AtomicUtils {
-  private AtomicUtils() {
-  }
-
+public class AtomicUtils {
   /**
    * Updates a AtomicLong which is supposed to maintain the minimum values. This method is not
    * synchronized but is thread-safe.
@@ -62,4 +59,5 @@ public final class AtomicUtils {
       }
     }
   }
+
 }

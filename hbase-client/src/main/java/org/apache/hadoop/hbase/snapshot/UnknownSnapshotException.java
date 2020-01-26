@@ -25,18 +25,16 @@ import org.apache.yetus.audience.InterfaceAudience;
 @SuppressWarnings("serial")
 @InterfaceAudience.Public
 public class UnknownSnapshotException extends HBaseSnapshotException {
-  /**
-   * @param message full information about the failure
-   */
-  public UnknownSnapshotException(String message) {
-    super(message);
-  }
 
   /**
-   * @param message full information about the failure
-   * @param e the actual cause of the exception
+   * @param msg full information about the failure
    */
-  public UnknownSnapshotException(String message, Exception e) {
-    super(message, e);
+  public UnknownSnapshotException(String msg) {
+    super(msg);
   }
+
+  public UnknownSnapshotException(String msg, Exception  e) {
+    super(msg, e);
+  }
+
 }

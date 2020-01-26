@@ -20,7 +20,6 @@ package org.apache.hadoop.hbase.snapshot;
 import java.io.IOException;
 import java.security.PrivilegedExceptionAction;
 import java.util.Collections;
-import java.util.concurrent.TimeUnit;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FSDataInputStream;
@@ -34,7 +33,7 @@ import org.apache.hadoop.hbase.client.Admin;
 import org.apache.hadoop.hbase.client.Connection;
 import org.apache.hadoop.hbase.client.ConnectionFactory;
 import org.apache.hadoop.hbase.security.User;
-import org.apache.hadoop.hbase.security.access.PermissionStorage;
+import org.apache.hadoop.hbase.security.access.AccessControlLists;
 import org.apache.hadoop.hbase.security.access.ShadedAccessControlUtil;
 import org.apache.hadoop.hbase.security.access.UserPermission;
 import org.apache.hadoop.hbase.util.EnvironmentEdgeManager;
@@ -125,13 +124,27 @@ public final class SnapshotDescriptionUtils {
   /** Default value if no start time is specified */
   public static final long NO_SNAPSHOT_START_TIME_SPECIFIED = 0;
 
-  // Default value if no ttl is specified for Snapshot
-  private static final long NO_SNAPSHOT_TTL_SPECIFIED = 0;
 
   public static final String MASTER_SNAPSHOT_TIMEOUT_MILLIS = "hbase.snapshot.master.timeout.millis";
 
   /** By default, wait 300 seconds for a snapshot to complete */
   public static final long DEFAULT_MAX_WAIT_TIME = 60000 * 5 ;
+
+
+  /**
+   * By default, check to see if the snapshot is complete (ms)
+   * @deprecated Use {@link #DEFAULT_MAX_WAIT_TIME} instead.
+   * */
+  @Deprecated
+  public static final int SNAPSHOT_TIMEOUT_MILLIS_DEFAULT = 60000 * 5;
+
+  /**
+   * Conf key for # of ms elapsed before injecting a snapshot timeout error when waiting for
+   * completion.
+   * @deprecated Use {@link #MASTER_SNAPSHOT_TIMEOUT_MILLIS} instead.
+   */
+  @Deprecated
+  public static final String SNAPSHOT_TIMEOUT_MILLIS_KEY = "hbase.snapshot.master.timeoutMillis";
 
   private SnapshotDescriptionUtils() {
     // private constructor for utility class
@@ -152,7 +165,7 @@ public final class SnapshotDescriptionUtils {
       confKey = MASTER_SNAPSHOT_TIMEOUT_MILLIS;
     }
     return Math.max(conf.getLong(confKey, defaultMaxWaitTime),
-        conf.getLong(MASTER_SNAPSHOT_TIMEOUT_MILLIS, defaultMaxWaitTime));
+        conf.getLong(SNAPSHOT_TIMEOUT_MILLIS_KEY, defaultMaxWaitTime));
   }
 
   /**
@@ -258,11 +271,9 @@ public final class SnapshotDescriptionUtils {
    * @param conf configuration for the HBase cluster
    * @return true if the given workingDir is a subdirectory of the default working directory for
    *   snapshots, false otherwise
-   * @throws IOException if we can't get the root dir
    */
-  public static boolean isWithinDefaultWorkingDir(final Path workingDir, Configuration conf)
-    throws IOException {
-    Path defaultWorkingDir = getDefaultWorkingSnapshotDir(FSUtils.getRootDir(conf));
+  public static boolean isWithinDefaultWorkingDir(final Path workingDir, Configuration conf) {
+    Path defaultWorkingDir = getDefaultWorkingSnapshotDir(new Path(conf.get(HConstants.HBASE_DIR)));
     return workingDir.equals(defaultWorkingDir) || isSubDirectoryOf(workingDir, defaultWorkingDir);
   }
 
@@ -303,22 +314,6 @@ public final class SnapshotDescriptionUtils {
       builder.setCreationTime(time);
       snapshot = builder.build();
     }
-
-    long ttl = snapshot.getTtl();
-    // set default ttl(sec) if it is not set already or the value is out of the range
-    if (ttl == SnapshotDescriptionUtils.NO_SNAPSHOT_TTL_SPECIFIED ||
-        ttl > TimeUnit.MILLISECONDS.toSeconds(Long.MAX_VALUE)) {
-      final long defaultSnapshotTtl = conf.getLong(HConstants.DEFAULT_SNAPSHOT_TTL_CONFIG_KEY,
-          HConstants.DEFAULT_SNAPSHOT_TTL);
-      if (LOG.isDebugEnabled()) {
-        LOG.debug("Snapshot current TTL value: {} resetting it to default value: {}", ttl,
-            defaultSnapshotTtl);
-      }
-      ttl = defaultSnapshotTtl;
-    }
-    SnapshotDescription.Builder builder = snapshot.toBuilder();
-    builder.setTtl(ttl);
-    snapshot = builder.build();
 
     // set the acl to snapshot if security feature is enabled.
     if (isSecurityAvailable(conf)) {
@@ -421,7 +416,7 @@ public final class SnapshotDescriptionUtils {
   public static boolean isSecurityAvailable(Configuration conf) throws IOException {
     try (Connection conn = ConnectionFactory.createConnection(conf)) {
       try (Admin admin = conn.getAdmin()) {
-        return admin.tableExists(PermissionStorage.ACL_TABLE_NAME);
+        return admin.tableExists(AccessControlLists.ACL_TABLE_NAME);
       }
     }
   }
@@ -432,7 +427,7 @@ public final class SnapshotDescriptionUtils {
         User.runAsLoginUser(new PrivilegedExceptionAction<ListMultimap<String, UserPermission>>() {
           @Override
           public ListMultimap<String, UserPermission> run() throws Exception {
-            return PermissionStorage.getTablePermissions(conf,
+            return AccessControlLists.getTablePermissions(conf,
               TableName.valueOf(snapshot.getTable()));
           }
         });

@@ -83,8 +83,6 @@ public class WALFactory {
 
   public static final String META_WAL_PROVIDER = "hbase.wal.meta_provider";
 
-  public static final String WAL_ENABLED = "hbase.regionserver.hlog.enabled";
-
   final String factoryId;
   private final WALProvider provider;
   // The meta updates are written to a different wal. If this
@@ -197,7 +195,7 @@ public class WALFactory {
     this.conf = conf;
     this.factoryId = factoryId;
     // end required early initialization
-    if (conf.getBoolean(WAL_ENABLED, true)) {
+    if (conf.getBoolean("hbase.regionserver.hlog.enabled", true)) {
       WALProvider provider = createProvider(getProviderClass(WAL_PROVIDER, DEFAULT_WAL_PROVIDER));
       if (enableSyncReplicationWALProvider) {
         provider = new SyncReplicationWALProvider(provider);

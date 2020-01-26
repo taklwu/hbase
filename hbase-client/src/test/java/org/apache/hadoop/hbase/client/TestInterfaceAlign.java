@@ -22,7 +22,6 @@ import static org.junit.Assert.assertTrue;
 import java.io.Closeable;
 import java.lang.annotation.Annotation;
 import java.lang.reflect.Method;
-import java.lang.reflect.Modifier;
 import java.util.Arrays;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -33,13 +32,17 @@ import org.apache.hadoop.hbase.testclassification.SmallTests;
 import org.junit.ClassRule;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 @Category({ ClientTests.class, SmallTests.class })
 public class TestInterfaceAlign {
 
   @ClassRule
   public static final HBaseClassTestRule CLASS_RULE =
-    HBaseClassTestRule.forClass(TestInterfaceAlign.class);
+      HBaseClassTestRule.forClass(TestInterfaceAlign.class);
+
+  private static final Logger LOG = LoggerFactory.getLogger(TestInterfaceAlign.class);
 
   /**
    * Test methods name match up
@@ -51,13 +54,10 @@ public class TestInterfaceAlign {
 
     // Remove some special methods
     adminMethodNames.remove("getOperationTimeout");
-    adminMethodNames.remove("getSyncWaitTimeout");
     adminMethodNames.remove("getConnection");
     adminMethodNames.remove("getConfiguration");
     adminMethodNames.removeAll(getMethodNames(Abortable.class));
     adminMethodNames.removeAll(getMethodNames(Closeable.class));
-
-    asyncAdminMethodNames.remove("coprocessorService");
 
     adminMethodNames.forEach(method -> {
       boolean contains = asyncAdminMethodNames.contains(method);
@@ -78,8 +78,7 @@ public class TestInterfaceAlign {
   private <T> List<String> getMethodNames(Class<T> c) {
     // DON'T use the getDeclaredMethods as we want to check the Public APIs only.
     return Arrays.asList(c.getMethods()).stream().filter(m -> !isDeprecated(m))
-      .filter(m -> !Modifier.isStatic(m.getModifiers())).map(Method::getName).distinct()
-      .collect(Collectors.toList());
+        .map(Method::getName).distinct().collect(Collectors.toList());
   }
 
   private boolean isDeprecated(Method method) {

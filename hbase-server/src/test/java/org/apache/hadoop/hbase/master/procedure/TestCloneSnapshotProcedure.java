@@ -71,7 +71,7 @@ public class TestCloneSnapshotProcedure extends TestTableDDLProcedureBase {
     if (snapshot == null) {
       final TableName snapshotTableName = TableName.valueOf("testCloneSnapshot");
       long tid = System.currentTimeMillis();
-      final String snapshotName = "snapshot-" + tid;
+      final byte[] snapshotName = Bytes.toBytes("snapshot-" + tid);
 
       Admin admin = UTIL.getAdmin();
       // create Table

@@ -165,10 +165,9 @@ class ZKReplicationQueueStorage extends ZKReplicationStorageBase
           "Invalid encoded region name: " + encodedRegionName + ", length should be 32.");
     }
     return new StringBuilder(regionsZNode).append(ZNodePaths.ZNODE_PATH_SEPARATOR)
-            .append(encodedRegionName, 0, 2).append(ZNodePaths.ZNODE_PATH_SEPARATOR)
-            .append(encodedRegionName, 2, 4).append(ZNodePaths.ZNODE_PATH_SEPARATOR)
-            .append(encodedRegionName, 4, encodedRegionName.length()).append("-").append(peerId)
-            .toString();
+        .append(encodedRegionName.substring(0, 2)).append(ZNodePaths.ZNODE_PATH_SEPARATOR)
+        .append(encodedRegionName.substring(2, 4)).append(ZNodePaths.ZNODE_PATH_SEPARATOR)
+        .append(encodedRegionName.substring(4)).append("-").append(peerId).toString();
   }
 
   @Override
@@ -249,9 +248,9 @@ class ZKReplicationQueueStorage extends ZKReplicationStorageBase
           return;
         } catch (KeeperException.BadVersionException | KeeperException.NodeExistsException e) {
           LOG.warn(
-            "Bad version(or node exist) when persist the last pushed sequence id to zookeeper "
-                + "storage, Retry = " + retry + ", serverName=" + serverName + ", queueId="
-                + queueId + ", fileName=" + fileName);
+            "Bad version(or node exist) when persist the last pushed sequence id to zookeeper storage, "
+                + "Retry = " + retry + ", serverName=" + serverName + ", queueId=" + queueId
+                + ", fileName=" + fileName);
         }
       }
     } catch (KeeperException e) {
@@ -565,7 +564,7 @@ class ZKReplicationQueueStorage extends ZKReplicationStorageBase
     String peerNode = getHFileRefsPeerNode(peerId);
     try {
       if (ZKUtil.checkExists(zookeeper, peerNode) == -1) {
-        LOG.debug("Peer {} not found in hfile reference queue.", peerNode);
+          LOG.debug("Peer {} not found in hfile reference queue.", peerNode);
       } else {
         LOG.info("Removing peer {} from hfile reference queue.", peerNode);
         ZKUtil.deleteNodeRecursively(zookeeper, peerNode);
@@ -584,7 +583,7 @@ class ZKReplicationQueueStorage extends ZKReplicationStorageBase
     List<ZKUtilOp> listOfOps = pairs.stream().map(p -> p.getSecond().getName())
         .map(n -> getHFileNode(peerNode, n))
         .map(f -> ZKUtilOp.createAndFailSilent(f, HConstants.EMPTY_BYTE_ARRAY)).collect(toList());
-    LOG.debug("The multi list size for adding hfile references in zk for node {} is {}",
+      LOG.debug("The multi list size for adding hfile references in zk for node {} is {}",
           peerNode, listOfOps.size());
     try {
       ZKUtil.multiOrSequential(this.zookeeper, listOfOps, true);

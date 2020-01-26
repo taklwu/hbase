@@ -15,12 +15,13 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package org.apache.hadoop.hbase.procedure2;
 
 import java.util.Iterator;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.ReentrantLock;
+import java.util.concurrent.TimeUnit;
 
 import org.apache.yetus.audience.InterfaceAudience;
 import org.slf4j.Logger;
@@ -277,6 +278,7 @@ public abstract class AbstractProcedureScheduler implements ProcedureScheduler {
     LOG.trace("Wake {}", procedure);
     push(procedure, /* addFront= */ true, /* notify= */false);
   }
+
 
   // ==========================================================================
   //  Internal helpers

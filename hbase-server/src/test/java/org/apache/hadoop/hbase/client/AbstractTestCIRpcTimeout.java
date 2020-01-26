@@ -29,7 +29,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Based class for testing rpc timeout logic.
+ * Based class for testing rpc timeout logic for {@link ConnectionImplementation}.
  */
 public abstract class AbstractTestCIRpcTimeout extends AbstractTestCITimeout {
 

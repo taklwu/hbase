@@ -58,8 +58,6 @@ class AsyncRpcRetryingCallerFactory {
 
     protected long pauseNs = conn.connConf.getPauseNs();
 
-    protected long pauseForCQTBENs = conn.connConf.getPauseForCQTBENs();
-
     protected int maxAttempts = retries2Attempts(conn.connConf.getMaxRetries());
 
     protected int startLogErrorsCnt = conn.connConf.getStartLogErrorsCnt();
@@ -119,11 +117,6 @@ class AsyncRpcRetryingCallerFactory {
       return this;
     }
 
-    public SingleRequestCallerBuilder<T> pauseForCQTBE(long pause, TimeUnit unit) {
-      this.pauseForCQTBENs = unit.toNanos(pause);
-      return this;
-    }
-
     public SingleRequestCallerBuilder<T> maxAttempts(int maxAttempts) {
       this.maxAttempts = maxAttempts;
       return this;
@@ -156,8 +149,8 @@ class AsyncRpcRetryingCallerFactory {
     public AsyncSingleRequestRpcRetryingCaller<T> build() {
       preCheck();
       return new AsyncSingleRequestRpcRetryingCaller<>(retryTimer, conn, tableName, row, replicaId,
-        locateType, callable, priority, pauseNs, pauseForCQTBENs, maxAttempts, operationTimeoutNs,
-        rpcTimeoutNs, startLogErrorsCnt);
+        locateType, callable, priority, pauseNs, maxAttempts, operationTimeoutNs, rpcTimeoutNs,
+        startLogErrorsCnt);
     }
 
     /**
@@ -263,11 +256,6 @@ class AsyncRpcRetryingCallerFactory {
       return this;
     }
 
-    public ScanSingleRegionCallerBuilder pauseForCQTBE(long pause, TimeUnit unit) {
-      this.pauseForCQTBENs = unit.toNanos(pause);
-      return this;
-    }
-
     public ScanSingleRegionCallerBuilder maxAttempts(int maxAttempts) {
       this.maxAttempts = maxAttempts;
       return this;
@@ -292,8 +280,8 @@ class AsyncRpcRetryingCallerFactory {
       preCheck();
       return new AsyncScanSingleRegionRpcRetryingCaller(retryTimer, conn, scan, scanMetrics,
         scannerId, resultCache, consumer, stub, loc, isRegionServerRemote, priority,
-        scannerLeaseTimeoutPeriodNs, pauseNs, pauseForCQTBENs, maxAttempts, scanTimeoutNs,
-        rpcTimeoutNs, startLogErrorsCnt);
+        scannerLeaseTimeoutPeriodNs, pauseNs, maxAttempts, scanTimeoutNs, rpcTimeoutNs,
+        startLogErrorsCnt);
     }
 
     /**
@@ -347,11 +335,6 @@ class AsyncRpcRetryingCallerFactory {
       return this;
     }
 
-    public BatchCallerBuilder pauseForCQTBE(long pause, TimeUnit unit) {
-      this.pauseForCQTBENs = unit.toNanos(pause);
-      return this;
-    }
-
     public BatchCallerBuilder maxAttempts(int maxAttempts) {
       this.maxAttempts = maxAttempts;
       return this;
@@ -364,7 +347,7 @@ class AsyncRpcRetryingCallerFactory {
 
     public <T> AsyncBatchRpcRetryingCaller<T> build() {
       return new AsyncBatchRpcRetryingCaller<>(retryTimer, conn, tableName, actions, pauseNs,
-        pauseForCQTBENs, maxAttempts, operationTimeoutNs, rpcTimeoutNs, startLogErrorsCnt);
+        maxAttempts, operationTimeoutNs, rpcTimeoutNs, startLogErrorsCnt);
     }
 
     public <T> List<CompletableFuture<T>> call() {
@@ -406,11 +389,6 @@ class AsyncRpcRetryingCallerFactory {
       return this;
     }
 
-    public MasterRequestCallerBuilder<T> pauseForCQTBE(long pause, TimeUnit unit) {
-      this.pauseForCQTBENs = unit.toNanos(pause);
-      return this;
-    }
-
     public MasterRequestCallerBuilder<T> maxAttempts(int maxAttempts) {
       this.maxAttempts = maxAttempts;
       return this;
@@ -438,7 +416,7 @@ class AsyncRpcRetryingCallerFactory {
     public AsyncMasterRequestRpcRetryingCaller<T> build() {
       preCheck();
       return new AsyncMasterRequestRpcRetryingCaller<T>(retryTimer, conn, callable, priority,
-        pauseNs, pauseForCQTBENs, maxAttempts, operationTimeoutNs, rpcTimeoutNs, startLogErrorsCnt);
+        pauseNs, maxAttempts, operationTimeoutNs, rpcTimeoutNs, startLogErrorsCnt);
     }
 
     /**
@@ -487,11 +465,6 @@ class AsyncRpcRetryingCallerFactory {
       return this;
     }
 
-    public AdminRequestCallerBuilder<T> pauseForCQTBE(long pause, TimeUnit unit) {
-      this.pauseForCQTBENs = unit.toNanos(pause);
-      return this;
-    }
-
     public AdminRequestCallerBuilder<T> maxAttempts(int maxAttempts) {
       this.maxAttempts = maxAttempts;
       return this;
@@ -514,7 +487,7 @@ class AsyncRpcRetryingCallerFactory {
 
     public AsyncAdminRequestRetryingCaller<T> build() {
       return new AsyncAdminRequestRetryingCaller<T>(retryTimer, conn, priority, pauseNs,
-        pauseForCQTBENs, maxAttempts, operationTimeoutNs, rpcTimeoutNs, startLogErrorsCnt,
+        maxAttempts, operationTimeoutNs, rpcTimeoutNs, startLogErrorsCnt,
         checkNotNull(serverName, "serverName is null"), checkNotNull(callable, "action is null"));
     }
 
@@ -558,11 +531,6 @@ class AsyncRpcRetryingCallerFactory {
       return this;
     }
 
-    public ServerRequestCallerBuilder<T> pauseForCQTBE(long pause, TimeUnit unit) {
-      this.pauseForCQTBENs = unit.toNanos(pause);
-      return this;
-    }
-
     public ServerRequestCallerBuilder<T> maxAttempts(int maxAttempts) {
       this.maxAttempts = maxAttempts;
       return this;
@@ -579,8 +547,8 @@ class AsyncRpcRetryingCallerFactory {
     }
 
     public AsyncServerRequestRpcRetryingCaller<T> build() {
-      return new AsyncServerRequestRpcRetryingCaller<T>(retryTimer, conn, pauseNs, pauseForCQTBENs,
-        maxAttempts, operationTimeoutNs, rpcTimeoutNs, startLogErrorsCnt,
+      return new AsyncServerRequestRpcRetryingCaller<T>(retryTimer, conn, pauseNs, maxAttempts,
+        operationTimeoutNs, rpcTimeoutNs, startLogErrorsCnt,
         checkNotNull(serverName, "serverName is null"), checkNotNull(callable, "action is null"));
     }
 

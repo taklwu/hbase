@@ -31,7 +31,7 @@ public abstract class OrderedBytesBase<T> implements DataType<T> {
 
   protected final Order order;
 
-  public OrderedBytesBase(Order order) {
+  protected OrderedBytesBase(Order order) {
     this.order = order;
   }
 

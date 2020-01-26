@@ -100,22 +100,10 @@ public class SimpleRpcScheduler extends RpcScheduler implements ConfigurationObs
       }
     }
 
-    float metaCallqReadShare =
-        conf.getFloat(MetaRWQueueRpcExecutor.META_CALL_QUEUE_READ_SHARE_CONF_KEY,
-            MetaRWQueueRpcExecutor.DEFAULT_META_CALL_QUEUE_READ_SHARE);
-    if (metaCallqReadShare > 0) {
-      // different read/write handler for meta, at least 1 read handler and 1 write handler
-      this.priorityExecutor =
-          new MetaRWQueueRpcExecutor("priority.RWQ", Math.max(2, priorityHandlerCount),
-              maxPriorityQueueLength, priority, conf, server);
-    } else {
-      // Create 2 queues to help priorityExecutor be more scalable.
-      this.priorityExecutor = priorityHandlerCount > 0 ?
-          new FastPathBalancedQueueRpcExecutor("priority.FPBQ", priorityHandlerCount,
-              RpcExecutor.CALL_QUEUE_TYPE_FIFO_CONF_VALUE, maxPriorityQueueLength, priority, conf,
-              abortable) :
-          null;
-    }
+    // Create 2 queues to help priorityExecutor be more scalable.
+    this.priorityExecutor = priorityHandlerCount > 0 ? new FastPathBalancedQueueRpcExecutor(
+        "priority.FPBQ", priorityHandlerCount, RpcExecutor.CALL_QUEUE_TYPE_FIFO_CONF_VALUE,
+        maxPriorityQueueLength, priority, conf, abortable) : null;
     this.replicationExecutor =
         replicationHandlerCount > 0
             ? new FastPathBalancedQueueRpcExecutor("replication.FPBQ", replicationHandlerCount,

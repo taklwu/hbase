@@ -16,6 +16,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package org.apache.hadoop.hbase.rest.filter;
 
 import java.io.IOException;
@@ -28,7 +29,8 @@ import javax.servlet.http.HttpServletRequest;
 import org.apache.yetus.audience.InterfaceAudience;
 
 @InterfaceAudience.Private
-public class GZIPRequestStream extends ServletInputStream {
+public class GZIPRequestStream extends ServletInputStream
+{
   private GZIPInputStream in;
 
   public GZIPRequestStream(HttpServletRequest request) throws IOException {

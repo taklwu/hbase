@@ -17,6 +17,7 @@
  */
 package org.apache.hadoop.hbase.master.snapshot;
 
+import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.util.Collection;
 import java.util.HashMap;
@@ -27,7 +28,7 @@ import java.util.Set;
 import java.util.Timer;
 import java.util.TimerTask;
 import java.util.concurrent.locks.Lock;
-import org.apache.commons.lang3.ArrayUtils;
+
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.FileSystem;
@@ -96,6 +97,8 @@ public class SnapshotFileCache implements Stoppable {
   private final Map<String, SnapshotDirectoryInfo> snapshots = new HashMap<>();
   private final Timer refreshTimer;
 
+  private long lastModifiedTime = Long.MIN_VALUE;
+
   /**
    * Create a snapshot file cache for all snapshots under the specified [root]/.snapshot on the
    * filesystem.
@@ -111,7 +114,7 @@ public class SnapshotFileCache implements Stoppable {
   public SnapshotFileCache(Configuration conf, long cacheRefreshPeriod, String refreshThreadName,
       SnapshotFileInspector inspectSnapshotFiles) throws IOException {
     this(FSUtils.getCurrentFileSystem(conf), FSUtils.getRootDir(conf), 0, cacheRefreshPeriod,
-      refreshThreadName, inspectSnapshotFiles);
+        refreshThreadName, inspectSnapshotFiles);
   }
 
   /**
@@ -125,8 +128,7 @@ public class SnapshotFileCache implements Stoppable {
    * @param inspectSnapshotFiles Filter to apply to each snapshot to extract the files.
    */
   public SnapshotFileCache(FileSystem fs, Path rootDir, long cacheRefreshPeriod,
-      long cacheRefreshDelay, String refreshThreadName,
-      SnapshotFileInspector inspectSnapshotFiles) {
+      long cacheRefreshDelay, String refreshThreadName, SnapshotFileInspector inspectSnapshotFiles) {
     this.fs = fs;
     this.fileInspector = inspectSnapshotFiles;
     this.snapshotDir = SnapshotDescriptionUtils.getSnapshotsDir(rootDir);
@@ -139,14 +141,14 @@ public class SnapshotFileCache implements Stoppable {
   /**
    * Trigger a cache refresh, even if its before the next cache refresh. Does not affect pending
    * cache refreshes.
-   * <p/>
+   * <p>
    * Blocks until the cache is refreshed.
-   * <p/>
+   * <p>
    * Exposed for TESTING.
    */
-  public synchronized void triggerCacheRefreshForTesting() {
+  public void triggerCacheRefreshForTesting() {
     try {
-      refreshCache();
+      SnapshotFileCache.this.refreshCache();
     } catch (IOException e) {
       LOG.warn("Failed to refresh snapshot hfile cache!", e);
     }
@@ -154,9 +156,10 @@ public class SnapshotFileCache implements Stoppable {
   }
 
   /**
-   * Check to see if any of the passed file names is contained in any of the snapshots. First checks
-   * an in-memory cache of the files to keep. If its not in the cache, then the cache is refreshed
-   * and the cache checked again for that file. This ensures that we never return files that exist.
+   * Check to see if any of the passed file names is contained in any of the snapshots.
+   * First checks an in-memory cache of the files to keep. If its not in the cache, then the cache
+   * is refreshed and the cache checked again for that file.
+   * This ensures that we never return files that exist.
    * <p>
    * Note this may lead to periodic false positives for the file being referenced. Periodically, the
    * cache is refreshed even if there are no requests to ensure that the false negatives get removed
@@ -165,8 +168,8 @@ public class SnapshotFileCache implements Stoppable {
    * at that point, cache will still think the file system contains that file and return
    * <tt>true</tt>, even if it is no longer present (false positive). However, if the file never was
    * on the filesystem, we will never find it and always return <tt>false</tt>.
-   * @param files file to check, NOTE: Relies that files are loaded from hdfs before method is
-   *          called (NOT LAZY)
+   * @param files file to check, NOTE: Relies that files are loaded from hdfs before method
+   *              is called (NOT LAZY)
    * @return <tt>unReferencedFiles</tt> the collection of files that do not have snapshot references
    * @throws IOException if there is an unexpected error reaching the filesystem.
    */
@@ -174,7 +177,8 @@ public class SnapshotFileCache implements Stoppable {
   // is an illegal access to the cache. Really we could do a mutex-guarded pointer swap on the
   // cache, but that seems overkill at the moment and isn't necessarily a bottleneck.
   public synchronized Iterable<FileStatus> getUnreferencedFiles(Iterable<FileStatus> files,
-      final SnapshotManager snapshotManager) throws IOException {
+      final SnapshotManager snapshotManager)
+      throws IOException {
     List<FileStatus> unReferencedFiles = Lists.newArrayList();
     boolean refreshed = false;
     Lock lock = null;
@@ -184,8 +188,8 @@ public class SnapshotFileCache implements Stoppable {
     if (lock == null || lock.tryLock()) {
       try {
         if (snapshotManager != null && snapshotManager.isTakingAnySnapshot()) {
-          LOG.warn("Not checking unreferenced files since snapshot is running, it will " +
-            "skip to clean the HFiles this time");
+          LOG.warn("Not checking unreferenced files since snapshot is running, it will "
+              + "skip to clean the HFiles this time");
           return unReferencedFiles;
         }
         for (FileStatus file : files) {
@@ -208,47 +212,69 @@ public class SnapshotFileCache implements Stoppable {
     return unReferencedFiles;
   }
 
-  private void refreshCache() throws IOException {
-    // just list the snapshot directory directly, do not check the modification time for the root
-    // snapshot directory, as some file system implementations do not modify the parent directory's
-    // modTime when there are new sub items, for example, S3.
-    FileStatus[] snapshotDirs = FSUtils.listStatus(fs, snapshotDir,
-      p -> !p.getName().equals(SnapshotDescriptionUtils.SNAPSHOT_TMP_DIR_NAME));
+  private synchronized void refreshCache() throws IOException {
+    // get the status of the snapshots directory and check if it is has changes
+    FileStatus dirStatus;
+    try {
+      dirStatus = fs.getFileStatus(snapshotDir);
+    } catch (FileNotFoundException e) {
+      if (this.cache.size() > 0) {
+        LOG.error("Snapshot directory: " + snapshotDir + " doesn't exist");
+      }
+      return;
+    }
 
-    // clear the cache, as in the below code, either we will also clear the snapshots, or we will
-    // refill the file name cache again.
+    // if the snapshot directory wasn't modified since we last check, we are done
+    if (dirStatus.getModificationTime() <= this.lastModifiedTime) return;
+
+    // directory was modified, so we need to reload our cache
+    // there could be a slight race here where we miss the cache, check the directory modification
+    // time, then someone updates the directory, causing us to not scan the directory again.
+    // However, snapshot directories are only created once, so this isn't an issue.
+
+    // 1. update the modified time
+    this.lastModifiedTime = dirStatus.getModificationTime();
+
+    // 2.clear the cache
     this.cache.clear();
-    if (ArrayUtils.isEmpty(snapshotDirs)) {
+    Map<String, SnapshotDirectoryInfo> known = new HashMap<>();
+
+    // 3. check each of the snapshot directories
+    FileStatus[] snapshots = FSUtils.listStatus(fs, snapshotDir);
+    if (snapshots == null) {
       // remove all the remembered snapshots because we don't have any left
       if (LOG.isDebugEnabled() && this.snapshots.size() > 0) {
-        LOG.debug("No snapshots on-disk, clear cache");
+        LOG.debug("No snapshots on-disk, cache empty");
       }
       this.snapshots.clear();
       return;
     }
 
-    // iterate over all the cached snapshots and see if we need to update some, it is not an
-    // expensive operation if we do not reload the manifest of snapshots.
-    Map<String, SnapshotDirectoryInfo> newSnapshots = new HashMap<>();
-    for (FileStatus snapshotDir : snapshotDirs) {
-      String name = snapshotDir.getPath().getName();
-      SnapshotDirectoryInfo files = this.snapshots.remove(name);
-      // if we don't know about the snapshot or its been modified, we need to update the
-      // files the latter could occur where I create a snapshot, then delete it, and then make a
-      // new snapshot with the same name. We will need to update the cache the information from
-      // that new snapshot, even though it has the same name as the files referenced have
-      // probably changed.
-      if (files == null || files.hasBeenModified(snapshotDir.getModificationTime())) {
-        Collection<String> storedFiles = fileInspector.filesUnderSnapshot(snapshotDir.getPath());
-        files = new SnapshotDirectoryInfo(snapshotDir.getModificationTime(), storedFiles);
+    // 3.1 iterate through the on-disk snapshots
+    for (FileStatus snapshot : snapshots) {
+      String name = snapshot.getPath().getName();
+      // its not the tmp dir,
+      if (!name.equals(SnapshotDescriptionUtils.SNAPSHOT_TMP_DIR_NAME)) {
+        SnapshotDirectoryInfo files = this.snapshots.remove(name);
+        // 3.1.1 if we don't know about the snapshot or its been modified, we need to update the
+        // files the latter could occur where I create a snapshot, then delete it, and then make a
+        // new snapshot with the same name. We will need to update the cache the information from
+        // that new snapshot, even though it has the same name as the files referenced have
+        // probably changed.
+        if (files == null || files.hasBeenModified(snapshot.getModificationTime())) {
+          // get all files for the snapshot and create a new info
+          Collection<String> storedFiles = fileInspector.filesUnderSnapshot(snapshot.getPath());
+          files = new SnapshotDirectoryInfo(snapshot.getModificationTime(), storedFiles);
+        }
+        // 3.2 add all the files to cache
+        this.cache.addAll(files.getFiles());
+        known.put(name, files);
       }
-      // add all the files to cache
-      this.cache.addAll(files.getFiles());
-      newSnapshots.put(name, files);
     }
-    // set the snapshots we are tracking
+
+    // 4. set the snapshots we are tracking
     this.snapshots.clear();
-    this.snapshots.putAll(newSnapshots);
+    this.snapshots.putAll(known);
   }
 
   /**
@@ -257,17 +283,11 @@ public class SnapshotFileCache implements Stoppable {
   public class RefreshCacheTask extends TimerTask {
     @Override
     public void run() {
-      synchronized (SnapshotFileCache.this) {
-        try {
-          SnapshotFileCache.this.refreshCache();
-        } catch (IOException e) {
-          LOG.warn("Failed to refresh snapshot hfile cache!", e);
-          // clear all the cached entries if we meet an error
-          cache.clear();
-          snapshots.clear();
-        }
+      try {
+        SnapshotFileCache.this.refreshCache();
+      } catch (IOException e) {
+        LOG.warn("Failed to refresh snapshot hfile cache!", e);
       }
-
     }
   }
 

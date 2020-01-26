@@ -90,7 +90,7 @@ public class RegionServerSpaceQuotaManager {
       return;
     }
     // Start the chores
-    this.spaceQuotaRefresher = new SpaceQuotaRefresherChore(this, rsServices.getConnection());
+    this.spaceQuotaRefresher = new SpaceQuotaRefresherChore(this, rsServices.getClusterConnection());
     rsServices.getChoreService().scheduleChore(spaceQuotaRefresher);
     this.regionSizeReporter = new RegionSizeReportingChore(rsServices);
     rsServices.getChoreService().scheduleChore(regionSizeReporter);

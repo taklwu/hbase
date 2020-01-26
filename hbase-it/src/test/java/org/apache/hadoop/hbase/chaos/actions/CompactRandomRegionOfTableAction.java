@@ -22,12 +22,10 @@ import java.util.List;
 
 import org.apache.commons.lang3.RandomUtils;
 import org.apache.hadoop.hbase.HBaseTestingUtility;
+import org.apache.hadoop.hbase.HRegionInfo;
 import org.apache.hadoop.hbase.TableName;
 import org.apache.hadoop.hbase.chaos.monkies.PolicyBasedChaosMonkey;
 import org.apache.hadoop.hbase.client.Admin;
-import org.apache.hadoop.hbase.client.RegionInfo;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /**
  * Region that queues a compaction of a random region from the table.
@@ -36,8 +34,6 @@ public class CompactRandomRegionOfTableAction extends Action {
   private final int majorRatio;
   private final long sleepTime;
   private final TableName tableName;
-  private static final Logger LOG =
-      LoggerFactory.getLogger(CompactRandomRegionOfTableAction.class);
 
   public CompactRandomRegionOfTableAction(
       TableName tableName, float majorRatio) {
@@ -59,14 +55,14 @@ public class CompactRandomRegionOfTableAction extends Action {
 
     LOG.info("Performing action: Compact random region of table "
       + tableName + ", major=" + major);
-    List<RegionInfo> regions = admin.getRegions(tableName);
+    List<HRegionInfo> regions = admin.getTableRegions(tableName);
     if (regions == null || regions.isEmpty()) {
       LOG.info("Table " + tableName + " doesn't have regions to compact");
       return;
     }
 
-    RegionInfo region = PolicyBasedChaosMonkey.selectRandomItem(
-      regions.toArray(new RegionInfo[regions.size()]));
+    HRegionInfo region = PolicyBasedChaosMonkey.selectRandomItem(
+      regions.toArray(new HRegionInfo[regions.size()]));
 
     try {
       if (major) {

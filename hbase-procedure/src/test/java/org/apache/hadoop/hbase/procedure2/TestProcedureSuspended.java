@@ -40,6 +40,7 @@ import org.slf4j.LoggerFactory;
 
 @Category({MasterTests.class, SmallTests.class})
 public class TestProcedureSuspended {
+
   @ClassRule
   public static final HBaseClassTestRule CLASS_RULE =
       HBaseClassTestRule.forClass(TestProcedureSuspended.class);
@@ -135,10 +136,7 @@ public class TestProcedureSuspended {
     procExecutor.submitProcedure(p2);
 
     // try to execute a bunch of yield on p1, p2 should be blocked
-    while (p1.getTimestamps().size() < 100) {
-      Threads.sleep(10);
-    }
-
+    while (p1.getTimestamps().size() < 100) Threads.sleep(10);
     assertEquals(0, p2.getTimestamps().size());
 
     // wait until p1 is completed
@@ -146,10 +144,7 @@ public class TestProcedureSuspended {
     ProcedureTestingUtility.waitProcedure(procExecutor, p1);
 
     // try to execute a bunch of yield on p2
-    while (p2.getTimestamps().size() < 100) {
-      Threads.sleep(10);
-    }
-
+    while (p2.getTimestamps().size() < 100) Threads.sleep(10);
     assertEquals(p1.getTimestamps().get(p1.getTimestamps().size() - 1).longValue() + 1,
       p2.getTimestamps().get(0).longValue());
 
@@ -160,10 +155,7 @@ public class TestProcedureSuspended {
 
   private void waitAndAssertTimestamp(TestLockProcedure proc, int size, int lastTs) {
     final ArrayList<Long> timestamps = proc.getTimestamps();
-    while (timestamps.size() < size) {
-      Threads.sleep(10);
-    }
-
+    while (timestamps.size() < size) Threads.sleep(10);
     LOG.info(proc + " -> " + timestamps);
     assertEquals(size, timestamps.size());
     if (size > 0) {
@@ -224,8 +216,7 @@ public class TestProcedureSuspended {
 
     @Override
     protected LockState acquireLock(final TestProcEnv env) {
-      hasLock = lock.compareAndSet(false, true);
-      if (hasLock) {
+      if ((hasLock = lock.compareAndSet(false, true))) {
         LOG.info("ACQUIRE LOCK " + this + " " + (hasLock));
         return LockState.LOCK_ACQUIRED;
       }
@@ -254,9 +245,7 @@ public class TestProcedureSuspended {
     }
 
     @Override
-    protected boolean abort(TestProcEnv env) {
-      return false;
-    }
+    protected boolean abort(TestProcEnv env) { return false; }
 
     @Override
     protected void serializeStateData(ProcedureStateSerializer serializer)

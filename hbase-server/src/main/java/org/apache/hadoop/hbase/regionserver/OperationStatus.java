@@ -18,10 +18,8 @@
  */
 package org.apache.hadoop.hbase.regionserver;
 
-import org.apache.hadoop.hbase.HBaseInterfaceAudience;
-import org.apache.hadoop.hbase.HConstants.OperationStatusCode;
 import org.apache.yetus.audience.InterfaceAudience;
-
+import org.apache.hadoop.hbase.HConstants.OperationStatusCode;
 /**
  * 
  * This class stores the Operation status code and the exception message
@@ -30,17 +28,20 @@ import org.apache.yetus.audience.InterfaceAudience;
  * the operation status in future.
  *
  */
-@InterfaceAudience.LimitedPrivate(HBaseInterfaceAudience.COPROC)
+@InterfaceAudience.Private
 public class OperationStatus {
 
   /** Singleton for successful operations.  */
-  public static final OperationStatus SUCCESS = new OperationStatus(OperationStatusCode.SUCCESS);
+  static final OperationStatus SUCCESS =
+    new OperationStatus(OperationStatusCode.SUCCESS);
 
   /** Singleton for failed operations.  */
-  public static final OperationStatus FAILURE = new OperationStatus(OperationStatusCode.FAILURE);
+  static final OperationStatus FAILURE =
+    new OperationStatus(OperationStatusCode.FAILURE);
 
   /** Singleton for operations not yet run.  */
-  public static final OperationStatus NOT_RUN = new OperationStatus(OperationStatusCode.NOT_RUN);
+  static final OperationStatus NOT_RUN =
+    new OperationStatus(OperationStatusCode.NOT_RUN);
 
   private final OperationStatusCode code;
 

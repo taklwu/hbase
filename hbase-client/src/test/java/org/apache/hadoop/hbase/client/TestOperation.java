@@ -29,7 +29,6 @@ import java.util.Map;
 import org.apache.hadoop.hbase.Cell;
 import org.apache.hadoop.hbase.CellComparatorImpl;
 import org.apache.hadoop.hbase.CellUtil;
-import org.apache.hadoop.hbase.CompareOperator;
 import org.apache.hadoop.hbase.HBaseClassTestRule;
 import org.apache.hadoop.hbase.HConstants;
 import org.apache.hadoop.hbase.KeyValue;
@@ -38,6 +37,7 @@ import org.apache.hadoop.hbase.filter.ColumnCountGetFilter;
 import org.apache.hadoop.hbase.filter.ColumnPaginationFilter;
 import org.apache.hadoop.hbase.filter.ColumnPrefixFilter;
 import org.apache.hadoop.hbase.filter.ColumnRangeFilter;
+import org.apache.hadoop.hbase.filter.CompareFilter.CompareOp;
 import org.apache.hadoop.hbase.filter.DependentColumnFilter;
 import org.apache.hadoop.hbase.filter.FamilyFilter;
 import org.apache.hadoop.hbase.filter.Filter;
@@ -76,6 +76,7 @@ import org.apache.hbase.thirdparty.com.google.gson.Gson;
  */
 @Category({ClientTests.class, SmallTests.class})
 public class TestOperation {
+
   @ClassRule
   public static final HBaseClassTestRule CLASS_RULE =
       HBaseClassTestRule.forClass(TestOperation.class);
@@ -160,7 +161,7 @@ public class TestOperation {
   private static String STR_FIRST_KEY_ONLY_FILTER =
       FIRST_KEY_ONLY_FILTER.getClass().getSimpleName();
 
-  private static CompareOperator CMP_OP = CompareOperator.EQUAL;
+  private static CompareOp CMP_OP = CompareOp.EQUAL;
   private static byte[] CMP_VALUE = Bytes.toBytes("value");
   private static BinaryComparator BC = new BinaryComparator(CMP_VALUE);
   private static DependentColumnFilter DC_FILTER =
@@ -283,11 +284,11 @@ public class TestOperation {
   /**
    * Test the client Operations' JSON encoding to ensure that produced JSON is
    * parseable and that the details are present and not corrupted.
-   *
-   * @throws IOException if the JSON conversion fails
+   * @throws IOException
    */
   @Test
-  public void testOperationJSON() throws IOException {
+  public void testOperationJSON()
+      throws IOException {
     // produce a Scan Operation
     Scan scan = new Scan(ROW);
     scan.addColumn(FAMILY, QUALIFIER);
@@ -427,17 +428,18 @@ public class TestOperation {
 
     // TODO: We should ensure all subclasses of Operation is checked.
     Class[] classes = new Class[] {
-      Operation.class,
-      OperationWithAttributes.class,
-      Mutation.class,
-      Query.class,
-      Delete.class,
-      Increment.class,
-      Append.class,
-      Put.class,
-      Get.class,
-      Scan.class};
+        Operation.class,
+        OperationWithAttributes.class,
+        Mutation.class,
+        Query.class,
+        Delete.class,
+        Increment.class,
+        Append.class,
+        Put.class,
+        Get.class,
+        Scan.class};
 
     BuilderStyleTest.assertClassesAreBuilderStyle(classes);
   }
+
 }

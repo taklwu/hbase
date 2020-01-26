@@ -32,34 +32,17 @@ import org.apache.yetus.audience.InterfaceAudience;
  */
 @InterfaceAudience.Public
 public class RawString implements DataType<String> {
-  /**
-   * @deprecated since 3.0.0 and will be removed in 4.0.0
-   */
-  @Deprecated
+
   public static final RawString ASCENDING = new RawString(Order.ASCENDING);
-  /**
-   * @deprecated since 3.0.0 and will be removed in 4.0.0
-   */
-  @Deprecated
   public static final RawString DESCENDING = new RawString(Order.DESCENDING);
 
   protected final Order order;
 
-  /**
-   * @deprecated since 3.0.0 and will be removed in 4.0.0
-   */
-  @Deprecated
-  public RawString() {
+  protected RawString() {
     this.order = Order.ASCENDING;
   }
 
-  /**
-   * Creates a new {@link DataType} for interacting with values encoded using
-   * {@link Bytes#toBytes(String)}.
-   *
-   * @param order the {@link Order} to use
-   */
-  public RawString(Order order) {
+  protected RawString(Order order) {
     this.order = order;
   }
 

@@ -23,12 +23,14 @@ import java.util.Objects;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock.ReadLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock.WriteLock;
-import java.util.stream.Collectors;
+
 import org.apache.hadoop.hbase.client.Connection;
 import org.apache.hadoop.hbase.client.RegionInfo;
 import org.apache.hadoop.hbase.quotas.SpaceQuotaSnapshot.SpaceQuotaStatus;
 import org.apache.yetus.audience.InterfaceAudience;
 
+import org.apache.hbase.thirdparty.com.google.common.base.Predicate;
+import org.apache.hbase.thirdparty.com.google.common.collect.Iterables;
 import org.apache.hadoop.hbase.shaded.protobuf.ProtobufUtil;
 import org.apache.hadoop.hbase.shaded.protobuf.generated.QuotaProtos.Quotas;
 import org.apache.hadoop.hbase.shaded.protobuf.generated.QuotaProtos.SpaceQuota;
@@ -99,9 +101,12 @@ public class NamespaceQuotaSnapshotStore implements QuotaSnapshotStore<String> {
   public Iterable<Entry<RegionInfo, Long>> filterBySubject(String namespace) {
     rlock.lock();
     try {
-      return regionUsage.entrySet().stream()
-        .filter(entry -> namespace.equals(entry.getKey().getTable().getNamespaceAsString()))
-        .collect(Collectors.toList());
+      return Iterables.filter(regionUsage.entrySet(), new Predicate<Entry<RegionInfo,Long>>() {
+        @Override
+        public boolean apply(Entry<RegionInfo,Long> input) {
+          return namespace.equals(input.getKey().getTable().getNamespaceAsString());
+        }
+      });
     } finally {
       rlock.unlock();
     }

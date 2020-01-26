@@ -15,6 +15,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package org.apache.hadoop.hbase.rsgroup;
 
 import com.google.protobuf.ServiceException;
@@ -32,6 +33,7 @@ import java.util.OptionalLong;
 import java.util.Set;
 import java.util.SortedSet;
 import java.util.TreeSet;
+import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hbase.Coprocessor;
 import org.apache.hadoop.hbase.DoNotRetryIOException;
 import org.apache.hadoop.hbase.ServerName;
@@ -43,6 +45,7 @@ import org.apache.hadoop.hbase.client.Delete;
 import org.apache.hadoop.hbase.client.Get;
 import org.apache.hadoop.hbase.client.Mutation;
 import org.apache.hadoop.hbase.client.Put;
+import org.apache.hadoop.hbase.client.RegionInfo;
 import org.apache.hadoop.hbase.client.Result;
 import org.apache.hadoop.hbase.client.ResultScanner;
 import org.apache.hadoop.hbase.client.Scan;
@@ -56,6 +59,7 @@ import org.apache.hadoop.hbase.ipc.CoprocessorRpcChannel;
 import org.apache.hadoop.hbase.master.MasterServices;
 import org.apache.hadoop.hbase.master.ServerListener;
 import org.apache.hadoop.hbase.master.TableStateManager;
+import org.apache.hadoop.hbase.master.assignment.RegionStateNode;
 import org.apache.hadoop.hbase.master.procedure.CreateTableProcedure;
 import org.apache.hadoop.hbase.master.procedure.MasterProcedureUtil;
 import org.apache.hadoop.hbase.net.Address;
@@ -132,6 +136,7 @@ final class RSGroupInfoManagerImpl implements RSGroupInfoManager {
   private Set<String> prevRSGroups = new HashSet<>();
   private final ServerEventsListenerThread serverEventsListenerThread =
     new ServerEventsListenerThread();
+  private FailedOpenUpdaterThread failedOpenUpdaterThread;
 
   private RSGroupInfoManagerImpl(MasterServices masterServices) throws IOException {
     this.masterServices = masterServices;
@@ -145,6 +150,9 @@ final class RSGroupInfoManagerImpl implements RSGroupInfoManager {
     refresh();
     serverEventsListenerThread.start();
     masterServices.getServerManager().registerListener(serverEventsListenerThread);
+    failedOpenUpdaterThread = new FailedOpenUpdaterThread(masterServices.getConfiguration());
+    failedOpenUpdaterThread.start();
+    masterServices.getServerManager().registerListener(failedOpenUpdaterThread);
   }
 
   static RSGroupInfoManager getInstance(MasterServices master) throws IOException {
@@ -247,33 +255,23 @@ final class RSGroupInfoManagerImpl implements RSGroupInfoManager {
   @Override
   public synchronized void moveTables(Set<TableName> tableNames, String groupName)
       throws IOException {
-    // Check if rsGroupMap contains the destination rsgroup
     if (groupName != null && !rsGroupMap.containsKey(groupName)) {
       throw new DoNotRetryIOException("Group " + groupName + " does not exist");
     }
 
-    // Make a copy of rsGroupMap to update
     Map<String, RSGroupInfo> newGroupMap = Maps.newHashMap(rsGroupMap);
-
-    // Remove tables from their original rsgroups
-    // and update the copy of rsGroupMap
     for (TableName tableName : tableNames) {
       if (tableMap.containsKey(tableName)) {
         RSGroupInfo src = new RSGroupInfo(newGroupMap.get(tableMap.get(tableName)));
         src.removeTable(tableName);
         newGroupMap.put(src.getName(), src);
       }
+      if (groupName != null) {
+        RSGroupInfo dst = new RSGroupInfo(newGroupMap.get(groupName));
+        dst.addTable(tableName);
+        newGroupMap.put(dst.getName(), dst);
+      }
     }
-
-    // Add tables to the destination rsgroup
-    // and update the copy of rsGroupMap
-    if (groupName != null) {
-      RSGroupInfo dstGroup = new RSGroupInfo(newGroupMap.get(groupName));
-      dstGroup.addAllTables(tableNames);
-      newGroupMap.put(dstGroup.getName(), dstGroup);
-    }
-
-    // Flush according to the updated copy of rsGroupMap
     flushConfig(newGroupMap);
   }
 
@@ -482,37 +480,20 @@ final class RSGroupInfoManagerImpl implements RSGroupInfoManager {
     Map<TableName, String> newTableMap;
 
     // For offline mode persistence is still unavailable
-    // We're refreshing in-memory state but only for servers in default group
+    // We're refreshing in-memory state but only for default servers
     if (!isOnline()) {
-      if (newGroupMap == this.rsGroupMap) {
-        // When newGroupMap is this.rsGroupMap itself,
-        // do not need to check default group and other groups as followed
-        return;
-      }
-
-      Map<String, RSGroupInfo> oldGroupMap = Maps.newHashMap(rsGroupMap);
-      RSGroupInfo oldDefaultGroup = oldGroupMap.remove(RSGroupInfo.DEFAULT_GROUP);
+      Map<String, RSGroupInfo> m = Maps.newHashMap(rsGroupMap);
+      RSGroupInfo oldDefaultGroup = m.remove(RSGroupInfo.DEFAULT_GROUP);
       RSGroupInfo newDefaultGroup = newGroupMap.remove(RSGroupInfo.DEFAULT_GROUP);
-      if (!oldGroupMap.equals(newGroupMap) /* compare both tables and servers in other groups */ ||
-          !oldDefaultGroup.getTables().equals(newDefaultGroup.getTables())
-          /* compare tables in default group */) {
-        throw new IOException("Only servers in default group can be updated during offline mode");
+      if (!m.equals(newGroupMap) ||
+        !oldDefaultGroup.getTables().equals(newDefaultGroup.getTables())) {
+        throw new IOException("Only default servers can be updated during offline mode");
       }
-
-      // Restore newGroupMap by putting its default group back
       newGroupMap.put(RSGroupInfo.DEFAULT_GROUP, newDefaultGroup);
-
-      // Refresh rsGroupMap
-      // according to the inputted newGroupMap (an updated copy of rsGroupMap)
       rsGroupMap = newGroupMap;
-
-      // Do not need to update tableMap
-      // because only the update on servers in default group is allowed above,
-      // or IOException will be thrown
       return;
     }
 
-    /* For online mode, persist to Zookeeper */
     newTableMap = flushConfigTable(newGroupMap);
 
     // Make changes visible after having been persisted to the source of truth
@@ -588,19 +569,17 @@ final class RSGroupInfoManagerImpl implements RSGroupInfoManager {
 
   // Called by ServerEventsListenerThread. Presume it has lock on this manager when it runs.
   private SortedSet<Address> getDefaultServers() throws IOException {
-    // Build a list of servers in other groups than default group, from rsGroupMap
-    Set<Address> serversInOtherGroup = new HashSet<>();
-    for (RSGroupInfo group : listRSGroups() /* get from rsGroupMap */) {
-      if (!RSGroupInfo.DEFAULT_GROUP.equals(group.getName())) { // not default group
-        serversInOtherGroup.addAll(group.getServers());
-      }
-    }
-
-    // Get all online servers from Zookeeper and find out servers in default group
     SortedSet<Address> defaultServers = Sets.newTreeSet();
     for (ServerName serverName : getOnlineRS()) {
       Address server = Address.fromParts(serverName.getHostname(), serverName.getPort());
-      if (!serversInOtherGroup.contains(server)) { // not in other groups
+      boolean found = false;
+      for (RSGroupInfo rsgi : listRSGroups()) {
+        if (!RSGroupInfo.DEFAULT_GROUP.equals(rsgi.getName()) && rsgi.containsServer(server)) {
+          found = true;
+          break;
+        }
+      }
+      if (!found) {
         defaultServers.add(server);
       }
     }
@@ -615,6 +594,26 @@ final class RSGroupInfoManagerImpl implements RSGroupInfoManager {
     HashMap<String, RSGroupInfo> newGroupMap = Maps.newHashMap(rsGroupMap);
     newGroupMap.put(newInfo.getName(), newInfo);
     flushConfig(newGroupMap);
+  }
+
+  // Called by FailedOpenUpdaterThread
+  private void updateFailedAssignments() {
+    // Kick all regions in FAILED_OPEN state
+    List<RegionInfo> stuckAssignments = Lists.newArrayList();
+    for (RegionStateNode state : masterServices.getAssignmentManager().getRegionStates()
+      .getRegionsInTransition()) {
+      if (state.isStuck()) {
+        stuckAssignments.add(state.getRegionInfo());
+      }
+    }
+    for (RegionInfo region : stuckAssignments) {
+      LOG.info("Retrying assignment of " + region);
+      try {
+        masterServices.getAssignmentManager().unassign(region);
+      } catch (IOException e) {
+        LOG.warn("Unable to reassign " + region, e);
+      }
+    }
   }
 
   /**
@@ -672,6 +671,66 @@ final class RSGroupInfoManagerImpl implements RSGroupInfoManager {
         } catch (IOException e) {
           LOG.warn("Failed to update default servers", e);
         }
+      }
+    }
+  }
+
+  private class FailedOpenUpdaterThread extends Thread implements ServerListener {
+    private final long waitInterval;
+    private volatile boolean hasChanged = false;
+
+    public FailedOpenUpdaterThread(Configuration conf) {
+      this.waitInterval = conf.getLong(REASSIGN_WAIT_INTERVAL_KEY, DEFAULT_REASSIGN_WAIT_INTERVAL);
+      setDaemon(true);
+    }
+
+    @Override
+    public void serverAdded(ServerName serverName) {
+      serverChanged();
+    }
+
+    @Override
+    public void serverRemoved(ServerName serverName) {
+    }
+
+    @Override
+    public void run() {
+      while (isMasterRunning(masterServices)) {
+        boolean interrupted = false;
+        try {
+          synchronized (this) {
+            while (!hasChanged) {
+              wait();
+            }
+            hasChanged = false;
+          }
+        } catch (InterruptedException e) {
+          LOG.warn("Interrupted", e);
+          interrupted = true;
+        }
+        if (!isMasterRunning(masterServices) || interrupted) {
+          continue;
+        }
+
+        // First, wait a while in case more servers are about to rejoin the cluster
+        try {
+          Thread.sleep(waitInterval);
+        } catch (InterruptedException e) {
+          LOG.warn("Interrupted", e);
+        }
+        if (!isMasterRunning(masterServices)) {
+          continue;
+        }
+
+        // Kick all regions in FAILED_OPEN state
+        updateFailedAssignments();
+      }
+    }
+
+    public void serverChanged() {
+      synchronized (this) {
+        hasChanged = true;
+        this.notify();
       }
     }
   }

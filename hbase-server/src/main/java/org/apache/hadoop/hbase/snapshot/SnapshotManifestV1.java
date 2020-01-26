@@ -149,7 +149,9 @@ public final class SnapshotManifestV1 {
     } catch (InterruptedException e) {
       throw new InterruptedIOException(e.getMessage());
     } catch (ExecutionException e) {
-      throw new IOException(e.getCause());
+      IOException ex = new IOException();
+      ex.initCause(e.getCause());
+      throw ex;
     }
     return regionsManifest;
   }

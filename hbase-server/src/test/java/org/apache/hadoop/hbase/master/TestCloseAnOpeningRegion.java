@@ -115,7 +115,8 @@ public class TestCloseAnOpeningRegion {
     HRegionServer dst = UTIL.getOtherRegionServer(src);
     Thread move0 = new Thread(() -> {
       try {
-        UTIL.getAdmin().move(region.getEncodedNameAsBytes(), dst.getServerName());
+        UTIL.getAdmin().move(region.getEncodedNameAsBytes(),
+          Bytes.toBytes(dst.getServerName().getServerName()));
       } catch (IOException e) {
         throw new UncheckedIOException(e);
       }
@@ -124,7 +125,8 @@ public class TestCloseAnOpeningRegion {
     ARRIVE.await();
     Thread move1 = new Thread(() -> {
       try {
-        UTIL.getAdmin().move(region.getEncodedNameAsBytes(), src.getServerName());
+        UTIL.getAdmin().move(region.getEncodedNameAsBytes(),
+          Bytes.toBytes(src.getServerName().getServerName()));
       } catch (IOException e) {
         throw new UncheckedIOException(e);
       }

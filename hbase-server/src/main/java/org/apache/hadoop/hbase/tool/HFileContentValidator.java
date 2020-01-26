@@ -108,7 +108,7 @@ public class HFileContentValidator extends AbstractHBaseTool {
     int availableProcessors = Runtime.getRuntime().availableProcessors();
     int numThreads = conf.getInt("hfilevalidator.numthreads", availableProcessors);
     return Executors.newFixedThreadPool(numThreads,
-        Threads.newDaemonThreadFactory("hfile-validator"));
+        Threads.getNamedThreadFactory("hfile-validator"));
   }
 
   @Override

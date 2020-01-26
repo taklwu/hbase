@@ -21,17 +21,14 @@
   import="java.io.ByteArrayOutputStream"
   import="java.io.PrintStream"
   import="org.apache.hadoop.conf.Configuration"
-  import="org.apache.hadoop.fs.FileSystem"
   import="org.apache.hadoop.fs.Path"
   import="org.apache.hadoop.hbase.io.hfile.HFilePrettyPrinter"
   import="org.apache.hadoop.hbase.regionserver.HRegionServer"
-  import="org.apache.hadoop.hbase.regionserver.StoreFileInfo"
 %>
 <%
   String storeFile = request.getParameter("name");
   HRegionServer rs = (HRegionServer) getServletContext().getAttribute(HRegionServer.REGIONSERVER);
   Configuration conf = rs.getConfiguration();
-  FileSystem fs = FileSystem.get(conf);
   pageContext.setAttribute("pageTitle", "HBase RegionServer: " + rs.getServerName());
 %>
 <jsp:include page="header.jsp">
@@ -54,8 +51,7 @@
      printer.setConf(conf);
      String[] options = {"-s"};
      printer.parseOptions(options);
-     StoreFileInfo sfi = new StoreFileInfo(conf, fs, new Path(storeFile), true);
-     printer.processFile(sfi.getFileStatus().getPath(), true);
+     printer.processFile(new Path(storeFile));
      String text = byteStream.toString();%>
      <%=
        text

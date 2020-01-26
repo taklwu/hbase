@@ -87,9 +87,11 @@ public class TestProcedureToString {
 
   /**
    * Test that I can override the toString for its state value.
+   * @throws ProcedureYieldException
+   * @throws InterruptedException
    */
   @Test
-  public void testBasicToString() {
+  public void testBasicToString() throws ProcedureYieldException, InterruptedException {
     BasicProcedure p = new BasicProcedure();
     ProcedureState state = ProcedureState.RUNNABLE;
     p.setState(state);
@@ -106,11 +108,10 @@ public class TestProcedureToString {
    * Do-nothing SimpleMachineProcedure for checking its toString.
    */
   static class SimpleStateMachineProcedure
-          extends StateMachineProcedure<BasicProcedureEnv, ServerCrashState> {
+  extends StateMachineProcedure<BasicProcedureEnv, ServerCrashState> {
     @Override
-    protected org.apache.hadoop.hbase.procedure2.StateMachineProcedure.Flow executeFromState(
-            BasicProcedureEnv env, ServerCrashState state)
-            throws ProcedureYieldException, InterruptedException {
+    protected org.apache.hadoop.hbase.procedure2.StateMachineProcedure.Flow executeFromState(BasicProcedureEnv env,
+        ServerCrashState state) throws ProcedureYieldException, InterruptedException {
       return null;
     }
 

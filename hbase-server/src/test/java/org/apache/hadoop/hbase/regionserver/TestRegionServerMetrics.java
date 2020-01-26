@@ -19,7 +19,6 @@ package org.apache.hadoop.hbase.regionserver;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 import java.io.IOException;
@@ -29,8 +28,11 @@ import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hbase.CompatibilityFactory;
 import org.apache.hadoop.hbase.HBaseClassTestRule;
 import org.apache.hadoop.hbase.HBaseTestingUtility;
+import org.apache.hadoop.hbase.HColumnDescriptor;
 import org.apache.hadoop.hbase.HConstants;
+import org.apache.hadoop.hbase.HRegionInfo;
 import org.apache.hadoop.hbase.HRegionLocation;
+import org.apache.hadoop.hbase.HTableDescriptor;
 import org.apache.hadoop.hbase.MiniHBaseCluster;
 import org.apache.hadoop.hbase.NamespaceDescriptor;
 import org.apache.hadoop.hbase.TableName;
@@ -43,12 +45,10 @@ import org.apache.hadoop.hbase.client.Durability;
 import org.apache.hadoop.hbase.client.Get;
 import org.apache.hadoop.hbase.client.Increment;
 import org.apache.hadoop.hbase.client.Put;
-import org.apache.hadoop.hbase.client.RegionInfo;
 import org.apache.hadoop.hbase.client.RegionLocator;
 import org.apache.hadoop.hbase.client.Result;
 import org.apache.hadoop.hbase.client.ResultScanner;
 import org.apache.hadoop.hbase.client.Scan;
-import org.apache.hadoop.hbase.client.Scan.ReadType;
 import org.apache.hadoop.hbase.client.Table;
 import org.apache.hadoop.hbase.client.TableDescriptor;
 import org.apache.hadoop.hbase.client.TableDescriptorBuilder;
@@ -123,11 +123,11 @@ public class TestRegionServerMetrics {
 
     while (cluster.getLiveRegionServerThreads().isEmpty() &&
         cluster.getRegionServer(0) == null &&
-        rs.getMetrics() == null) {
+        rs.getRegionServerMetrics() == null) {
       Threads.sleep(100);
     }
     rs = cluster.getRegionServer(0);
-    metricsRegionServer = rs.getMetrics();
+    metricsRegionServer = rs.getRegionServerMetrics();
     serverSource = metricsRegionServer.getMetricsSource();
   }
 
@@ -154,19 +154,33 @@ public class TestRegionServerMetrics {
     admin.deleteTable(tableName);
   }
 
-  private void assertCounter(String metric, long expectedValue) {
+  public void waitTableDeleted(TableName name, long timeoutInMillis) throws Exception {
+    long start = System.currentTimeMillis();
+    while (true) {
+      HTableDescriptor[] tables = admin.listTables();
+      for (HTableDescriptor htd : tables) {
+        if (htd.getNameAsString() == name.getNameAsString())
+          return;
+      }
+      if (System.currentTimeMillis() - start > timeoutInMillis)
+        return;
+      Thread.sleep(1000);
+    }
+  }
+
+  public void assertCounter(String metric, long expectedValue) {
     metricsHelper.assertCounter(metric, expectedValue, serverSource);
   }
 
-  private void assertGauge(String metric, long expectedValue) {
+  public void assertGauge(String metric, long expectedValue) {
     metricsHelper.assertGauge(metric, expectedValue, serverSource);
   }
 
   // Aggregates metrics from regions and assert given list of metrics and expected values.
-  private void assertRegionMetrics(String metric, long expectedValue) throws Exception {
+  public void assertRegionMetrics(String metric, long expectedValue) throws Exception {
     try (RegionLocator locator = connection.getRegionLocator(tableName)) {
       for ( HRegionLocation location: locator.getAllRegionLocations()) {
-        RegionInfo hri = location.getRegion();
+        HRegionInfo hri = location.getRegionInfo();
         MetricsRegionAggregateSource agg =
             rs.getRegion(hri.getRegionName()).getMetrics().getSource().getAggregateSource();
         String prefix = "namespace_" + NamespaceDescriptor.DEFAULT_NAMESPACE_NAME_STR +
@@ -178,7 +192,7 @@ public class TestRegionServerMetrics {
     }
   }
 
-  private void doNPuts(int n, boolean batch) throws Exception {
+  public void doNPuts(int n, boolean batch) throws Exception {
     if (batch) {
       List<Put> puts = new ArrayList<>();
       for (int i = 0; i < n; i++) {
@@ -194,7 +208,7 @@ public class TestRegionServerMetrics {
     }
   }
 
-  private void doNGets(int n, boolean batch) throws Exception {
+  public void doNGets(int n, boolean batch) throws Exception {
     if (batch) {
       List<Get> gets = new ArrayList<>();
       for (int i = 0; i < n; i++) {
@@ -208,7 +222,7 @@ public class TestRegionServerMetrics {
     }
   }
 
-  private void doScan(int n, boolean caching) throws IOException {
+  public void doScan(int n, boolean caching) throws IOException {
     Scan scan = new Scan();
     if (caching) {
       scan.setCaching(n);
@@ -405,20 +419,21 @@ public class TestRegionServerMetrics {
 
   @Test
   public void testScanSize() throws Exception {
-    doNPuts(100, true); // batch put
+    doNPuts(100, true);  // batch put
     Scan s = new Scan();
-    s.setBatch(1).setCaching(1).setLimit(NUM_SCAN_NEXT).setReadType(ReadType.STREAM);
-    try (ResultScanner resultScanners = table.getScanner(s)) {
-      for (int nextCount = 0; nextCount < NUM_SCAN_NEXT; nextCount++) {
-        Result result = resultScanners.next();
-        assertNotNull(result);
-        assertEquals(1, result.size());
-      }
-      numScanNext += NUM_SCAN_NEXT;
-      assertRegionMetrics("scanCount", NUM_SCAN_NEXT);
-      if (TABLES_ON_MASTER) {
-        assertCounter("ScanSize_num_ops", numScanNext);
-      }
+    s.setBatch(1);
+    s.setCaching(1);
+    ResultScanner resultScanners = table.getScanner(s);
+
+    for (int nextCount = 0; nextCount < NUM_SCAN_NEXT; nextCount++) {
+      Result result = resultScanners.next();
+      assertNotNull(result);
+      assertEquals(1, result.size());
+    }
+    numScanNext += NUM_SCAN_NEXT;
+    assertRegionMetrics("scanCount", NUM_SCAN_NEXT);
+    if (TABLES_ON_MASTER) {
+      assertCounter("ScanSize_num_ops", numScanNext);
     }
   }
 
@@ -426,13 +441,14 @@ public class TestRegionServerMetrics {
   public void testScanTime() throws Exception {
     doNPuts(100, true);
     Scan s = new Scan();
-    s.setBatch(1).setCaching(1).setLimit(NUM_SCAN_NEXT);
-    try (ResultScanner resultScanners = table.getScanner(s)) {
-      for (int nextCount = 0; nextCount < NUM_SCAN_NEXT; nextCount++) {
-        Result result = resultScanners.next();
-        assertNotNull(result);
-        assertEquals(1, result.size());
-      }
+    s.setBatch(1);
+    s.setCaching(1);
+    ResultScanner resultScanners = table.getScanner(s);
+
+    for (int nextCount = 0; nextCount < NUM_SCAN_NEXT; nextCount++) {
+      Result result = resultScanners.next();
+      assertNotNull(result);
+      assertEquals(1, result.size());
     }
     numScanNext += NUM_SCAN_NEXT;
     assertRegionMetrics("scanCount", NUM_SCAN_NEXT);
@@ -445,16 +461,16 @@ public class TestRegionServerMetrics {
   public void testScanSizeForSmallScan() throws Exception {
     doNPuts(100, true);
     Scan s = new Scan();
-    s.setCaching(1).setLimit(NUM_SCAN_NEXT).setReadType(ReadType.PREAD);
-    try (ResultScanner resultScanners = table.getScanner(s)) {
-      for (int nextCount = 0; nextCount < NUM_SCAN_NEXT; nextCount++) {
-        Result result = resultScanners.next();
-        assertNotNull(result);
-        if (TABLES_ON_MASTER) {
-          assertEquals(1, result.size());
-        }
+    s.setSmall(true);
+    s.setCaching(1);
+    ResultScanner resultScanners = table.getScanner(s);
+
+    for (int nextCount = 0; nextCount < NUM_SCAN_NEXT; nextCount++) {
+      Result result = resultScanners.next();
+      assertNotNull(result);
+      if (TABLES_ON_MASTER) {
+        assertEquals(1, result.size());
       }
-      assertNull(resultScanners.next());
     }
     numScanNext += NUM_SCAN_NEXT;
     assertRegionMetrics("scanCount", NUM_SCAN_NEXT);
@@ -467,10 +483,11 @@ public class TestRegionServerMetrics {
   public void testMobMetrics() throws IOException, InterruptedException {
     TableName tableName = TableName.valueOf("testMobMetricsLocal");
     int numHfiles = 5;
-    TableDescriptor htd = TableDescriptorBuilder.newBuilder(tableName)
-      .setColumnFamily(
-        ColumnFamilyDescriptorBuilder.newBuilder(cf).setMobEnabled(true).setMobThreshold(0).build())
-      .build();
+    HTableDescriptor htd = new HTableDescriptor(tableName);
+    HColumnDescriptor hcd = new HColumnDescriptor(cf);
+    hcd.setMobEnabled(true);
+    hcd.setMobThreshold(0);
+    htd.addFamily(hcd);
     byte[] val = Bytes.toBytes("mobdata");
     try {
       Table table = TEST_UTIL.createTable(htd, new byte[0][0], conf);
@@ -483,7 +500,7 @@ public class TestRegionServerMetrics {
       }
       metricsRegionServer.getRegionServerWrapper().forceRecompute();
       assertCounter("mobFlushCount", numHfiles);
-      Scan scan = new Scan().withStartRow(Bytes.toBytes(0)).withStopRow(Bytes.toBytes(numHfiles));
+      Scan scan = new Scan(Bytes.toBytes(0), Bytes.toBytes(numHfiles));
       ResultScanner scanner = table.getScanner(scan);
       scanner.next(100);
       numScanNext++;  // this is an ugly construct

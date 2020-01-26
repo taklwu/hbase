@@ -21,9 +21,8 @@ package org.apache.hadoop.hbase.io.hfile;
 
 import java.nio.ByteBuffer;
 
-import org.apache.hadoop.hbase.io.HeapSize;
-import org.apache.hadoop.hbase.nio.HBaseReferenceCounted;
 import org.apache.yetus.audience.InterfaceAudience;
+import org.apache.hadoop.hbase.io.HeapSize;
 
 /**
  * Cacheable is an interface that allows for an object to be cached. If using an
@@ -35,7 +34,7 @@ import org.apache.yetus.audience.InterfaceAudience;
  *
  */
 @InterfaceAudience.Private
-public interface Cacheable extends HeapSize, HBaseReferenceCounted {
+public interface Cacheable extends HeapSize {
   /**
    * Returns the length of the ByteBuffer required to serialized the object. If the
    * object cannot be serialized, it should return 0.
@@ -63,28 +62,18 @@ public interface Cacheable extends HeapSize, HBaseReferenceCounted {
    */
   BlockType getBlockType();
 
-  /******************************* ReferenceCounted Interfaces ***********************************/
+  /**
+   * @return the {@code MemoryType} of this Cacheable
+   */
+  MemoryType getMemoryType();
 
   /**
-   * Increase its reference count, and only when no reference we can free the object's memory.
+   * SHARED means when this Cacheable is read back from cache it refers to the same memory area as
+   * used by the cache for caching it.
+   * EXCLUSIVE means when this Cacheable is read back from cache, the data was copied to an
+   * exclusive memory area of this Cacheable.
    */
-  default Cacheable retain() {
-    return this;
-  }
-
-  /**
-   * Reference count of this Cacheable.
-   */
-  default int refCnt() {
-    return 0;
-  }
-
-  /**
-   * Decrease its reference count, and if no reference then free the memory of this object, its
-   * backend is usually a {@link org.apache.hadoop.hbase.nio.ByteBuff}, and we will put its NIO
-   * ByteBuffers back to {@link org.apache.hadoop.hbase.io.ByteBuffAllocator}
-   */
-  default boolean release() {
-    return false;
+  public static enum MemoryType {
+    SHARED, EXCLUSIVE
   }
 }

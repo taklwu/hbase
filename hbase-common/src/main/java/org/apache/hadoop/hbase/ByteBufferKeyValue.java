@@ -180,7 +180,7 @@ public class ByteBufferKeyValue extends ByteBufferExtendedCell {
 
   @Override
   public byte[] getTagsArray() {
-    return PrivateCellUtil.cloneTags(this);
+    return CellUtil.cloneTags(this);
   }
 
   @Override

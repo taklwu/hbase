@@ -17,6 +17,7 @@
  */
 package org.apache.hadoop.hbase.regionserver;
 
+import static org.apache.hadoop.hbase.CellUtil.createCell;
 import static org.apache.hadoop.hbase.KeyValueTestUtil.create;
 import static org.apache.hadoop.hbase.regionserver.KeyValueScanFixture.scanFixture;
 import static org.junit.Assert.assertEquals;
@@ -30,18 +31,15 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.NavigableSet;
+import java.util.OptionalInt;
 import java.util.TreeSet;
 import java.util.concurrent.atomic.AtomicInteger;
-
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hbase.Cell;
-import org.apache.hadoop.hbase.CellBuilderType;
 import org.apache.hadoop.hbase.CellComparator;
 import org.apache.hadoop.hbase.CellUtil;
-import org.apache.hadoop.hbase.ExtendedCellBuilderFactory;
 import org.apache.hadoop.hbase.HBaseClassTestRule;
 import org.apache.hadoop.hbase.HBaseConfiguration;
-import org.apache.hadoop.hbase.HBaseTestingUtility;
 import org.apache.hadoop.hbase.HConstants;
 import org.apache.hadoop.hbase.KeepDeletedCells;
 import org.apache.hadoop.hbase.KeyValue;
@@ -76,15 +74,15 @@ public class TestStoreScanner {
   private static final String CF_STR = "cf";
   private static final byte[] CF = Bytes.toBytes(CF_STR);
   static Configuration CONF = HBaseConfiguration.create();
-  private static final HBaseTestingUtility TEST_UTIL = new HBaseTestingUtility();
   private ScanInfo scanInfo = new ScanInfo(CONF, CF, 0, Integer.MAX_VALUE, Long.MAX_VALUE,
       KeepDeletedCells.FALSE, HConstants.DEFAULT_BLOCKSIZE, 0, CellComparator.getInstance(), false);
 
   /**
    * From here on down, we have a bunch of defines and specific CELL_GRID of Cells. The
    * CELL_GRID then has a Scanner that can fake out 'block' transitions. All this elaborate
-   * setup is for tests that ensure we don't overread, and that the {@link StoreScanner} is not
-   * overly enthusiastic.
+   * setup is for tests that ensure we don't overread, and that the
+   * {@link StoreScanner#optimize(org.apache.hadoop.hbase.regionserver.querymatcher.ScanQueryMatcher.MatchCode,
+   * Cell)} is not overly enthusiastic.
    */
   private static final byte[] ZERO = new byte[] {'0'};
   private static final byte[] ZERO_POINT_ZERO = new byte[] {'0', '.', '0'};
@@ -108,73 +106,31 @@ public class TestStoreScanner {
    * we do Gets, StoreScanner#optimize, and what we do on (faked) block boundaries.
    */
   private static final Cell[] CELL_GRID = new Cell [] {
-    ExtendedCellBuilderFactory.create(CellBuilderType.DEEP_COPY).setRow(ONE)
-      .setFamily(CF).setQualifier(ONE).setTimestamp(1L)
-      .setType(KeyValue.Type.Put.getCode()).setValue(VALUE).build(),
-    ExtendedCellBuilderFactory.create(CellBuilderType.DEEP_COPY).setRow(ONE)
-      .setFamily(CF).setQualifier(TWO).setTimestamp(1L)
-      .setType(KeyValue.Type.Put.getCode()).setValue(VALUE).build(),
-    ExtendedCellBuilderFactory.create(CellBuilderType.DEEP_COPY).setRow(ONE)
-      .setFamily(CF).setQualifier(THREE).setTimestamp(1L)
-      .setType(KeyValue.Type.Put.getCode()).setValue(VALUE).build(),
-    ExtendedCellBuilderFactory.create(CellBuilderType.DEEP_COPY).setRow(ONE)
-      .setFamily(CF).setQualifier(FOUR).setTimestamp(1L)
-      .setType(KeyValue.Type.Put.getCode()).setValue(VALUE).build(),
+    createCell(ONE, CF, ONE, 1L, KeyValue.Type.Put.getCode(), VALUE),
+    createCell(ONE, CF, TWO, 1L, KeyValue.Type.Put.getCode(), VALUE),
+    createCell(ONE, CF, THREE, 1L, KeyValue.Type.Put.getCode(), VALUE),
+    createCell(ONE, CF, FOUR, 1L, KeyValue.Type.Put.getCode(), VALUE),
     // Offset 4 CELL_GRID_BLOCK2_BOUNDARY
-    ExtendedCellBuilderFactory.create(CellBuilderType.DEEP_COPY).setRow(TWO)
-      .setFamily(CF).setQualifier(ONE).setTimestamp(1L)
-      .setType(KeyValue.Type.Put.getCode()).setValue(VALUE).build(),
-    ExtendedCellBuilderFactory.create(CellBuilderType.DEEP_COPY).setRow(TWO)
-      .setFamily(CF).setQualifier(TWO).setTimestamp(1L)
-      .setType(KeyValue.Type.Put.getCode()).setValue(VALUE).build(),
-    ExtendedCellBuilderFactory.create(CellBuilderType.DEEP_COPY).setRow(TWO)
-      .setFamily(CF).setQualifier(THREE).setTimestamp(1L)
-      .setType(KeyValue.Type.Put.getCode()).setValue(VALUE).build(),
-    ExtendedCellBuilderFactory.create(CellBuilderType.DEEP_COPY).setRow(TWO)
-      .setFamily(CF).setQualifier(FOUR).setTimestamp(1L)
-      .setType(KeyValue.Type.Put.getCode()).setValue(VALUE).build(),
-    ExtendedCellBuilderFactory.create(CellBuilderType.DEEP_COPY).setRow(TWO_POINT_TWO)
-      .setFamily(CF).setQualifier(ZERO).setTimestamp(1L)
-      .setType(KeyValue.Type.Put.getCode()).setValue(VALUE).build(),
-    ExtendedCellBuilderFactory.create(CellBuilderType.DEEP_COPY).setRow(TWO_POINT_TWO)
-      .setFamily(CF).setQualifier(ZERO_POINT_ZERO).setTimestamp(1L)
-      .setType(KeyValue.Type.Put.getCode()).setValue(VALUE).build(),
-    ExtendedCellBuilderFactory.create(CellBuilderType.DEEP_COPY).setRow(TWO_POINT_TWO)
-      .setFamily(CF).setQualifier(FIVE).setTimestamp(1L)
-      .setType(KeyValue.Type.Put.getCode()).setValue(VALUE).build(),
+    createCell(TWO, CF, ONE, 1L, KeyValue.Type.Put.getCode(), VALUE),
+    createCell(TWO, CF, TWO, 1L, KeyValue.Type.Put.getCode(), VALUE),
+    createCell(TWO, CF, THREE, 1L, KeyValue.Type.Put.getCode(), VALUE),
+    createCell(TWO, CF, FOUR, 1L, KeyValue.Type.Put.getCode(), VALUE),
+    createCell(TWO_POINT_TWO, CF, ZERO, 1L, KeyValue.Type.Put.getCode(), VALUE),
+    createCell(TWO_POINT_TWO, CF, ZERO_POINT_ZERO, 1L, KeyValue.Type.Put.getCode(), VALUE),
+    createCell(TWO_POINT_TWO, CF, FIVE, 1L, KeyValue.Type.Put.getCode(), VALUE),
     // Offset 11! CELL_GRID_BLOCK3_BOUNDARY
-    ExtendedCellBuilderFactory.create(CellBuilderType.DEEP_COPY).setRow(THREE)
-      .setFamily(CF).setQualifier(ONE).setTimestamp(1L)
-      .setType(KeyValue.Type.Put.getCode()).setValue(VALUE).build(),
-    ExtendedCellBuilderFactory.create(CellBuilderType.DEEP_COPY).setRow(THREE)
-      .setFamily(CF).setQualifier(TWO).setTimestamp(1L)
-      .setType(KeyValue.Type.Put.getCode()).setValue(VALUE).build(),
-    ExtendedCellBuilderFactory.create(CellBuilderType.DEEP_COPY).setRow(THREE)
-      .setFamily(CF).setQualifier(THREE).setTimestamp(1L)
-      .setType(KeyValue.Type.Put.getCode()).setValue(VALUE).build(),
-    ExtendedCellBuilderFactory.create(CellBuilderType.DEEP_COPY).setRow(THREE)
-      .setFamily(CF).setQualifier(FOUR).setTimestamp(1L)
-      .setType(KeyValue.Type.Put.getCode()).setValue(VALUE).build(),
+    createCell(THREE, CF, ONE, 1L, KeyValue.Type.Put.getCode(), VALUE),
+    createCell(THREE, CF, TWO, 1L, KeyValue.Type.Put.getCode(), VALUE),
+    createCell(THREE, CF, THREE, 1L, KeyValue.Type.Put.getCode(), VALUE),
+    createCell(THREE, CF, FOUR, 1L, KeyValue.Type.Put.getCode(), VALUE),
     // Offset 15 CELL_GRID_BLOCK4_BOUNDARY
-    ExtendedCellBuilderFactory.create(CellBuilderType.DEEP_COPY).setRow(FOUR)
-      .setFamily(CF).setQualifier(ONE).setTimestamp(1L)
-      .setType(KeyValue.Type.Put.getCode()).setValue(VALUE).build(),
-    ExtendedCellBuilderFactory.create(CellBuilderType.DEEP_COPY).setRow(FOUR)
-      .setFamily(CF).setQualifier(TWO).setTimestamp(1L)
-      .setType(KeyValue.Type.Put.getCode()).setValue(VALUE).build(),
-    ExtendedCellBuilderFactory.create(CellBuilderType.DEEP_COPY).setRow(FOUR)
-      .setFamily(CF).setQualifier(THREE).setTimestamp(1L)
-      .setType(KeyValue.Type.Put.getCode()).setValue(VALUE).build(),
-    ExtendedCellBuilderFactory.create(CellBuilderType.DEEP_COPY).setRow(FOUR)
-      .setFamily(CF).setQualifier(FOUR).setTimestamp(1L)
-      .setType(KeyValue.Type.Put.getCode()).setValue(VALUE).build(),
+    createCell(FOUR, CF, ONE, 1L, KeyValue.Type.Put.getCode(), VALUE),
+    createCell(FOUR, CF, TWO, 1L, KeyValue.Type.Put.getCode(), VALUE),
+    createCell(FOUR, CF, THREE, 1L, KeyValue.Type.Put.getCode(), VALUE),
+    createCell(FOUR, CF, FOUR, 1L, KeyValue.Type.Put.getCode(), VALUE),
     // Offset 19 CELL_GRID_BLOCK5_BOUNDARY
-    ExtendedCellBuilderFactory.create(CellBuilderType.DEEP_COPY).setRow(FOUR)
-      .setFamily(CF).setQualifier(FIVE).setTimestamp(1L)
-      .setType(KeyValue.Type.Put.getCode()).setValue(VALUE).build(),
-    ExtendedCellBuilderFactory.create(CellBuilderType.DEEP_COPY).setRow(FIVE)
-      .setFamily(CF).setQualifier(ZERO).setTimestamp(1L)
-      .setType(KeyValue.Type.Put.getCode()).setValue(VALUE).build(),
+    createCell(FOUR, CF, FIVE, 1L, KeyValue.Type.Put.getCode(), VALUE),
+    createCell(FIVE, CF, ZERO, 1L, KeyValue.Type.Put.getCode(), VALUE),
   };
 
   private static class KeyValueHeapWithCount extends KeyValueHeap {
@@ -261,25 +217,13 @@ public class TestStoreScanner {
   private static final int CELL_WITH_VERSIONS_BLOCK2_BOUNDARY = 4;
 
   private static final Cell[] CELL_WITH_VERSIONS = new Cell [] {
-    ExtendedCellBuilderFactory.create(CellBuilderType.DEEP_COPY).setRow(ONE)
-      .setFamily(CF).setQualifier(ONE).setTimestamp(2L)
-      .setType(KeyValue.Type.Put.getCode()).setValue(VALUE).build(),
-    ExtendedCellBuilderFactory.create(CellBuilderType.DEEP_COPY).setRow(ONE)
-      .setFamily(CF).setQualifier(ONE).setTimestamp(1L)
-      .setType(KeyValue.Type.Put.getCode()).setValue(VALUE).build(),
-    ExtendedCellBuilderFactory.create(CellBuilderType.DEEP_COPY).setRow(ONE)
-      .setFamily(CF).setQualifier(TWO).setTimestamp(2L)
-      .setType(KeyValue.Type.Put.getCode()).setValue(VALUE).build(),
-    ExtendedCellBuilderFactory.create(CellBuilderType.DEEP_COPY).setRow(ONE)
-      .setFamily(CF).setQualifier(TWO).setTimestamp(1L)
-      .setType(KeyValue.Type.Put.getCode()).setValue(VALUE).build(),
+    createCell(ONE, CF, ONE, 2L, KeyValue.Type.Put.getCode(), VALUE),
+    createCell(ONE, CF, ONE, 1L, KeyValue.Type.Put.getCode(), VALUE),
+    createCell(ONE, CF, TWO, 2L, KeyValue.Type.Put.getCode(), VALUE),
+    createCell(ONE, CF, TWO, 1L, KeyValue.Type.Put.getCode(), VALUE),
     // Offset 4 CELL_WITH_VERSIONS_BLOCK2_BOUNDARY
-    ExtendedCellBuilderFactory.create(CellBuilderType.DEEP_COPY).setRow(TWO)
-      .setFamily(CF).setQualifier(ONE).setTimestamp(1L)
-      .setType(KeyValue.Type.Put.getCode()).setValue(VALUE).build(),
-    ExtendedCellBuilderFactory.create(CellBuilderType.DEEP_COPY).setRow(TWO)
-      .setFamily(CF).setQualifier(TWO).setTimestamp(1L)
-      .setType(KeyValue.Type.Put.getCode()).setValue(VALUE).build(),
+    createCell(TWO, CF, ONE, 1L, KeyValue.Type.Put.getCode(), VALUE),
+    createCell(TWO, CF, TWO, 1L, KeyValue.Type.Put.getCode(), VALUE),
   };
 
   private static class CellWithVersionsStoreScanner extends StoreScanner {
@@ -579,7 +523,7 @@ public class TestStoreScanner {
 
     Scan scanSpec = new Scan().withStartRow(Bytes.toBytes("R1"));
     // this only uses maxVersions (default=1) and TimeRange (default=all)
-    try (StoreScanner scan = new StoreScanner(scanSpec, scanInfo, null, scanners)) {
+    try (StoreScanner scan = new StoreScanner(scanSpec, scanInfo, getCols("a"), scanners)) {
       List<Cell> results = new ArrayList<>();
       assertEquals(true, scan.next(results));
       assertEquals(1, results.size());
@@ -903,6 +847,7 @@ public class TestStoreScanner {
     }
   }
 
+
   @Test @Ignore("this fails, since we don't handle deletions, etc, in peek")
   public void testPeek() throws Exception {
     KeyValue[] kvs = new KeyValue [] {
@@ -998,7 +943,7 @@ public class TestStoreScanner {
         200, /* timeToPurgeDeletes */
         CellComparator.getInstance(), false);
       try (StoreScanner scanner =
-          new StoreScanner(scanInfo, 2, ScanType.COMPACT_DROP_DELETES, scanners)) {
+          new StoreScanner(scanInfo, OptionalInt.of(2), ScanType.COMPACT_DROP_DELETES, scanners)) {
         List<Cell> results = new ArrayList<>();
         results = new ArrayList<>();
         assertEquals(true, scanner.next(results));
@@ -1026,8 +971,8 @@ public class TestStoreScanner {
     List<KeyValueScanner> scanners = scanFixture(kvs);
     ScanInfo scanInfo = new ScanInfo(CONF, CF, 0, 1, 500, KeepDeletedCells.FALSE,
         HConstants.DEFAULT_BLOCKSIZE, 0, CellComparator.getInstance(), false);
-    try (StoreScanner storeScanner = new StoreScanner(scanInfo, -1,
-      ScanType.COMPACT_RETAIN_DELETES, scanners)) {
+    try (StoreScanner storeScanner = new StoreScanner(scanInfo, OptionalInt.empty(),
+        ScanType.COMPACT_RETAIN_DELETES, scanners)) {
       assertFalse(storeScanner.isScanUsePread());
     }
   }

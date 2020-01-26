@@ -19,7 +19,6 @@ package org.apache.hadoop.hbase.regionserver;
 
 import org.apache.hadoop.hbase.CompatibilitySingletonFactory;
 import org.apache.hadoop.hbase.TableName;
-import org.apache.hadoop.hbase.metrics.Meter;
 import org.apache.hadoop.hbase.metrics.MetricRegistries;
 import org.apache.hadoop.hbase.metrics.MetricRegistry;
 import org.apache.hadoop.hbase.metrics.Timer;
@@ -44,24 +43,22 @@ public class MetricsRegionServer {
       "hbase.regionserver.enable.table.latencies";
   public static final boolean RS_ENABLE_TABLE_METRICS_DEFAULT = true;
 
-  private final MetricsRegionServerSource serverSource;
-  private final MetricsRegionServerWrapper regionServerWrapper;
+  private MetricsRegionServerSource serverSource;
+  private MetricsRegionServerWrapper regionServerWrapper;
   private RegionServerTableMetrics tableMetrics;
   private final MetricsTable metricsTable;
   private MetricsRegionServerQuotaSource quotaSource;
-  private final MetricsUserAggregate userAggregate;
 
   private MetricRegistry metricRegistry;
   private Timer bulkLoadTimer;
-  private Meter serverReadQueryMeter;
-  private Meter serverWriteQueryMeter;
 
   public MetricsRegionServer(MetricsRegionServerWrapper regionServerWrapper, Configuration conf,
       MetricsTable metricsTable) {
     this(regionServerWrapper,
         CompatibilitySingletonFactory.getInstance(MetricsRegionServerSourceFactory.class)
-            .createServer(regionServerWrapper), createTableMetrics(conf), metricsTable,
-        MetricsUserAggregateFactory.getMetricsUserAggregate(conf));
+            .createServer(regionServerWrapper),
+        createTableMetrics(conf),
+        metricsTable);
 
     // Create hbase-metrics module based metrics. The registry should already be registered by the
     // MetricsRegionServerSource
@@ -71,18 +68,16 @@ public class MetricsRegionServer {
     bulkLoadTimer = metricRegistry.timer("Bulkload");
 
     quotaSource = CompatibilitySingletonFactory.getInstance(MetricsRegionServerQuotaSource.class);
-    serverReadQueryMeter = metricRegistry.meter("ServerReadQueryPerSecond");
-    serverWriteQueryMeter = metricRegistry.meter("ServerWriteQueryPerSecond");
   }
 
   MetricsRegionServer(MetricsRegionServerWrapper regionServerWrapper,
-      MetricsRegionServerSource serverSource, RegionServerTableMetrics tableMetrics,
-      MetricsTable metricsTable, MetricsUserAggregate userAggregate) {
+                      MetricsRegionServerSource serverSource,
+                      RegionServerTableMetrics tableMetrics,
+                      MetricsTable metricsTable) {
     this.regionServerWrapper = regionServerWrapper;
     this.serverSource = serverSource;
     this.tableMetrics = tableMetrics;
     this.metricsTable = metricsTable;
-    this.userAggregate = userAggregate;
   }
 
   /**
@@ -100,18 +95,13 @@ public class MetricsRegionServer {
     return serverSource;
   }
 
-  @VisibleForTesting
-  public MetricsUserAggregate getMetricsUserAggregate() {
-    return userAggregate;
-  }
-
   public MetricsRegionServerWrapper getRegionServerWrapper() {
     return regionServerWrapper;
   }
 
   public void updatePutBatch(TableName tn, long t) {
     if (tableMetrics != null && tn != null) {
-      tableMetrics.updatePutBatch(tn, t);
+      tableMetrics.updatePut(tn, t);
     }
     if (t > 1000) {
       serverSource.incrSlowPut();
@@ -124,7 +114,6 @@ public class MetricsRegionServer {
       tableMetrics.updatePut(tn, t);
     }
     serverSource.updatePut(t);
-    userAggregate.updatePut(t);
   }
 
   public void updateDelete(TableName tn, long t) {
@@ -132,12 +121,11 @@ public class MetricsRegionServer {
       tableMetrics.updateDelete(tn, t);
     }
     serverSource.updateDelete(t);
-    userAggregate.updateDelete(t);
   }
 
   public void updateDeleteBatch(TableName tn, long t) {
     if (tableMetrics != null && tn != null) {
-      tableMetrics.updateDeleteBatch(tn, t);
+      tableMetrics.updateDelete(tn, t);
     }
     if (t > 1000) {
       serverSource.incrSlowDelete();
@@ -161,7 +149,6 @@ public class MetricsRegionServer {
       serverSource.incrSlowGet();
     }
     serverSource.updateGet(t);
-    userAggregate.updateGet(t);
   }
 
   public void updateIncrement(TableName tn, long t) {
@@ -172,7 +159,6 @@ public class MetricsRegionServer {
       serverSource.incrSlowIncrement();
     }
     serverSource.updateIncrement(t);
-    userAggregate.updateIncrement(t);
   }
 
   public void updateAppend(TableName tn, long t) {
@@ -183,12 +169,10 @@ public class MetricsRegionServer {
       serverSource.incrSlowAppend();
     }
     serverSource.updateAppend(t);
-    userAggregate.updateAppend(t);
   }
 
   public void updateReplay(long t){
     serverSource.updateReplay(t);
-    userAggregate.updateReplay(t);
   }
 
   public void updateScanSize(TableName tn, long scanSize){
@@ -203,7 +187,6 @@ public class MetricsRegionServer {
       tableMetrics.updateScanTime(tn, t);
     }
     serverSource.updateScanTime(t);
-    userAggregate.updateScanTime(t);
   }
 
   public void updateSplitTime(long t) {
@@ -264,33 +247,5 @@ public class MetricsRegionServer {
    */
   public void incrementRegionSizeReportingChoreTime(long time) {
     quotaSource.incrementRegionSizeReportingChoreTime(time);
-  }
-
-  public void updateReadQueryMeter(TableName tn, long count) {
-    if (tableMetrics != null && tn != null) {
-      tableMetrics.updateTableReadQueryMeter(tn, count);
-    }
-    this.serverReadQueryMeter.mark(count);
-  }
-
-  public void updateReadQueryMeter(TableName tn) {
-    if (tableMetrics != null && tn != null) {
-      tableMetrics.updateTableReadQueryMeter(tn);
-    }
-    this.serverReadQueryMeter.mark();
-  }
-
-  public void updateWriteQueryMeter(TableName tn, long count) {
-    if (tableMetrics != null && tn != null) {
-      tableMetrics.updateTableWriteQueryMeter(tn, count);
-    }
-    this.serverWriteQueryMeter.mark(count);
-  }
-
-  public void updateWriteQueryMeter(TableName tn) {
-    if (tableMetrics != null && tn != null) {
-      tableMetrics.updateTableWriteQueryMeter(tn);
-    }
-    this.serverWriteQueryMeter.mark();
   }
 }

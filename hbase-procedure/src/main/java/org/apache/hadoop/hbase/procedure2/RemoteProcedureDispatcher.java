@@ -22,7 +22,6 @@ import java.io.IOException;
 import java.lang.Thread.UncaughtExceptionHandler;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.DelayQueue;
@@ -147,7 +146,8 @@ public abstract class RemoteProcedureDispatcher<TEnv, TRemote extends Comparable
    */
   public void addNode(final TRemote key) {
     assert key != null: "Tried to add a node with a null key";
-    nodeMap.computeIfAbsent(key, k -> new BufferNode(k));
+    final BufferNode newNode = new BufferNode(key);
+    nodeMap.putIfAbsent(key, newNode);
   }
 
   /**
@@ -155,8 +155,7 @@ public abstract class RemoteProcedureDispatcher<TEnv, TRemote extends Comparable
    * @param key the node identifier
    */
   public void addOperationToNode(final TRemote key, RemoteProcedure rp)
-          throws NullTargetServerDispatchException, NoServerDispatchException,
-          NoNodeDispatchException {
+  throws NullTargetServerDispatchException, NoServerDispatchException, NoNodeDispatchException {
     if (key == null) {
       throw new NullTargetServerDispatchException(rp.toString());
     }
@@ -173,26 +172,13 @@ public abstract class RemoteProcedureDispatcher<TEnv, TRemote extends Comparable
     }
   }
 
-  public void removeCompletedOperation(final TRemote key, RemoteProcedure rp) {
-    BufferNode node = nodeMap.get(key);
-    if (node == null) {
-      LOG.warn("since no node for this key {}, we can't removed the finished remote procedure",
-        key);
-      return;
-    }
-    node.operationCompleted(rp);
-  }
-
   /**
    * Remove a remote node
    * @param key the node identifier
    */
   public boolean removeNode(final TRemote key) {
     final BufferNode node = nodeMap.remove(key);
-    if (node == null) {
-      return false;
-    }
-
+    if (node == null) return false;
     node.abortOperationsInQueue();
     return true;
   }
@@ -232,12 +218,8 @@ public abstract class RemoteProcedureDispatcher<TEnv, TRemote extends Comparable
   public interface RemoteProcedure<TEnv, TRemote> {
     /**
      * For building the remote operation.
-     * May be empty if no need to send remote call. Usually, this means the RemoteProcedure has been
-     * finished already. This is possible, as we may have already sent the procedure to RS but then
-     * the rpc connection is broken so the executeProcedures call fails, but the RS does receive the
-     * procedure and execute it and then report back, before we retry again.
      */
-    Optional<RemoteOperation> remoteCallBuild(TEnv env, TRemote remote);
+    RemoteOperation remoteCallBuild(TEnv env, TRemote remote);
 
     /**
      * Called when the executeProcedure call is failed.
@@ -255,15 +237,6 @@ public abstract class RemoteProcedureDispatcher<TEnv, TRemote extends Comparable
      * method.
      */
     void remoteOperationFailed(TEnv env, RemoteProcedureException error);
-
-    /**
-     * Whether store this remote procedure in dispatched queue
-     * only OpenRegionProcedure and CloseRegionProcedure return false since they are
-     * not fully controlled by dispatcher
-     */
-    default boolean storeInDispatchedQueue() {
-      return true;
-    }
   }
 
   /**
@@ -281,8 +254,8 @@ public abstract class RemoteProcedureDispatcher<TEnv, TRemote extends Comparable
       final TRemote remote, final Set<RemoteProcedure> remoteProcedures) {
     final ArrayListMultimap<Class<?>, RemoteOperation> requestByType = ArrayListMultimap.create();
     for (RemoteProcedure proc : remoteProcedures) {
-      Optional<RemoteOperation> operation = proc.remoteCallBuild(env, remote);
-      operation.ifPresent(op -> requestByType.put(op.getClass(), op));
+      RemoteOperation operation = proc.remoteCallBuild(env, remote);
+      requestByType.put(operation.getClass(), operation);
     }
     return requestByType;
   }
@@ -357,7 +330,6 @@ public abstract class RemoteProcedureDispatcher<TEnv, TRemote extends Comparable
   protected final class BufferNode extends DelayedContainerWithTimestamp<TRemote>
       implements RemoteNode<TEnv, TRemote> {
     private Set<RemoteProcedure> operations;
-    private final Set<RemoteProcedure> dispatchedOperations = new HashSet<>();
 
     protected BufferNode(final TRemote key) {
       super(key, 0);
@@ -386,8 +358,6 @@ public abstract class RemoteProcedureDispatcher<TEnv, TRemote extends Comparable
     public synchronized void dispatch() {
       if (operations != null) {
         remoteDispatch(getKey(), operations);
-        operations.stream().filter(operation -> operation.storeInDispatchedQueue())
-            .forEach(operation -> dispatchedOperations.add(operation));
         this.operations = null;
       }
     }
@@ -397,12 +367,6 @@ public abstract class RemoteProcedureDispatcher<TEnv, TRemote extends Comparable
         abortPendingOperations(getKey(), operations);
         this.operations = null;
       }
-      abortPendingOperations(getKey(), dispatchedOperations);
-      this.dispatchedOperations.clear();
-    }
-
-    public synchronized void operationCompleted(final RemoteProcedure remoteProcedure){
-      this.dispatchedOperations.remove(remoteProcedure);
     }
 
     @Override

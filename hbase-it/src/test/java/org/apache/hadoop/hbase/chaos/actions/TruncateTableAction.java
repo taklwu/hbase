@@ -21,17 +21,13 @@ package org.apache.hadoop.hbase.chaos.actions;
 import java.util.Random;
 
 import org.apache.hadoop.hbase.HBaseTestingUtility;
-import org.apache.hadoop.hbase.TableName;
 import org.apache.hadoop.hbase.client.Admin;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import org.apache.hadoop.hbase.TableName;
 
 /**
  * Action that tries to truncate of a table.
  */
 public class TruncateTableAction extends Action {
-  private static final Logger LOG =
-      LoggerFactory.getLogger(TruncateTableAction.class);
   private final TableName tableName;
   private final Random random;
 

@@ -18,9 +18,7 @@
 
 package org.apache.hadoop.hbase;
 
-import java.util.Arrays;
 import java.util.Collection;
-import java.util.Iterator;
 
 import org.apache.hadoop.hbase.client.RegionInfo;
 import org.apache.hadoop.hbase.client.RegionReplicaUtil;
@@ -34,7 +32,7 @@ import org.apache.yetus.audience.InterfaceAudience;
  * (assuming small number of locations)
  */
 @InterfaceAudience.Private
-public class RegionLocations implements Iterable<HRegionLocation> {
+public class RegionLocations {
 
   private final int numNonNullElements;
 
@@ -185,22 +183,6 @@ public class RegionLocations implements Iterable<HRegionLocation> {
     }
 
     return new RegionLocations(newLocations);
-  }
-
-  /**
-   * Set the element to null if its getServerName method returns null. Returns null if all the
-   * elements are removed.
-   */
-  public RegionLocations removeElementsWithNullLocation() {
-    HRegionLocation[] newLocations = new HRegionLocation[locations.length];
-    boolean hasNonNullElement = false;
-    for (int i = 0; i < locations.length; i++) {
-      if (locations[i] != null && locations[i].getServerName() != null) {
-        hasNonNullElement = true;
-        newLocations[i] = locations[i];
-      }
-    }
-    return hasNonNullElement ? new RegionLocations(newLocations) : null;
   }
 
   /**
@@ -362,11 +344,6 @@ public class RegionLocations implements Iterable<HRegionLocation> {
       }
     }
     return null;
-  }
-
-  @Override
-  public Iterator<HRegionLocation> iterator() {
-    return Arrays.asList(locations).iterator();
   }
 
   @Override

@@ -34,7 +34,6 @@ import org.apache.hadoop.hbase.HTableDescriptor;
 import org.apache.hadoop.hbase.TableName;
 import org.apache.hadoop.hbase.TableNotFoundException;
 import org.apache.hadoop.hbase.client.Admin;
-import org.apache.hadoop.hbase.client.ColumnFamilyDescriptor;
 import org.apache.hadoop.hbase.io.compress.Compression;
 import org.apache.hadoop.hbase.io.encoding.DataBlockEncoding;
 import org.apache.hadoop.hbase.testclassification.LargeTests;
@@ -183,9 +182,9 @@ public class TestMiniClusterLoadSequential {
     return 1000;
   }
 
-  protected ColumnFamilyDescriptor getColumnDesc(Admin admin)
+  protected HColumnDescriptor getColumnDesc(Admin admin)
       throws TableNotFoundException, IOException {
-    return admin.getDescriptor(TABLE).getColumnFamily(CF);
+    return admin.getTableDescriptor(TABLE).getFamily(CF);
   }
 
 }

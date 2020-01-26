@@ -41,6 +41,7 @@ import org.mockito.Mockito;
 
 @Category({MiscTests.class, SmallTests.class})
 public class TestCellUtil {
+
   @ClassRule
   public static final HBaseClassTestRule CLASS_RULE =
       HBaseClassTestRule.forClass(TestCellUtil.class);
@@ -77,7 +78,7 @@ public class TestCellUtil {
     }
 
     @Override
-    public boolean advance() {
+    public boolean advance() throws IOException {
       if (this.count < cellsCount) {
         this.current = new TestCell(this.count);
         this.count++;
@@ -218,13 +219,13 @@ public class TestCellUtil {
    */
   @Test
   public void testCreateCellScannerOverflow() throws IOException {
-    consume(doCreateCellScanner(1, 1), 1);
-    consume(doCreateCellScanner(3, 0), 0);
+    consume(doCreateCellScanner(1, 1), 1 * 1);
+    consume(doCreateCellScanner(3, 0), 3 * 0);
     consume(doCreateCellScanner(3, 3), 3 * 3);
-    consume(doCreateCellScanner(0, 1), 0);
+    consume(doCreateCellScanner(0, 1), 0 * 1);
     // Do big number. See HBASE-11813 for why.
     final int hundredK = 100000;
-    consume(doCreateCellScanner(hundredK, 0), 0);
+    consume(doCreateCellScanner(hundredK, 0), hundredK * 0);
     consume(doCreateCellArray(1), 1);
     consume(doCreateCellArray(0), 0);
     consume(doCreateCellArray(3), 3);
@@ -232,14 +233,14 @@ public class TestCellUtil {
     for (int i = 0; i < hundredK; i++) {
       cells.add(new TestCellScannable(1));
     }
-    consume(CellUtil.createCellScanner(cells), hundredK);
+    consume(CellUtil.createCellScanner(cells), hundredK * 1);
     NavigableMap<byte [], List<Cell>> m = new TreeMap<>(Bytes.BYTES_COMPARATOR);
     List<Cell> cellArray = new ArrayList<>(hundredK);
     for (int i = 0; i < hundredK; i++) {
       cellArray.add(new TestCell(i));
     }
     m.put(new byte [] {'f'}, cellArray);
-    consume(CellUtil.createCellScanner(m), hundredK);
+    consume(CellUtil.createCellScanner(m), hundredK * 1);
   }
 
   private CellScanner doCreateCellArray(final int itemsPerList) {
@@ -250,7 +251,8 @@ public class TestCellUtil {
     return CellUtil.createCellScanner(cells);
   }
 
-  private CellScanner doCreateCellScanner(final int listsCount, final int itemsPerList) {
+  private CellScanner doCreateCellScanner(final int listsCount, final int itemsPerList)
+  throws IOException {
     List<CellScannable> cells = new ArrayList<>(listsCount);
     for (int i = 0; i < listsCount; i++) {
       CellScannable cs = new CellScannable() {
@@ -380,30 +382,19 @@ public class TestCellUtil {
     // Make a KeyValue and a Cell and see if same toString result.
     KeyValue kv = new KeyValue(row, HConstants.EMPTY_BYTE_ARRAY, HConstants.EMPTY_BYTE_ARRAY,
         ts, KeyValue.Type.Minimum, HConstants.EMPTY_BYTE_ARRAY);
-    Cell cell = ExtendedCellBuilderFactory.create(CellBuilderType.DEEP_COPY)
-      .setRow(row)
-      .setFamily(HConstants.EMPTY_BYTE_ARRAY)
-      .setQualifier(HConstants.EMPTY_BYTE_ARRAY)
-      .setTimestamp(ts)
-      .setType(KeyValue.Type.Minimum.getCode())
-      .setValue(HConstants.EMPTY_BYTE_ARRAY)
-      .build();
+    Cell cell = CellUtil.createCell(row, HConstants.EMPTY_BYTE_ARRAY, HConstants.EMPTY_BYTE_ARRAY,
+        ts, KeyValue.Type.Minimum.getCode(), HConstants.EMPTY_BYTE_ARRAY);
     String cellToString = CellUtil.getCellKeyAsString(cell);
     assertEquals(kv.toString(), cellToString);
     // Do another w/ non-null family.
     byte [] f = new byte [] {'f'};
     byte [] q = new byte [] {'q'};
     kv = new KeyValue(row, f, q, ts, KeyValue.Type.Minimum, HConstants.EMPTY_BYTE_ARRAY);
-    cell = ExtendedCellBuilderFactory.create(CellBuilderType.DEEP_COPY)
-      .setRow(row)
-      .setFamily(f)
-      .setQualifier(q)
-      .setTimestamp(ts)
-      .setType(KeyValue.Type.Minimum.getCode())
-      .setValue(HConstants.EMPTY_BYTE_ARRAY)
-      .build();
+    cell = CellUtil.createCell(row, f, q, ts, KeyValue.Type.Minimum.getCode(),
+        HConstants.EMPTY_BYTE_ARRAY);
     cellToString = CellUtil.getCellKeyAsString(cell);
     assertEquals(kv.toString(), cellToString);
+
   }
 
   @Test
@@ -416,15 +407,8 @@ public class TestCellUtil {
     String value = "test.value";
     long seqId = 1042;
 
-    Cell cell = ExtendedCellBuilderFactory.create(CellBuilderType.DEEP_COPY)
-      .setRow(Bytes.toBytes(row))
-      .setFamily(Bytes.toBytes(family))
-      .setQualifier(Bytes.toBytes(qualifier))
-      .setTimestamp(timestamp)
-      .setType(type.getCode())
-      .setValue(Bytes.toBytes(value))
-      .setSequenceId(seqId)
-      .build();
+    Cell cell = CellUtil.createCell(Bytes.toBytes(row), Bytes.toBytes(family),
+      Bytes.toBytes(qualifier), timestamp, type.getCode(), Bytes.toBytes(value), seqId);
 
     String nonVerbose = CellUtil.toString(cell, false);
     String verbose = CellUtil.toString(cell, true);
@@ -550,15 +534,11 @@ public class TestCellUtil {
     assertTrue(CellUtil.equals(kv, res));
   }
 
-  // Workaround for jdk 11 - reflective access to interface default methods for testGetType
-  private abstract class CellForMockito implements Cell {
-  }
-
   @Test
-  public void testGetType() {
-    CellForMockito c = Mockito.mock(CellForMockito.class);
+  public void testGetType() throws IOException {
+    Cell c = Mockito.mock(Cell.class);
     Mockito.when(c.getType()).thenCallRealMethod();
-    for (CellForMockito.Type type : CellForMockito.Type.values()) {
+    for (Cell.Type type : Cell.Type.values()) {
       Mockito.when(c.getTypeByte()).thenReturn(type.getCode());
       assertEquals(type, c.getType());
     }

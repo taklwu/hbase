@@ -34,7 +34,6 @@ import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
-import org.apache.hadoop.hbase.CallQueueTooBigException;
 import org.apache.hadoop.hbase.DoNotRetryIOException;
 import org.apache.hadoop.hbase.HRegionLocation;
 import org.apache.hadoop.hbase.NotServingRegionException;
@@ -97,8 +96,6 @@ class AsyncScanSingleRegionRpcRetryingCaller {
   private final long scannerLeaseTimeoutPeriodNs;
 
   private final long pauseNs;
-
-  private final long pauseForCQTBENs;
 
   private final int maxAttempts;
 
@@ -307,8 +304,7 @@ class AsyncScanSingleRegionRpcRetryingCaller {
       Scan scan, ScanMetrics scanMetrics, long scannerId, ScanResultCache resultCache,
       AdvancedScanResultConsumer consumer, Interface stub, HRegionLocation loc,
       boolean isRegionServerRemote, int priority, long scannerLeaseTimeoutPeriodNs, long pauseNs,
-      long pauseForCQTBENs, int maxAttempts, long scanTimeoutNs, long rpcTimeoutNs,
-      int startLogErrorsCnt) {
+      int maxAttempts, long scanTimeoutNs, long rpcTimeoutNs, int startLogErrorsCnt) {
     this.retryTimer = retryTimer;
     this.scan = scan;
     this.scanMetrics = scanMetrics;
@@ -320,7 +316,6 @@ class AsyncScanSingleRegionRpcRetryingCaller {
     this.regionServerRemote = isRegionServerRemote;
     this.scannerLeaseTimeoutPeriodNs = scannerLeaseTimeoutPeriodNs;
     this.pauseNs = pauseNs;
-    this.pauseForCQTBENs = pauseForCQTBENs;
     this.maxAttempts = maxAttempts;
     this.scanTimeoutNs = scanTimeoutNs;
     this.rpcTimeoutNs = rpcTimeoutNs;
@@ -410,16 +405,15 @@ class AsyncScanSingleRegionRpcRetryingCaller {
       return;
     }
     long delayNs;
-    long pauseNsToUse = error instanceof CallQueueTooBigException ? pauseForCQTBENs : pauseNs;
     if (scanTimeoutNs > 0) {
       long maxDelayNs = remainingTimeNs() - SLEEP_DELTA_NS;
       if (maxDelayNs <= 0) {
         completeExceptionally(!scannerClosed);
         return;
       }
-      delayNs = Math.min(maxDelayNs, getPauseTime(pauseNsToUse, tries - 1));
+      delayNs = Math.min(maxDelayNs, getPauseTime(pauseNs, tries - 1));
     } else {
-      delayNs = getPauseTime(pauseNsToUse, tries - 1);
+      delayNs = getPauseTime(pauseNs, tries - 1);
     }
     if (scannerClosed) {
       completeWhenError(false);
@@ -571,7 +565,7 @@ class AsyncScanSingleRegionRpcRetryingCaller {
     }
     resetController(controller, callTimeoutNs, priority);
     ScanRequest req = RequestConverter.buildScanRequest(scannerId, scan.getCaching(), false,
-      nextCallSeq, scan.isScanMetricsEnabled(), false, scan.getLimit());
+      nextCallSeq, false, false, scan.getLimit());
     stub.scan(controller, req, resp -> onComplete(controller, resp));
   }
 

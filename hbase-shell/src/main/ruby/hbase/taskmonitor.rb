@@ -79,7 +79,7 @@ module Hbase
       java_import 'java.io.InputStreamReader'
       java_import 'org.apache.hbase.thirdparty.com.google.gson.JsonParser'
 
-      infoport = @admin.getClusterMetrics.getLiveServerMetrics.get(host).getInfoServerPort.to_s
+      infoport = @admin.getClusterStatus.getLoad(host).getInfoServerPort.to_s
 
       # Note: This condition use constants from hbase-server
       # if (!@admin.getConfiguration().getBoolean(org.apache.hadoop.hbase.http.ServerConfigurationKeys::HBASE_SSL_ENABLED_KEY,
@@ -152,7 +152,7 @@ module Hbase
                  setCellWidth('Description', descriptionWidth),
                  setCellWidth('Status', statusWidth)]
 
-        line = format('| %s | %s | %s | %s | %s |', *cells)
+        line = format('| %s | %s | %s | %s | %s |', cells)
 
         puts(rowSeparator)
         puts(line)
@@ -165,7 +165,7 @@ module Hbase
                    setCellWidth(t.description, descriptionWidth),
                    setCellWidth(format('%s (since %d seconds ago)', t.status, Time.now - t.statustime), statusWidth)]
 
-          line = format('| %s | %s | %s | %s | %s |', *cells)
+          line = format('| %s | %s | %s | %s | %s |', cells)
 
           puts(rowSeparator)
           puts(line)

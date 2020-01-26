@@ -31,7 +31,7 @@ import org.apache.hadoop.hbase.HBaseClassTestRule;
 import org.apache.hadoop.hbase.HBaseTestingUtility;
 import org.apache.hadoop.hbase.Server;
 import org.apache.hadoop.hbase.ServerName;
-import org.apache.hadoop.hbase.client.AsyncClusterConnection;
+import org.apache.hadoop.hbase.client.ClusterConnection;
 import org.apache.hadoop.hbase.client.Connection;
 import org.apache.hadoop.hbase.monitoring.MonitoredTask;
 import org.apache.hadoop.hbase.testclassification.MasterTests;
@@ -191,16 +191,15 @@ public class TestActiveMasterManager {
     assertTrue(t.isActiveMaster);
 
     LOG.info("Deleting master node");
-
     ZKUtil.deleteNode(zk, zk.getZNodePaths().masterAddressZNode);
   }
 
   /**
    * Assert there is an active master and that it has the specified address.
-   * @param zk single Zookeeper watcher
-   * @param expectedAddress the expected address of the master
-   * @throws KeeperException unexpected Zookeeper exception
-   * @throws IOException if an IO problem is encountered
+   * @param zk
+   * @param thisMasterAddress
+   * @throws KeeperException
+   * @throws IOException
    */
   private void assertMaster(ZKWatcher zk,
       ServerName expectedAddress)
@@ -313,7 +312,7 @@ public class TestActiveMasterManager {
     }
 
     @Override
-    public Connection getConnection() {
+    public ClusterConnection getConnection() {
       return null;
     }
 
@@ -331,6 +330,12 @@ public class TestActiveMasterManager {
     }
 
     @Override
+    public ClusterConnection getClusterConnection() {
+      // TODO Auto-generated method stub
+      return null;
+    }
+
+    @Override
     public FileSystem getFileSystem() {
       return null;
     }
@@ -342,11 +347,6 @@ public class TestActiveMasterManager {
 
     @Override
     public Connection createConnection(Configuration conf) throws IOException {
-      return null;
-    }
-
-    @Override
-    public AsyncClusterConnection getAsyncClusterConnection() {
       return null;
     }
   }

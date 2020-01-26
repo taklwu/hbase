@@ -110,6 +110,12 @@ public class TimestampsFilter extends FilterBase {
     return false;
   }
 
+  @Deprecated
+  @Override
+  public ReturnCode filterKeyValue(final Cell c) {
+    return filterCell(c);
+  }
+
   @Override
   public ReturnCode filterCell(final Cell c) {
     if (this.timestamps.contains(c.getTimestamp())) {

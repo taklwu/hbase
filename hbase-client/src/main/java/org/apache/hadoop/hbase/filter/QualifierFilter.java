@@ -16,6 +16,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package org.apache.hadoop.hbase.filter;
 
 import java.io.IOException;
@@ -45,6 +46,20 @@ import org.apache.hbase.thirdparty.com.google.protobuf.InvalidProtocolBufferExce
  */
 @InterfaceAudience.Public
 public class QualifierFilter extends CompareFilter {
+
+  /**
+   * Constructor.
+   * @param op the compare op for column qualifier matching
+   * @param qualifierComparator the comparator for column qualifier matching
+   * @deprecated Since 2.0.0. Will be removed in 3.0.0.
+   * Use {@link #QualifierFilter(CompareOperator, ByteArrayComparable)} instead.
+   */
+  @Deprecated
+  public QualifierFilter(final CompareOp op,
+      final ByteArrayComparable qualifierComparator) {
+    super(op, qualifierComparator);
+  }
+
   /**
    * Constructor.
    * @param op the compare op for column qualifier matching
@@ -53,6 +68,12 @@ public class QualifierFilter extends CompareFilter {
   public QualifierFilter(final CompareOperator op,
                          final ByteArrayComparable qualifierComparator) {
     super(op, qualifierComparator);
+  }
+
+  @Deprecated
+  @Override
+  public ReturnCode filterKeyValue(final Cell c) {
+    return filterCell(c);
   }
 
   @Override

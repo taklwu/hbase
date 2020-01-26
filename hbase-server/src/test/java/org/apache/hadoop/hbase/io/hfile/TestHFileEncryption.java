@@ -39,8 +39,6 @@ import org.apache.hadoop.hbase.HBaseTestingUtility;
 import org.apache.hadoop.hbase.HConstants;
 import org.apache.hadoop.hbase.KeyValue;
 import org.apache.hadoop.hbase.KeyValueUtil;
-import org.apache.hadoop.hbase.io.ByteBuffAllocator;
-import org.apache.hadoop.hbase.io.FSDataInputStreamWrapper;
 import org.apache.hadoop.hbase.io.compress.Compression;
 import org.apache.hadoop.hbase.io.crypto.Cipher;
 import org.apache.hadoop.hbase.io.crypto.Encryption;
@@ -110,7 +108,7 @@ public class TestHFileEncryption {
 
   private long readAndVerifyBlock(long pos, HFileContext ctx, HFileBlock.FSReaderImpl hbr, int size)
       throws IOException {
-    HFileBlock b = hbr.readBlockData(pos, -1, false, false, true);
+    HFileBlock b = hbr.readBlockData(pos, -1, false, false);
     assertEquals(0, HFile.getAndResetChecksumFailuresCount());
     b.sanityCheck();
     assertFalse(b.isUnpacked());
@@ -153,14 +151,8 @@ public class TestHFileEncryption {
         os.close();
       }
       FSDataInputStream is = fs.open(path);
-      ReaderContext context = new ReaderContextBuilder()
-          .withInputStreamWrapper(new FSDataInputStreamWrapper(is))
-          .withFilePath(path)
-          .withFileSystem(fs)
-          .withFileSize(totalSize).build();
       try {
-        HFileBlock.FSReaderImpl hbr = new HFileBlock.FSReaderImpl(context, fileContext,
-            ByteBuffAllocator.HEAP);
+        HFileBlock.FSReaderImpl hbr = new HFileBlock.FSReaderImpl(is, totalSize, fileContext);
         long pos = 0;
         for (int i = 0; i < blocks; i++) {
           pos += readAndVerifyBlock(pos, fileContext, hbr, blockSizes[i]);
@@ -198,6 +190,7 @@ public class TestHFileEncryption {
     // read it back in and validate correct crypto metadata
     HFile.Reader reader = HFile.createReader(fs, path, cacheConf, true, conf);
     try {
+      reader.loadFileInfo();
       FixedFileTrailer trailer = reader.getTrailer();
       assertNotNull(trailer.getEncryptionKey());
       Encryption.Context readerContext = reader.getFileContext().getEncryptionContext();
@@ -250,6 +243,7 @@ public class TestHFileEncryption {
         HFileScanner scanner = null;
         HFile.Reader reader = HFile.createReader(fs, path, cacheConf, true, conf);
         try {
+          reader.loadFileInfo();
           FixedFileTrailer trailer = reader.getTrailer();
           assertNotNull(trailer.getEncryptionKey());
           scanner = reader.getScanner(false, false);

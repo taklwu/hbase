@@ -22,6 +22,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
+
 import java.util.Arrays;
 import java.util.List;
 import org.apache.hadoop.conf.Configuration;
@@ -33,8 +34,8 @@ import org.apache.hadoop.hbase.HConstants;
 import org.apache.hadoop.hbase.HTableDescriptor;
 import org.apache.hadoop.hbase.NamespaceDescriptor;
 import org.apache.hadoop.hbase.TableName;
-import org.apache.hadoop.hbase.TableNameTestRule;
 import org.apache.hadoop.hbase.TableNotFoundException;
+import org.apache.hadoop.hbase.TestTableName;
 import org.apache.hadoop.hbase.client.Admin;
 import org.apache.hadoop.hbase.client.Connection;
 import org.apache.hadoop.hbase.client.ConnectionFactory;
@@ -104,7 +105,7 @@ public class TestAccessController2 extends SecureTestUtil {
   private static User TESTGROUP2_USER1;
 
   @Rule
-  public TableNameTestRule testTable = new TableNameTestRule();
+  public TestTableName TEST_TABLE = new TestTableName();
   private String namespace = "testNamespace";
   private String tname = namespace + ":testtable1";
   private TableName tableName = TableName.valueOf(tname);
@@ -121,7 +122,7 @@ public class TestAccessController2 extends SecureTestUtil {
     verifyConfiguration(conf);
     TEST_UTIL.startMiniCluster();
     // Wait for the ACL table to become available
-    TEST_UTIL.waitUntilAllRegionsAssigned(PermissionStorage.ACL_TABLE_NAME);
+    TEST_UTIL.waitUntilAllRegionsAssigned(AccessControlLists.ACL_TABLE_NAME);
 
     TESTGROUP_1_NAME = toGroupEntry(TESTGROUP_1);
     TESTGROUP1_USER1 =
@@ -145,7 +146,7 @@ public class TestAccessController2 extends SecureTestUtil {
           new Put(TEST_ROW_3).addColumn(TEST_FAMILY_2, Q1, value1)));
     }
 
-    assertEquals(1, PermissionStorage.getTablePermissions(conf, tableName).size());
+    assertEquals(1, AccessControlLists.getTablePermissions(conf, tableName).size());
     try {
       assertEquals(1, AccessControlClient.getUserPermissions(systemUserConnection,
           tableName.toString()).size());
@@ -172,8 +173,8 @@ public class TestAccessController2 extends SecureTestUtil {
     }
     deleteNamespace(TEST_UTIL, namespace);
     // Verify all table/namespace permissions are erased
-    assertEquals(0, PermissionStorage.getTablePermissions(conf, tableName).size());
-    assertEquals(0, PermissionStorage.getNamespacePermissions(conf, namespace).size());
+    assertEquals(0, AccessControlLists.getTablePermissions(conf, tableName).size());
+    assertEquals(0, AccessControlLists.getNamespacePermissions(conf, namespace).size());
   }
 
   @Test
@@ -186,7 +187,7 @@ public class TestAccessController2 extends SecureTestUtil {
     verifyAllowed(new AccessTestAction() {
       @Override
       public Object run() throws Exception {
-        HTableDescriptor desc = new HTableDescriptor(testTable.getTableName());
+        HTableDescriptor desc = new HTableDescriptor(TEST_TABLE.getTableName());
         desc.addFamily(new HColumnDescriptor(TEST_FAMILY));
         try (Connection connection =
             ConnectionFactory.createConnection(TEST_UTIL.getConfiguration(), testUser)) {
@@ -197,11 +198,12 @@ public class TestAccessController2 extends SecureTestUtil {
         return null;
       }
     }, testUser);
-    TEST_UTIL.waitTableAvailable(testTable.getTableName());
+    TEST_UTIL.waitTableAvailable(TEST_TABLE.getTableName());
     // Verify that owner permissions have been granted to the test user on the
     // table just created
-    List<UserPermission> perms = PermissionStorage
-        .getTablePermissions(conf, testTable.getTableName()).get(testUser.getShortName());
+    List<UserPermission> perms =
+      AccessControlLists.getTablePermissions(conf, TEST_TABLE.getTableName())
+       .get(testUser.getShortName());
     assertNotNull(perms);
     assertFalse(perms.isEmpty());
     // Should be RWXCA
@@ -219,7 +221,7 @@ public class TestAccessController2 extends SecureTestUtil {
       AccessTestAction createAction = new AccessTestAction() {
         @Override
         public Object run() throws Exception {
-          HTableDescriptor desc = new HTableDescriptor(testTable.getTableName());
+          HTableDescriptor desc = new HTableDescriptor(TEST_TABLE.getTableName());
           desc.addFamily(new HColumnDescriptor(TEST_FAMILY));
           try (Connection connection =
               ConnectionFactory.createConnection(TEST_UTIL.getConfiguration())) {
@@ -260,13 +262,13 @@ public class TestAccessController2 extends SecureTestUtil {
     User nsCreate = User.createUserForTesting(conf, "nsCreate", new String[0]);
     User nsAdmin = User.createUserForTesting(conf, "nsAdmin", new String[0]);
     SecureTestUtil.grantOnNamespace(TEST_UTIL, nsRead.getShortName(),
-      testTable.getTableName().getNamespaceAsString(), Action.READ);
+      TEST_TABLE.getTableName().getNamespaceAsString(), Action.READ);
     SecureTestUtil.grantOnNamespace(TEST_UTIL, nsWrite.getShortName(),
-      testTable.getTableName().getNamespaceAsString(), Action.WRITE);
+      TEST_TABLE.getTableName().getNamespaceAsString(), Action.WRITE);
     SecureTestUtil.grantOnNamespace(TEST_UTIL, nsCreate.getShortName(),
-      testTable.getTableName().getNamespaceAsString(), Action.CREATE);
+      TEST_TABLE.getTableName().getNamespaceAsString(), Action.CREATE);
     SecureTestUtil.grantOnNamespace(TEST_UTIL, nsAdmin.getShortName(),
-      testTable.getTableName().getNamespaceAsString(), Action.ADMIN);
+      TEST_TABLE.getTableName().getNamespaceAsString(), Action.ADMIN);
 
     // Table users
     User tableRead = User.createUserForTesting(conf, "tableRead", new String[0]);
@@ -274,13 +276,13 @@ public class TestAccessController2 extends SecureTestUtil {
     User tableCreate = User.createUserForTesting(conf, "tableCreate", new String[0]);
     User tableAdmin = User.createUserForTesting(conf, "tableAdmin", new String[0]);
     SecureTestUtil.grantOnTable(TEST_UTIL, tableRead.getShortName(),
-      testTable.getTableName(), null, null, Action.READ);
+      TEST_TABLE.getTableName(), null, null, Action.READ);
     SecureTestUtil.grantOnTable(TEST_UTIL, tableWrite.getShortName(),
-      testTable.getTableName(), null, null, Action.WRITE);
+      TEST_TABLE.getTableName(), null, null, Action.WRITE);
     SecureTestUtil.grantOnTable(TEST_UTIL, tableCreate.getShortName(),
-      testTable.getTableName(), null, null, Action.CREATE);
+      TEST_TABLE.getTableName(), null, null, Action.CREATE);
     SecureTestUtil.grantOnTable(TEST_UTIL, tableAdmin.getShortName(),
-      testTable.getTableName(), null, null, Action.ADMIN);
+      TEST_TABLE.getTableName(), null, null, Action.ADMIN);
 
     grantGlobal(TEST_UTIL, TESTGROUP_1_NAME, Action.WRITE);
     try {
@@ -291,9 +293,9 @@ public class TestAccessController2 extends SecureTestUtil {
         public Object run() throws Exception {
 
           try (Connection conn = ConnectionFactory.createConnection(conf);
-              Table t = conn.getTable(PermissionStorage.ACL_TABLE_NAME)) {
-            t.put(new Put(TEST_ROW).addColumn(PermissionStorage.ACL_LIST_FAMILY, TEST_QUALIFIER,
-              TEST_VALUE));
+              Table t = conn.getTable(AccessControlLists.ACL_TABLE_NAME)) {
+            t.put(new Put(TEST_ROW).addColumn(AccessControlLists.ACL_LIST_FAMILY,
+                TEST_QUALIFIER, TEST_VALUE));
             return null;
           } finally {
           }
@@ -318,7 +320,7 @@ public class TestAccessController2 extends SecureTestUtil {
         @Override
         public Object run() throws Exception {
           try (Connection conn = ConnectionFactory.createConnection(conf);
-              Table t = conn.getTable(PermissionStorage.ACL_TABLE_NAME)) {
+              Table t = conn.getTable(AccessControlLists.ACL_TABLE_NAME)) {
             ResultScanner s = t.getScanner(new Scan());
             try {
               for (Result r = s.next(); r != null; r = s.next()) {

@@ -55,8 +55,7 @@
 <%
   HMaster master = (HMaster)getServletContext().getAttribute(HMaster.MASTER);
   RSGroupInfo rsGroupInfo = null;
-  final String ZEROKB = "0 KB";
-  final String ZEROMB = "0 MB";
+
   if (!RSGroupTableAccessor.isRSGroupsEnabled(master.getConnection())) {
 %>
   <div class="row inner_header">
@@ -212,41 +211,24 @@
               <th>Max Heap</th>
               <th>Memstore Size</th>
             </tr>
-            <%
-               String usedHeapSizeMBStr = ZEROMB;
-               String maxHeapSizeMBStr = ZEROMB;
-               String memStoreSizeMBStr = ZEROMB;
-
-               for (Address server: rsGroupServers) {
+            <% for (Address server: rsGroupServers) {
                  ServerName serverName = serverMaping.get(server);
                  ServerMetrics sl = onlineServers.get(server);
                  if (sl != null && serverName != null) {
-                   double usedHeapSizeMB = sl.getUsedHeapSize().get(Size.Unit.MEGABYTE);
-                   double maxHeapSizeMB = sl.getMaxHeapSize().get(Size.Unit.MEGABYTE);
                    double memStoreSizeMB = sl.getRegionMetrics().values()
                            .stream().mapToDouble(rm -> rm.getMemStoreSize().get(Size.Unit.MEGABYTE))
                            .sum();
                    int infoPort = master.getRegionServerInfoPort(serverName);
                    String url = "//" + serverName.getHostname() + ":" + infoPort + "/rs-status";
-
-                   if (memStoreSizeMB > 0) {
-                     memStoreSizeMBStr = TraditionalBinaryPrefix.long2String(
-                     (long) memStoreSizeMB * TraditionalBinaryPrefix.MEGA.value, "B", 1);
-                   }
-                   if (usedHeapSizeMB > 0) {
-                     usedHeapSizeMBStr = TraditionalBinaryPrefix.long2String(
-                     (long) usedHeapSizeMB * TraditionalBinaryPrefix.MEGA.value, "B", 1);
-                   }
-                   if (maxHeapSizeMB > 0) {
-                      maxHeapSizeMBStr = TraditionalBinaryPrefix.long2String(
-                      (long) maxHeapSizeMB * TraditionalBinaryPrefix.MEGA.value, "B", 1);
-                   }
             %>
                    <tr>
                      <td><a href="<%= url %>"><%= serverName.getServerName() %></a></td>
-                     <td><%= usedHeapSizeMBStr %></td>
-                     <td><%= maxHeapSizeMBStr %></td>
-                     <td><%= memStoreSizeMBStr %></td>
+                     <td><%= TraditionalBinaryPrefix.long2String((long) sl.getUsedHeapSize().get(Size.Unit.MEGABYTE)
+                       * TraditionalBinaryPrefix.MEGA.value, "B", 1) %></td>
+                     <td><%= TraditionalBinaryPrefix.long2String((long) sl.getMaxHeapSize().get(Size.Unit.MEGABYTE)
+                       * TraditionalBinaryPrefix.MEGA.value, "B", 1) %></td>
+                     <td><%= TraditionalBinaryPrefix.long2String((long) memStoreSizeMB
+                       * TraditionalBinaryPrefix.MEGA.value, "B", 1) %></td>
                    </tr>
               <% } else { %>
                    <tr>
@@ -308,12 +290,7 @@
                 <th>Index Size</th>
                 <th>Bloom Size</th>
             </tr>
-            <%
-               String storeUncompressedSizeMBStr = ZEROMB;
-               String storeFileSizeMBStr = ZEROMB;
-               String totalStaticIndexSizeKBStr = ZEROKB;
-               String totalStaticBloomSizeKBStr = ZEROKB;
-               for (Address server: rsGroupServers) {
+            <%  for (Address server: rsGroupServers) {
                   ServerName serverName = serverMaping.get(server);
                   ServerMetrics sl = onlineServers.get(server);
                   if (sl != null && serverName != null) {
@@ -333,31 +310,19 @@
                     }
                     int infoPort = master.getRegionServerInfoPort(serverName);
                     String url = "//" + serverName.getHostname() + ":" + infoPort + "/rs-status";
-                    if (storeUncompressedSizeMB > 0) {
-                      storeUncompressedSizeMBStr = TraditionalBinaryPrefix.long2String(
-                      (long) storeUncompressedSizeMB * TraditionalBinaryPrefix.MEGA.value, "B", 1);
-                    }
-                    if (storeFileSizeMB > 0) {
-                      storeFileSizeMBStr = TraditionalBinaryPrefix.long2String(
-                      (long) storeFileSizeMB * TraditionalBinaryPrefix.MEGA.value, "B", 1);
-                    }
-                    if (totalStaticIndexSizeKB > 0) {
-                      totalStaticIndexSizeKBStr = TraditionalBinaryPrefix.long2String(
-                      (long) totalStaticIndexSizeKB * TraditionalBinaryPrefix.KILO.value, "B", 1);
-                    }
-                    if (totalStaticBloomSizeKB > 0) {
-                      totalStaticBloomSizeKBStr = TraditionalBinaryPrefix.long2String(
-                      (long) totalStaticBloomSizeKB * TraditionalBinaryPrefix.KILO.value, "B", 1);
-                    }
             %>
                     <tr>
                       <td><a href="<%= url %>"><%= serverName.getServerName() %></a></td>
                       <td><%= storeCount %></td>
                       <td><%= storeFileCount %></td>
-                      <td><%= storeUncompressedSizeMBStr %></td>
-                      <td><%= storeFileSizeMBStr %></td>
-                      <td><%= totalStaticIndexSizeKBStr %></td>
-                      <td><%= totalStaticBloomSizeKBStr %></td>
+                      <td><%= TraditionalBinaryPrefix.long2String(
+                          (long) storeUncompressedSizeMB * TraditionalBinaryPrefix.MEGA.value, "B", 1) %></td>
+                      <td><%= TraditionalBinaryPrefix.long2String((long) storeFileSizeMB
+                          * TraditionalBinaryPrefix.MEGA.value, "B", 1) %></td>
+                      <td><%= TraditionalBinaryPrefix.long2String((long) totalStaticIndexSizeKB
+                          * TraditionalBinaryPrefix.KILO.value, "B", 1) %></td>
+                      <td><%= TraditionalBinaryPrefix.long2String((long) totalStaticBloomSizeKB
+                          * TraditionalBinaryPrefix.KILO.value, "B", 1) %></td>
                     </tr>
                <% } else { %>
                     <tr>
@@ -435,12 +400,12 @@
     </div>
 
     <% if (rsGroupTables != null && rsGroupTables.size() > 0) {
-        List<TableDescriptor> tables;
+        HTableDescriptor[] tables = null;
         try (Admin admin = master.getConnection().getAdmin()) {
-            tables = master.isInitialized() ? admin.listTableDescriptors(true) : null;
+            tables = master.isInitialized() ? admin.listTables((Pattern)null, true) : null;
         }
          Map<TableName, HTableDescriptor> tableDescriptors
-            = tables.stream().collect(Collectors.toMap(TableDescriptor::getTableName, p -> new HTableDescriptor(p)));
+            = Stream.of(tables).collect(Collectors.toMap(TableDescriptor::getTableName, p -> p));
     %>
          <table class="table table-striped">
          <tr>

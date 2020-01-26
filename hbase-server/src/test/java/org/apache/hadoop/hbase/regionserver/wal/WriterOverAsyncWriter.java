@@ -52,7 +52,7 @@ class WriterOverAsyncWriter implements WALProvider.Writer {
   @Override
   public void sync(boolean forceSync) throws IOException {
     try {
-      asyncWriter.sync(forceSync).get();
+      asyncWriter.sync().get();
     } catch (InterruptedException e) {
       throw new InterruptedIOException();
     } catch (ExecutionException e) {

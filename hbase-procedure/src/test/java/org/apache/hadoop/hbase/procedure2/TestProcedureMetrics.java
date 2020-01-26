@@ -39,6 +39,7 @@ import org.slf4j.LoggerFactory;
 
 @Category({MasterTests.class, SmallTests.class})
 public class TestProcedureMetrics {
+
   @ClassRule
   public static final HBaseClassTestRule CLASS_RULE =
       HBaseClassTestRule.forClass(TestProcedureMetrics.class);
@@ -59,6 +60,7 @@ public class TestProcedureMetrics {
   private static int beginCount = 0;
   private static int successCount = 0;
   private static int failedCount = 0;
+
 
   @Before
   public void setUp() throws IOException {
@@ -235,6 +237,7 @@ public class TestProcedureMetrics {
 
     @Override
     protected void rollback(TestProcEnv env) throws IOException, InterruptedException {
+
     }
 
     @Override
@@ -243,12 +246,14 @@ public class TestProcedureMetrics {
     }
 
     @Override
-    protected void updateMetricsOnFinish(final TestProcEnv env, final long time, boolean success) {
+    protected void updateMetricsOnFinish(final TestProcEnv env, final long time,
+    boolean success) {
       if (success) {
         successCount++;
       } else {
         failedCount++;
       }
     }
+
   }
 }

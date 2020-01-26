@@ -157,10 +157,11 @@ public class WALPlayer extends Configured implements Tool {
           Delete del = null;
           Cell lastCell = null;
           for (Cell cell : value.getCells()) {
-            // Filtering WAL meta marker entries.
+            // filtering WAL meta entries
             if (WALEdit.isMetaEditFamily(cell)) {
               continue;
             }
+
             // Allow a subclass filter out this cell.
             if (filter(context, cell)) {
               // A WALEdit may contain multiple operations (HBASE-3584) and/or

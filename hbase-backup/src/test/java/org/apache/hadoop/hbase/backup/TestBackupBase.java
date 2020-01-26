@@ -26,6 +26,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Objects;
+
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.LocatedFileStatus;
@@ -52,6 +53,8 @@ import org.apache.hadoop.hbase.client.Admin;
 import org.apache.hadoop.hbase.client.Connection;
 import org.apache.hadoop.hbase.client.ConnectionFactory;
 import org.apache.hadoop.hbase.client.Durability;
+import org.apache.hadoop.hbase.client.HBaseAdmin;
+import org.apache.hadoop.hbase.client.HTable;
 import org.apache.hadoop.hbase.client.Put;
 import org.apache.hadoop.hbase.client.Table;
 import org.apache.hadoop.hbase.master.cleaner.LogCleaner;
@@ -340,7 +343,7 @@ public class TestBackupBase {
   @AfterClass
   public static void tearDown() throws Exception {
     try{
-      SnapshotTestingUtils.deleteAllSnapshots(TEST_UTIL.getAdmin());
+      SnapshotTestingUtils.deleteAllSnapshots(TEST_UTIL.getHBaseAdmin());
     } catch (Exception e) {
     }
     SnapshotTestingUtils.deleteArchiveDirectory(TEST_UTIL);
@@ -351,9 +354,9 @@ public class TestBackupBase {
     TEST_UTIL.shutdownMiniMapReduceCluster();
   }
 
-  Table insertIntoTable(Connection conn, TableName table, byte[] family, int id, int numRows)
+  HTable insertIntoTable(Connection conn, TableName table, byte[] family, int id, int numRows)
       throws IOException {
-    Table t = conn.getTable(table);
+    HTable t = (HTable) conn.getTable(table);
     Put p1;
     for (int i = 0; i < numRows; i++) {
       p1 = new Put(Bytes.toBytes("row-" + table + "-" + id + "-" + i));
@@ -414,7 +417,7 @@ public class TestBackupBase {
   protected static void createTables() throws Exception {
     long tid = System.currentTimeMillis();
     table1 = TableName.valueOf("test-" + tid);
-    Admin ha = TEST_UTIL.getAdmin();
+    HBaseAdmin ha = TEST_UTIL.getHBaseAdmin();
 
     // Create namespaces
     NamespaceDescriptor desc1 = NamespaceDescriptor.create("ns1").build();

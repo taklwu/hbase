@@ -118,8 +118,8 @@ public class TestWALReaderOnSecureWAL {
         } else {
           kvs.add(kv);
         }
-        wal.appendData(regionInfo, new WALKeyImpl(regionInfo.getEncodedNameAsBytes(), tableName,
-          System.currentTimeMillis(), mvcc, scopes), kvs);
+        wal.append(regionInfo, new WALKeyImpl(regionInfo.getEncodedNameAsBytes(), tableName,
+            System.currentTimeMillis(), mvcc, scopes), kvs, true);
       }
       wal.sync();
       final Path walPath = AbstractFSWALProvider.getCurrentFileName(wal);

@@ -34,8 +34,6 @@ module Shell
         EOF
       end
 
-      # rubocop:disable Metrics/AbcSize
-      # rubocop:disable Metrics/MethodLength
       def command(*dead_servers)
         servers = admin.clear_deadservers(dead_servers)
         if servers.size <= 0
@@ -49,8 +47,6 @@ module Shell
           formatter.footer(servers.size)
         end
       end
-      # rubocop:enable Metrics/AbcSize
-      # rubocop:enable Metrics/MethodLength
     end
   end
 end

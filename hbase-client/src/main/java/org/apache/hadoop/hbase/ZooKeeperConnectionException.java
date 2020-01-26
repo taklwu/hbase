@@ -23,30 +23,29 @@ import java.io.IOException;
 import org.apache.yetus.audience.InterfaceAudience;
 
 /**
- * Thrown if the client can't connect to ZooKeeper.
+ * Thrown if the client can't connect to zookeeper
  */
 @InterfaceAudience.Public
 public class ZooKeeperConnectionException extends IOException {
   private static final long serialVersionUID = (1L << 23) - 1L;
-
+  /** default constructor */
   public ZooKeeperConnectionException() {
     super();
   }
 
   /**
-   * @param message the message for this exception
+   * Constructor
+   * @param s message
    */
-  public ZooKeeperConnectionException(String message) {
-    super(message);
+  public ZooKeeperConnectionException(String s) {
+    super(s);
   }
 
   /**
    * Constructor taking another exception.
-   *
-   * @param message the message for this exception
-   * @param exception the exception to grab data from
+   * @param e Exception to grab data from.
    */
-  public ZooKeeperConnectionException(String message, Exception exception) {
-    super(message, exception);
+  public ZooKeeperConnectionException(String message, Exception e) {
+    super(message, e);
   }
 }

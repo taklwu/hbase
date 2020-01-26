@@ -134,10 +134,11 @@ public class RSDumpServlet extends StateDumpServlet {
       out.println(hrs.compactSplitThread.dumpQueue());
     }
 
-    if (hrs.getMemStoreFlusher() != null) {
+    if (hrs.cacheFlusher != null) {
       // 2. Print out flush Queue
-      out.println("\nFlush Queue summary: " + hrs.getMemStoreFlusher().toString());
-      out.println(hrs.getMemStoreFlusher().dumpQueue());
+      out.println("\nFlush Queue summary: "
+          + hrs.cacheFlusher.toString());
+      out.println(hrs.cacheFlusher.dumpQueue());
     }
   }
 

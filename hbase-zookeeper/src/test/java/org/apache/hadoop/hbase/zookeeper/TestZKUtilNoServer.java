@@ -26,6 +26,7 @@ import java.util.List;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hbase.HBaseClassTestRule;
 import org.apache.hadoop.hbase.HBaseConfiguration;
+import org.apache.hadoop.hbase.ZooKeeperConnectionException;
 import org.apache.hadoop.hbase.security.Superusers;
 import org.apache.hadoop.hbase.testclassification.SmallTests;
 import org.apache.hadoop.hbase.testclassification.ZKTests;
@@ -42,12 +43,13 @@ import org.mockito.Mockito;
 
 @Category({ ZKTests.class, SmallTests.class })
 public class TestZKUtilNoServer {
+
   @ClassRule
   public static final HBaseClassTestRule CLASS_RULE =
       HBaseClassTestRule.forClass(TestZKUtilNoServer.class);
 
   @Test
-  public void testUnsecure() throws IOException {
+  public void testUnsecure() throws ZooKeeperConnectionException, IOException {
     Configuration conf = HBaseConfiguration.create();
     conf.set(Superusers.SUPERUSER_CONF_KEY, "user1");
     String node = "/hbase/testUnsecure";
@@ -58,7 +60,7 @@ public class TestZKUtilNoServer {
   }
 
   @Test
-  public void testSecuritySingleSuperuser() throws IOException {
+  public void testSecuritySingleSuperuser() throws ZooKeeperConnectionException, IOException {
     Configuration conf = HBaseConfiguration.create();
     conf.set(Superusers.SUPERUSER_CONF_KEY, "user1");
     String node = "/hbase/testSecuritySingleSuperuser";
@@ -70,7 +72,7 @@ public class TestZKUtilNoServer {
   }
 
   @Test
-  public void testCreateACL() throws IOException {
+  public void testCreateACL() throws ZooKeeperConnectionException, IOException {
     Configuration conf = HBaseConfiguration.create();
     conf.set(Superusers.SUPERUSER_CONF_KEY, "user1,@group1,user2,@group2,user3");
     String node = "/hbase/testCreateACL";
@@ -85,7 +87,7 @@ public class TestZKUtilNoServer {
   }
 
   @Test
-  public void testCreateACLWithSameUser() throws IOException {
+  public void testCreateACLWithSameUser() throws ZooKeeperConnectionException, IOException {
     Configuration conf = HBaseConfiguration.create();
     conf.set(Superusers.SUPERUSER_CONF_KEY, "user4,@group1,user5,user6");
     UserGroupInformation.setLoginUser(UserGroupInformation.createRemoteUser("user4"));
@@ -101,7 +103,7 @@ public class TestZKUtilNoServer {
 
   @Test(expected = KeeperException.SystemErrorException.class)
   public void testInterruptedDuringAction()
-      throws IOException, KeeperException, InterruptedException {
+      throws ZooKeeperConnectionException, IOException, KeeperException, InterruptedException {
     final RecoverableZooKeeper recoverableZk = Mockito.mock(RecoverableZooKeeper.class);
     ZKWatcher zkw = new ZKWatcher(HBaseConfiguration.create(), "unittest", null) {
       @Override

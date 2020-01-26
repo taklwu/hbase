@@ -17,13 +17,8 @@
  */
 package org.apache.hadoop.hbase.mapreduce;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
-import static org.junit.Assert.fail;
-import static org.mockito.Mockito.any;
-import static org.mockito.Mockito.doAnswer;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.when;
+import static org.junit.Assert.*;
+import static org.mockito.Mockito.*;
 
 import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
@@ -54,6 +49,7 @@ import org.mockito.stubbing.Answer;
 
 @Category({MapReduceTests.class, LargeTests.class})
 public class TestMapReduceExamples {
+
   @ClassRule
   public static final HBaseClassTestRule CLASS_RULE =
       HBaseClassTestRule.forClass(TestMapReduceExamples.class);
@@ -63,9 +59,11 @@ public class TestMapReduceExamples {
   /**
    * Test SampleUploader from examples
    */
+
   @SuppressWarnings("unchecked")
   @Test
   public void testSampleUploader() throws Exception {
+
     Configuration configuration = new Configuration();
     Uploader uploader = new Uploader();
     Mapper<LongWritable, Text, ImmutableBytesWritable, Put>.Context ctx = mock(Context.class);
@@ -88,6 +86,7 @@ public class TestMapReduceExamples {
     String[] args = { dir.toString(), "simpleTable" };
     Job job = SampleUploader.configureJob(configuration, args);
     assertEquals(SequenceFileInputFormat.class, job.getInputFormatClass());
+
   }
 
   /**
@@ -180,9 +179,11 @@ public class TestMapReduceExamples {
         assertTrue(data.toString().contains(
             "Usage: IndexBuilder <TABLE_NAME> <COLUMN_FAMILY> <ATTR> [<ATTR> ...]"));
       }
+
     } finally {
       System.setErr(oldPrintStream);
       System.setSecurityManager(SECURITY_MANAGER);
     }
+
   }
 }

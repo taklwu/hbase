@@ -55,7 +55,7 @@ class ClusterSchemaServiceImpl extends AbstractService implements ClusterSchemaS
   }
 
   @Override
-  protected synchronized void doStart() {
+  public synchronized void doStart() {
     try {
       notifyStarted();
       this.tableNamespaceManager.start();

@@ -29,14 +29,13 @@ import java.util.concurrent.SynchronousQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
-import org.apache.hadoop.hbase.errorhandling.ForeignException;
-import org.apache.hadoop.hbase.errorhandling.ForeignExceptionDispatcher;
-import org.apache.hadoop.hbase.util.Threads;
 import org.apache.yetus.audience.InterfaceAudience;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.apache.hadoop.hbase.DaemonThreadFactory;
+import org.apache.hadoop.hbase.errorhandling.ForeignException;
+import org.apache.hadoop.hbase.errorhandling.ForeignExceptionDispatcher;
 
-import org.apache.hbase.thirdparty.com.google.common.annotations.VisibleForTesting;
 import org.apache.hbase.thirdparty.com.google.common.collect.MapMaker;
 
 /**
@@ -68,9 +67,9 @@ public class ProcedureCoordinator {
    * The rpc object registers the ProcedureCoordinator and starts any threads in this
    * constructor.
    *
+   * @param rpcs
    * @param pool Used for executing procedures.
    */
-  @VisibleForTesting // Only used in tests. SimpleMasterProcedureManager is a test class.
   public ProcedureCoordinator(ProcedureCoordinatorRpcs rpcs, ThreadPoolExecutor pool) {
     this(rpcs, pool, TIMEOUT_MILLIS_DEFAULT, WAKE_MILLIS_DEFAULT);
   }
@@ -81,7 +80,9 @@ public class ProcedureCoordinator {
    * The rpc object registers the ProcedureCoordinator and starts any threads in
    * this constructor.
    *
+   * @param rpcs
    * @param pool Used for executing procedures.
+   * @param timeoutMillis
    */
   public ProcedureCoordinator(ProcedureCoordinatorRpcs rpcs, ThreadPoolExecutor pool,
       long timeoutMillis, long wakeTimeMillis) {
@@ -113,7 +114,7 @@ public class ProcedureCoordinator {
       long keepAliveMillis) {
     return new ThreadPoolExecutor(1, opThreads, keepAliveMillis, TimeUnit.MILLISECONDS,
         new SynchronousQueue<>(),
-        Threads.newDaemonThreadFactory("(" + coordName + ")-proc-coordinator"));
+        new DaemonThreadFactory("(" + coordName + ")-proc-coordinator-pool"));
   }
 
   /**
