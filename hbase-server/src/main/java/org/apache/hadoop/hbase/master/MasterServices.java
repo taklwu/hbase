@@ -524,4 +524,10 @@ public interface MasterServices extends Server {
    * Run the ReplicationBarrierChore.
    */
   void runReplicationBarrierCleaner();
+
+  /**
+   * @return true as running on existing ZNodes when the master restarts, otherwise false.
+   */
+  boolean isClusterRestartWithExistingZNodes();
+
 }

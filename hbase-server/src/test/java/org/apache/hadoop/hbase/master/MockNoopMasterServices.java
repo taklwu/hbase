@@ -482,4 +482,9 @@ public class MockNoopMasterServices implements MasterServices {
 
   @Override
   public void runReplicationBarrierCleaner() {}
+
+  @Override
+  public boolean isClusterRestartWithExistingZNodes() {
+    return false;
+  }
 }

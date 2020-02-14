@@ -464,6 +464,8 @@ public class HMaster extends HRegionServer implements MasterServices {
   // Cached clusterId on stand by masters to serve clusterID requests from clients.
   private final CachedClusterId cachedClusterId;
 
+  private boolean isClusterRestartWithExistingZNodes;
+
   public static class RedirectServlet extends HttpServlet {
     private static final long serialVersionUID = 2894774810058302473L;
     private final int regionServerInfoPort;
@@ -913,6 +915,10 @@ public class HMaster extends HRegionServer implements MasterServices {
       this.tableDescriptors.getAll();
     }
 
+    // check cluster Id stored in ZNode before, and use it to indicate if a cluster has been
+    // restarted with an existing Zookeeper quorum.
+    isClusterRestartWithExistingZNodes =
+      ZKClusterId.readClusterIdZNode(this.zooKeeper) != null ? true : false;
     // Publish cluster ID; set it in Master too. The superclass RegionServer does this later but
     // only after it has checked in with the Master. At least a few tests ask Master for clusterId
     // before it has called its run method and before RegionServer has done the reportForDuty.
@@ -968,10 +974,16 @@ public class HMaster extends HRegionServer implements MasterServices {
     // We also pass dirs that are already 'splitting'... so we can do some checks down in tracker.
     // TODO: Generate the splitting and live Set in one pass instead of two as we currently do.
     this.regionServerTracker = new RegionServerTracker(zooKeeper, this, this.serverManager);
-    this.regionServerTracker.start(
+    Set<ServerName> deadServersFromPE =
       procsByType.getOrDefault(ServerCrashProcedure.class, Collections.emptyList()).stream()
-        .map(p -> (ServerCrashProcedure) p).map(p -> p.getServerName()).collect(Collectors.toSet()),
-      walManager.getLiveServersFromWALDir(), walManager.getSplittingServersFromWALDir());
+        .map(p -> (ServerCrashProcedure) p).map(p -> p.getServerName()).collect(Collectors.toSet());
+    Set<ServerName> liveServersFromWALDir = walManager.getLiveServersFromWALDir();
+    Set<ServerName> splittingServersFromWALDir = walManager.getLiveServersFromWALDir();
+    boolean deadRegionServersPEWALExists = !deadServersFromPE.isEmpty();
+    boolean regionServersWALExists =
+      !liveServersFromWALDir.isEmpty() || !splittingServersFromWALDir.isEmpty();
+    this.regionServerTracker.start(deadServersFromPE, liveServersFromWALDir,
+      splittingServersFromWALDir);
     // This manager will be started AFTER hbase:meta is confirmed on line.
     // hbase.mirror.table.state.to.zookeeper is so hbase1 clients can connect. They read table
     // state from zookeeper while hbase2 reads it from hbase:meta. Disable if no hbase1 clients.
@@ -1078,6 +1090,12 @@ public class HMaster extends HRegionServer implements MasterServices {
     // complete before we do this next step processing offline regions else it fails reading
     // table states messing up master launch (namespace table, etc., are not assigned).
     this.assignmentManager.processOfflineRegions();
+    // only process unknown servers if we're on a restarted cluster without existing WALs and
+    // existing Zookeeper ZNodes
+    if (!isClusterRestartWithExistingZNodes
+      && !regionServersWALExists && !deadRegionServersPEWALExists) {
+      this.assignmentManager.processRegionsOnUnknownServers();
+    }
     // Initialize after meta is up as below scans meta
     if (favoredNodesManager != null && !maintenanceMode) {
       SnapshotOfRegionAssignmentFromMeta snapshotOfRegionAssignment =
@@ -3889,5 +3907,9 @@ public class HMaster extends HRegionServer implements MasterServices {
 
   public MetaRegionLocationCache getMetaRegionLocationCache() {
     return this.metaRegionLocationCache;
+  }
+
+  public boolean isClusterRestartWithExistingZNodes() {
+    return isClusterRestartWithExistingZNodes;
   }
 }

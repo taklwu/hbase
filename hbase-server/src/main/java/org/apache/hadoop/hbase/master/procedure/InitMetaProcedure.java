@@ -67,11 +67,14 @@ public class InitMetaProcedure extends AbstractStateMachineTableProcedure<InitMe
     return TableOperationType.CREATE;
   }
 
-  private static void writeFsLayout(Path rootDir, Configuration conf) throws IOException {
+  private static void writeFsLayout(boolean isClusterRestartWithExistingZNodes,
+    Path rootDir, Configuration conf) throws IOException {
     LOG.info("BOOTSTRAP: creating hbase:meta region");
     FileSystem fs = rootDir.getFileSystem(conf);
     Path tableDir = CommonFSUtils.getTableDir(rootDir, TableName.META_TABLE_NAME);
-    if (fs.exists(tableDir) && !fs.delete(tableDir, true)) {
+    // when entering the state of INIT_META_WRITE_FS_LAYOUT, we use existing zookeeper data to
+    // tell if this is a partial created meta, if so we should delete and recreate the meta table.
+    if (isClusterRestartWithExistingZNodes && fs.exists(tableDir) && !fs.delete(tableDir, true)) {
       LOG.warn("Can not delete partial created meta table, continue...");
     }
     // Bootstrapping, make sure blockcache is off. Else, one will be
@@ -96,7 +99,8 @@ public class InitMetaProcedure extends AbstractStateMachineTableProcedure<InitMe
         case INIT_META_WRITE_FS_LAYOUT:
           Configuration conf = env.getMasterConfiguration();
           Path rootDir = CommonFSUtils.getRootDir(conf);
-          writeFsLayout(rootDir, conf);
+          writeFsLayout(env.getMasterServices().isClusterRestartWithExistingZNodes(), rootDir,
+            conf);
           setNextState(InitMetaState.INIT_META_ASSIGN_META);
           return Flow.HAS_MORE_STATE;
         case INIT_META_ASSIGN_META:
