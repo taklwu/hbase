@@ -25,6 +25,7 @@ import static org.apache.hadoop.hbase.util.FutureUtils.addListener;
 import java.io.IOException;
 import java.lang.reflect.UndeclaredThrowableException;
 import java.net.InetAddress;
+import java.net.InetSocketAddress;
 import java.net.UnknownHostException;
 import java.util.Arrays;
 import java.util.List;
@@ -49,19 +50,6 @@ import org.apache.hadoop.hbase.client.metrics.ScanMetrics;
 import org.apache.hadoop.hbase.ipc.HBaseRpcController;
 import org.apache.hadoop.hbase.security.User;
 import org.apache.hadoop.hbase.security.UserProvider;
-import org.apache.hadoop.hbase.util.Bytes;
-import org.apache.hadoop.hbase.util.ReflectionUtils;
-import org.apache.hadoop.ipc.RemoteException;
-import org.apache.hadoop.net.DNS;
-import org.apache.yetus.audience.InterfaceAudience;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import org.apache.hbase.thirdparty.com.google.common.annotations.VisibleForTesting;
-import org.apache.hbase.thirdparty.com.google.common.base.Preconditions;
-import org.apache.hbase.thirdparty.com.google.protobuf.ServiceException;
-import org.apache.hbase.thirdparty.io.netty.util.Timer;
-
 import org.apache.hadoop.hbase.shaded.protobuf.ProtobufUtil;
 import org.apache.hadoop.hbase.shaded.protobuf.ResponseConverter;
 import org.apache.hadoop.hbase.shaded.protobuf.generated.AdminProtos.AdminService;
@@ -69,6 +57,16 @@ import org.apache.hadoop.hbase.shaded.protobuf.generated.ClientProtos;
 import org.apache.hadoop.hbase.shaded.protobuf.generated.ClientProtos.ClientService;
 import org.apache.hadoop.hbase.shaded.protobuf.generated.ClientProtos.ScanResponse;
 import org.apache.hadoop.hbase.shaded.protobuf.generated.MasterProtos.MasterService;
+import org.apache.hadoop.hbase.util.Bytes;
+import org.apache.hadoop.hbase.util.ReflectionUtils;
+import org.apache.hadoop.ipc.RemoteException;
+import org.apache.hadoop.net.DNS;
+import org.apache.hbase.thirdparty.com.google.common.base.Preconditions;
+import org.apache.hbase.thirdparty.com.google.protobuf.ServiceException;
+import org.apache.hbase.thirdparty.io.netty.util.Timer;
+import org.apache.yetus.audience.InterfaceAudience;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Utility used by client connections.
@@ -137,7 +135,7 @@ public final class ConnectionUtils {
    * if the invocation target is 'this' server; save on network and protobuf invocations.
    */
   // TODO This has to still do PB marshalling/unmarshalling stuff. Check how/whether we can avoid.
-  @VisibleForTesting // Class is visible so can assert we are short-circuiting when expected.
+  // Class is visible so can assert we are short-circuiting when expected.
   public static class ShortCircuitingClusterConnection extends ConnectionImplementation {
     private final ServerName serverName;
     private final AdminService.BlockingInterface localHostAdmin;
@@ -198,7 +196,6 @@ public final class ConnectionUtils {
    * Setup the connection class, so that it will not depend on master being online. Used for testing
    * @param conf configuration to set
    */
-  @VisibleForTesting
   public static void setupMasterlessConnection(Configuration conf) {
     conf.set(ClusterConnection.HBASE_CLIENT_CONNECTION_IMPL, MasterlessConnection.class.getName());
   }
@@ -220,32 +217,17 @@ public final class ConnectionUtils {
   }
 
   /**
+   * Get a unique key for the rpc stub to the given server.
+   */
+  static String getStubKey(String serviceName, ServerName serverName) {
+    return String.format("%s@%s", serviceName, serverName);
+  }
+
+  /**
    * Return retires + 1. The returned value will be in range [1, Integer.MAX_VALUE].
    */
   static int retries2Attempts(int retries) {
     return Math.max(1, retries == Integer.MAX_VALUE ? Integer.MAX_VALUE : retries + 1);
-  }
-
-  /**
-   * Get a unique key for the rpc stub to the given server.
-   */
-  static String getStubKey(String serviceName, ServerName serverName, boolean hostnameCanChange) {
-    // Sometimes, servers go down and they come back up with the same hostname but a different
-    // IP address. Force a resolution of the rsHostname by trying to instantiate an
-    // InetSocketAddress, and this way we will rightfully get a new stubKey.
-    // Also, include the hostname in the key so as to take care of those cases where the
-    // DNS name is different but IP address remains the same.
-    String hostname = serverName.getHostname();
-    int port = serverName.getPort();
-    if (hostnameCanChange) {
-      try {
-        InetAddress ip = InetAddress.getByName(hostname);
-        return serviceName + "@" + hostname + "-" + ip.getHostAddress() + ":" + port;
-      } catch (UnknownHostException e) {
-        LOG.warn("Can not resolve " + hostname + ", please check your network", e);
-      }
-    }
-    return serviceName + "@" + hostname + ":" + port;
   }
 
   static void checkHasFamilies(Mutation mutation) {

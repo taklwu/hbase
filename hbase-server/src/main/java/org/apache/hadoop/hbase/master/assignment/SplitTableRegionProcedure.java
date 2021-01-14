@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -71,12 +71,11 @@ import org.apache.hadoop.hbase.util.Pair;
 import org.apache.hadoop.hbase.util.Threads;
 import org.apache.hadoop.hbase.wal.WALSplitUtil;
 import org.apache.hadoop.util.ReflectionUtils;
-import org.apache.hbase.thirdparty.com.google.common.util.concurrent.ThreadFactoryBuilder;
 import org.apache.yetus.audience.InterfaceAudience;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import org.apache.hbase.thirdparty.com.google.common.annotations.VisibleForTesting;
+import org.apache.hbase.thirdparty.com.google.common.util.concurrent.ThreadFactoryBuilder;
 
 import org.apache.hadoop.hbase.shaded.protobuf.ProtobufUtil;
 import org.apache.hadoop.hbase.shaded.protobuf.generated.AdminProtos.GetRegionInfoResponse;
@@ -111,7 +110,7 @@ public class SplitTableRegionProcedure
     // we fail-fast on construction. There it skips the split with just a warning.
     checkOnline(env, regionToSplit);
     this.bestSplitRow = splitRow;
-    checkSplittable(env, regionToSplit, bestSplitRow);
+    checkSplittable(env, regionToSplit);
     final TableName table = regionToSplit.getTable();
     final long rid = getDaughterRegionIdTimestamp(regionToSplit);
     this.daughterOneRI = RegionInfoBuilder.newBuilder(table)
@@ -158,12 +157,10 @@ public class SplitTableRegionProcedure
       daughterTwoRI);
   }
 
-  @VisibleForTesting
   public RegionInfo getDaughterOneRI() {
     return daughterOneRI;
   }
 
-  @VisibleForTesting
   public RegionInfo getDaughterTwoRI() {
     return daughterTwoRI;
   }
@@ -176,14 +173,14 @@ public class SplitTableRegionProcedure
    * Check whether the region is splittable
    * @param env MasterProcedureEnv
    * @param regionToSplit parent Region to be split
-   * @param splitRow if splitRow is not specified, will first try to get bestSplitRow from RS
    */
   private void checkSplittable(final MasterProcedureEnv env,
-      final RegionInfo regionToSplit, final byte[] splitRow) throws IOException {
+      final RegionInfo regionToSplit) throws IOException {
     // Ask the remote RS if this region is splittable.
-    // If we get an IOE, report it along w/ the failure so can see why we are not splittable at this time.
+    // If we get an IOE, report it along w/ the failure so can see why we are not splittable at
+    // this time.
     if(regionToSplit.getReplicaId() != RegionInfo.DEFAULT_REPLICA_ID) {
-      throw new IllegalArgumentException ("Can't invoke split on non-default regions directly");
+      throw new IllegalArgumentException("Can't invoke split on non-default regions directly");
     }
     RegionStateNode node =
         env.getAssignmentManager().getRegionStates().getRegionStateNode(getParentRegion());
@@ -229,12 +226,12 @@ public class SplitTableRegionProcedure
 
     if (Bytes.equals(regionToSplit.getStartKey(), bestSplitRow)) {
       throw new DoNotRetryIOException(
-        "Split row is equal to startkey: " + Bytes.toStringBinary(splitRow));
+        "Split row is equal to startkey: " + Bytes.toStringBinary(bestSplitRow));
     }
 
     if (!regionToSplit.containsRow(bestSplitRow)) {
       throw new DoNotRetryIOException("Split row is not inside region key range splitKey:" +
-        Bytes.toStringBinary(splitRow) + " region: " + regionToSplit);
+        Bytes.toStringBinary(bestSplitRow) + " region: " + regionToSplit);
     }
   }
 
@@ -485,7 +482,6 @@ public class SplitTableRegionProcedure
    * Prepare to Split region.
    * @param env MasterProcedureEnv
    */
-  @VisibleForTesting
   public boolean prepareSplitRegion(final MasterProcedureEnv env) throws IOException {
     // Fail if we are taking snapshot for the given table
     if (env.getMasterServices().getSnapshotManager()
@@ -570,8 +566,10 @@ public class SplitTableRegionProcedure
     try {
       env.getMasterServices().getMasterQuotaManager().onRegionSplit(this.getParentRegion());
     } catch (QuotaExceededException e) {
-      env.getMasterServices().getRegionNormalizer().planSkipped(this.getParentRegion(),
-          NormalizationPlan.PlanType.SPLIT);
+      // TODO: why is this here? split requests can be submitted by actors other than the normalizer
+      env.getMasterServices()
+        .getRegionNormalizerManager()
+        .planSkipped(NormalizationPlan.PlanType.SPLIT);
       throw e;
     }
   }
@@ -599,7 +597,6 @@ public class SplitTableRegionProcedure
   /**
    * Create daughter regions
    */
-  @VisibleForTesting
   public void createDaughterRegions(final MasterProcedureEnv env) throws IOException {
     final MasterFileSystem mfs = env.getMasterServices().getMasterFileSystem();
     final Path tabledir = CommonFSUtils.getTableDir(mfs.getRootDir(), getTableName());
@@ -680,7 +677,7 @@ public class SplitTableRegionProcedure
     LOG.info("pid=" + getProcId() + " splitting " + nbFiles + " storefiles, region=" +
         getParentRegion().getShortNameToLog() + ", threads=" + maxThreads);
     final ExecutorService threadPool = Executors.newFixedThreadPool(maxThreads,
-      new ThreadFactoryBuilder().setNameFormat("StoreFileSplitter-pool-%d")
+      new ThreadFactoryBuilder().setNameFormat("StoreFileSplitter-pool-%d").setDaemon(true)
         .setUncaughtExceptionHandler(Threads.LOGGING_EXCEPTION_HANDLER).build());
     final List<Future<Pair<Path, Path>>> futures = new ArrayList<Future<Pair<Path, Path>>>(nbFiles);
 

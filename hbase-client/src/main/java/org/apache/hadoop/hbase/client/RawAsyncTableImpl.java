@@ -461,8 +461,9 @@ class RawAsyncTableImpl implements AsyncTable<AdvancedScanResultConsumer> {
     if (checkAndMutate.getAction() instanceof Put) {
       validatePut((Put) checkAndMutate.getAction(), conn.connConf.getMaxKeyValueSize());
     }
-    if (checkAndMutate.getAction() instanceof Put ||
-      checkAndMutate.getAction() instanceof Delete) {
+    if (checkAndMutate.getAction() instanceof Put || checkAndMutate.getAction() instanceof Delete
+      || checkAndMutate.getAction() instanceof Increment
+      || checkAndMutate.getAction() instanceof Append) {
       Mutation mutation = (Mutation) checkAndMutate.getAction();
       if (mutation instanceof Put) {
         validatePut((Put) mutation, conn.connConf.getMaxKeyValueSize());
@@ -475,7 +476,7 @@ class RawAsyncTableImpl implements AsyncTable<AdvancedScanResultConsumer> {
             checkAndMutate.getFamily(), checkAndMutate.getQualifier(),
             checkAndMutate.getCompareOp(), checkAndMutate.getValue(), checkAndMutate.getFilter(),
             checkAndMutate.getTimeRange(), m),
-          (c, r) -> ResponseConverter.getCheckAndMutateResult(r)))
+          (c, r) -> ResponseConverter.getCheckAndMutateResult(r, c.cellScanner())))
         .call();
     } else if (checkAndMutate.getAction() instanceof RowMutations) {
       RowMutations rowMutations = (RowMutations) checkAndMutate.getAction();
@@ -550,17 +551,17 @@ class RawAsyncTableImpl implements AsyncTable<AdvancedScanResultConsumer> {
   }
 
   @Override
-  public CompletableFuture<Void> mutateRow(RowMutations mutation) {
-    return this.<Void> newCaller(mutation.getRow(), mutation.getMaxPriority(), writeRpcTimeoutNs)
-      .action((controller, loc, stub) ->
-        this.<Result, Void> mutateRow(controller, loc, stub, mutation,
+  public CompletableFuture<Result> mutateRow(RowMutations mutations) {
+    return this.<Result> newCaller(mutations.getRow(), mutations.getMaxPriority(),
+      writeRpcTimeoutNs).action((controller, loc, stub) ->
+        this.<Result, Result> mutateRow(controller, loc, stub, mutations,
           (rn, rm) -> {
             RegionAction.Builder regionMutationBuilder = RequestConverter
               .buildRegionAction(rn, rm);
             regionMutationBuilder.setAtomic(true);
             return MultiRequest.newBuilder().addRegionAction(regionMutationBuilder.build())
               .build();
-          }, resp -> null))
+          }, resp -> resp))
       .call();
   }
 

@@ -58,12 +58,12 @@ import org.apache.hadoop.hbase.client.Connection;
 import org.apache.hadoop.hbase.client.ConnectionFactory;
 import org.apache.hadoop.hbase.client.DoNotRetryRegionException;
 import org.apache.hadoop.hbase.client.RegionInfo;
+import org.apache.hadoop.hbase.master.RackManager;
 import org.apache.hadoop.hbase.master.assignment.AssignmentManager;
 import org.apache.yetus.audience.InterfaceAudience;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import org.apache.hbase.thirdparty.com.google.common.annotations.VisibleForTesting;
 import org.apache.hbase.thirdparty.org.apache.commons.cli.CommandLine;
 import org.apache.hbase.thirdparty.org.apache.commons.collections4.CollectionUtils;
 
@@ -84,6 +84,7 @@ public class RegionMover extends AbstractHBaseTool implements Closeable {
   public static final int DEFAULT_MOVE_RETRIES_MAX = 5;
   public static final int DEFAULT_MOVE_WAIT_MAX = 60;
   public static final int DEFAULT_SERVERSTART_WAIT_MAX = 180;
+  private final RackManager rackManager;
 
   private static final Logger LOG = LoggerFactory.getLogger(RegionMover.class);
 
@@ -112,15 +113,22 @@ public class RegionMover extends AbstractHBaseTool implements Closeable {
     setConf(builder.conf);
     this.conn = ConnectionFactory.createConnection(conf);
     this.admin = conn.getAdmin();
+    // Only while running unit tests, builder.rackManager will not be null for the convenience of
+    // providing custom rackManager. Otherwise for regular workflow/user triggered action,
+    // builder.rackManager is supposed to be null. Hence, setter of builder.rackManager is
+    // provided as @InterfaceAudience.Private and it is commented that this is just
+    // to be used by unit test.
+    rackManager = builder.rackManager == null ? new RackManager(conf) : builder.rackManager;
   }
 
   private RegionMover() {
+    rackManager = new RackManager(conf);
   }
 
   @Override
   public void close() {
-    IOUtils.closeQuietly(this.admin);
-    IOUtils.closeQuietly(this.conn);
+    IOUtils.closeQuietly(this.admin, e -> LOG.warn("failed to close admin", e));
+    IOUtils.closeQuietly(this.conn, e -> LOG.warn("failed to close conn", e));
   }
 
   /**
@@ -138,9 +146,10 @@ public class RegionMover extends AbstractHBaseTool implements Closeable {
     private String excludeFile = null;
     private String designatedFile = null;
     private String defaultDir = System.getProperty("java.io.tmpdir");
-    @VisibleForTesting
+    @InterfaceAudience.Private
     final int port;
     private final Configuration conf;
+    private RackManager rackManager;
 
     public RegionMoverBuilder(String hostname) {
       this(hostname, createConf());
@@ -244,6 +253,19 @@ public class RegionMover extends AbstractHBaseTool implements Closeable {
     }
 
     /**
+     * Set specific rackManager implementation.
+     * This setter method is for testing purpose only.
+     *
+     * @param rackManager rackManager impl
+     * @return RegionMoverBuilder object
+     */
+    @InterfaceAudience.Private
+    public RegionMoverBuilder rackManager(RackManager rackManager) {
+      this.rackManager = rackManager;
+      return this;
+    }
+
+    /**
      * This method builds the appropriate RegionMover object which can then be used to load/unload
      * using load and unload methods
      * @return RegionMover object
@@ -326,9 +348,31 @@ public class RegionMover extends AbstractHBaseTool implements Closeable {
    * server,hence it is best effort.We do not unload regions to hostnames given in
    * {@link #excludeFile}. If designatedFile is present with some contents, we will unload regions
    * to hostnames provided in {@link #designatedFile}
+   *
    * @return true if unloading succeeded, false otherwise
    */
   public boolean unload() throws InterruptedException, ExecutionException, TimeoutException {
+    return unloadRegions(false);
+  }
+
+  /**
+   * Unload regions from given {@link #hostname} using ack/noAck mode and {@link #maxthreads}.In
+   * noAck mode we do not make sure that region is successfully online on the target region
+   * server,hence it is best effort.We do not unload regions to hostnames given in
+   * {@link #excludeFile}. If designatedFile is present with some contents, we will unload regions
+   * to hostnames provided in {@link #designatedFile}.
+   * While unloading regions, destination RegionServers are selected from different rack i.e
+   * regions should not move to any RegionServers that belong to same rack as source RegionServer.
+   *
+   * @return true if unloading succeeded, false otherwise
+   */
+  public boolean unloadFromRack()
+      throws InterruptedException, ExecutionException, TimeoutException {
+    return unloadRegions(true);
+  }
+
+  private boolean unloadRegions(boolean unloadFromRack) throws InterruptedException,
+      ExecutionException, TimeoutException {
     deleteFile(this.filename);
     ExecutorService unloadPool = Executors.newFixedThreadPool(1);
     Future<Boolean> unloadTask = unloadPool.submit(() -> {
@@ -350,6 +394,23 @@ public class RegionMover extends AbstractHBaseTool implements Closeable {
 
         // Remove RS present in the exclude file
         includeExcludeRegionServers(excludeFile, regionServers, false);
+
+        if (unloadFromRack) {
+          // remove regionServers that belong to same rack (as source host) since the goal is to
+          // unload regions from source regionServer to destination regionServers
+          // that belong to different rack only.
+          String sourceRack = rackManager.getRack(server);
+          List<String> racks = rackManager.getRack(regionServers);
+          Iterator<ServerName> iterator = regionServers.iterator();
+          int i = 0;
+          while (iterator.hasNext()) {
+            iterator.next();
+            if (racks.size() > i && racks.get(i) != null && racks.get(i).equals(sourceRack)) {
+              iterator.remove();
+            }
+            i++;
+          }
+        }
 
         // Remove decommissioned RS
         Set<ServerName> decommissionedRS = new HashSet<>(admin.listDecommissionedRegionServers());
@@ -629,7 +690,7 @@ public class RegionMover extends AbstractHBaseTool implements Closeable {
   private ServerName stripServer(List<ServerName> regionServers, String hostname, int port) {
     for (Iterator<ServerName> iter = regionServers.iterator(); iter.hasNext();) {
       ServerName server = iter.next();
-      if (server.getAddress().getHostname().equalsIgnoreCase(hostname) &&
+      if (server.getAddress().getHostName().equalsIgnoreCase(hostname) &&
         server.getAddress().getPort() == port) {
         iter.remove();
         return server;
@@ -641,7 +702,7 @@ public class RegionMover extends AbstractHBaseTool implements Closeable {
   @Override
   protected void addOptions() {
     this.addRequiredOptWithArg("r", "regionserverhost", "region server <hostname>|<hostname:port>");
-    this.addRequiredOptWithArg("o", "operation", "Expected: load/unload");
+    this.addRequiredOptWithArg("o", "operation", "Expected: load/unload/unload_from_rack");
     this.addOptWithArg("m", "maxthreads",
         "Define the maximum number of threads to use to unload and reload the regions");
     this.addOptWithArg("x", "excludefile",
@@ -694,6 +755,8 @@ public class RegionMover extends AbstractHBaseTool implements Closeable {
         success = rm.load();
       } else if (loadUnload.equalsIgnoreCase("unload")) {
         success = rm.unload();
+      } else if (loadUnload.equalsIgnoreCase("unload_from_rack")) {
+        success = rm.unloadFromRack();
       } else {
         printUsage();
         success = false;

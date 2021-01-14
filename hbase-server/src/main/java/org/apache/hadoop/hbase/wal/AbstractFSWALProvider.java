@@ -21,6 +21,7 @@ import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -31,6 +32,7 @@ import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FSDataInputStream;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.hbase.Abortable;
 import org.apache.hadoop.hbase.FailedCloseWALAfterInitializedErrorException;
 import org.apache.hadoop.hbase.HConstants;
 import org.apache.hadoop.hbase.ServerName;
@@ -45,7 +47,7 @@ import org.apache.yetus.audience.InterfaceAudience;
 import org.apache.yetus.audience.InterfaceStability;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.apache.hbase.thirdparty.com.google.common.annotations.VisibleForTesting;
+
 import org.apache.hbase.thirdparty.com.google.common.collect.Lists;
 
 /**
@@ -87,6 +89,7 @@ public abstract class AbstractFSWALProvider<T extends AbstractFSWAL<?>> implemen
   protected AtomicBoolean initialized = new AtomicBoolean(false);
   // for default wal provider, logPrefix won't change
   protected String logPrefix;
+  protected Abortable abortable;
 
   /**
    * We use walCreateLock to prevent wal recreation in different threads, and also prevent getWALs
@@ -101,7 +104,8 @@ public abstract class AbstractFSWALProvider<T extends AbstractFSWAL<?>> implemen
    *          null
    */
   @Override
-  public void init(WALFactory factory, Configuration conf, String providerId) throws IOException {
+  public void init(WALFactory factory, Configuration conf, String providerId, Abortable abortable)
+      throws IOException {
     if (!initialized.compareAndSet(false, true)) {
       throw new IllegalStateException("WALProvider.init should only be called once.");
     }
@@ -118,6 +122,7 @@ public abstract class AbstractFSWALProvider<T extends AbstractFSWAL<?>> implemen
       }
     }
     logPrefix = sb.toString();
+    this.abortable = abortable;
     doInit(conf);
   }
 
@@ -215,7 +220,6 @@ public abstract class AbstractFSWALProvider<T extends AbstractFSWAL<?>> implemen
   /**
    * returns the number of rolled WAL files.
    */
-  @VisibleForTesting
   public static int getNumRolledLogFiles(WAL wal) {
     return ((AbstractFSWAL<?>) wal).getNumRolledLogFiles();
   }
@@ -223,7 +227,6 @@ public abstract class AbstractFSWALProvider<T extends AbstractFSWAL<?>> implemen
   /**
    * returns the size of rolled WAL files.
    */
-  @VisibleForTesting
   public static long getLogFileSize(WAL wal) {
     return ((AbstractFSWAL<?>) wal).getLogFileSize();
   }
@@ -231,7 +234,6 @@ public abstract class AbstractFSWALProvider<T extends AbstractFSWAL<?>> implemen
   /**
    * return the current filename from the current wal.
    */
-  @VisibleForTesting
   public static Path getCurrentFileName(final WAL wal) {
     return ((AbstractFSWAL<?>) wal).getCurrentFileName();
   }
@@ -239,7 +241,6 @@ public abstract class AbstractFSWALProvider<T extends AbstractFSWAL<?>> implemen
   /**
    * request a log roll, but don't actually do it.
    */
-  @VisibleForTesting
   static void requestLogRoll(final WAL wal) {
     ((AbstractFSWAL<?>) wal).requestLogRoll();
   }
@@ -247,7 +248,6 @@ public abstract class AbstractFSWALProvider<T extends AbstractFSWAL<?>> implemen
   // should be package private; more visible for use in AbstractFSWAL
   public static final String WAL_FILE_NAME_DELIMITER = ".";
   /** The hbase:meta region's WAL filename extension */
-  @VisibleForTesting
   public static final String META_WAL_PROVIDER_ID = ".meta";
   static final String DEFAULT_PROVIDER_ID = "default";
 
@@ -261,7 +261,6 @@ public abstract class AbstractFSWALProvider<T extends AbstractFSWAL<?>> implemen
    * @param wal must not be null
    * @return the file number that is part of the WAL file name
    */
-  @VisibleForTesting
   public static long extractFileNumFromWAL(final WAL wal) {
     final Path walName = ((AbstractFSWAL<?>) wal).getCurrentFileName();
     if (walName == null) {
@@ -418,6 +417,31 @@ public abstract class AbstractFSWALProvider<T extends AbstractFSWAL<?>> implemen
   public static boolean isMetaFile(String p) {
     return p != null && p.endsWith(META_WAL_PROVIDER_ID);
   }
+
+  /**
+   * Comparator used to compare WAL files together based on their start time.
+   * Just compares start times and nothing else.
+   */
+  public static class WALStartTimeComparator implements Comparator<Path> {
+    @Override
+    public int compare(Path o1, Path o2) {
+      return Long.compare(getTS(o1), getTS(o2));
+    }
+
+    /**
+     * Split a path to get the start time
+     * For example: 10.20.20.171%3A60020.1277499063250
+     * Could also be a meta WAL which adds a '.meta' suffix or a synchronous replication WAL
+     * which adds a '.syncrep' suffix. Check.
+     * @param p path to split
+     * @return start time
+     */
+    private static long getTS(Path p) {
+      return WAL.getTimestamp(p.getName());
+    }
+  }
+
+
 
   public static boolean isArchivedLogFile(Path p) {
     String oldLog = Path.SEPARATOR + HConstants.HREGION_OLDLOGDIR_NAME + Path.SEPARATOR;

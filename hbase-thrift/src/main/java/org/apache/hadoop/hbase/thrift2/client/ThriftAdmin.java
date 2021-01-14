@@ -1,5 +1,4 @@
-/**
- *
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -45,9 +44,12 @@ import org.apache.hadoop.hbase.client.ColumnFamilyDescriptor;
 import org.apache.hadoop.hbase.client.CompactType;
 import org.apache.hadoop.hbase.client.CompactionState;
 import org.apache.hadoop.hbase.client.Connection;
+import org.apache.hadoop.hbase.client.LogEntry;
 import org.apache.hadoop.hbase.client.LogQueryFilter;
+import org.apache.hadoop.hbase.client.NormalizeTableFilterParams;
 import org.apache.hadoop.hbase.client.OnlineLogRecord;
 import org.apache.hadoop.hbase.client.RegionInfo;
+import org.apache.hadoop.hbase.client.ServerType;
 import org.apache.hadoop.hbase.client.SnapshotDescription;
 import org.apache.hadoop.hbase.client.SnapshotType;
 import org.apache.hadoop.hbase.client.TableDescriptor;
@@ -759,9 +761,8 @@ public class ThriftAdmin implements Admin {
   }
 
   @Override
-  public void unassign(byte[] regionName, boolean force) {
+  public void unassign(byte[] regionName) {
     throw new NotImplementedException("unassign not supported in ThriftAdmin");
-
   }
 
   @Override
@@ -796,7 +797,7 @@ public class ThriftAdmin implements Admin {
   }
 
   @Override
-  public boolean normalize() {
+  public boolean normalize(NormalizeTableFilterParams ntfp) {
     throw new NotImplementedException("normalize not supported in ThriftAdmin");
   }
 
@@ -1438,4 +1439,10 @@ public class ThriftAdmin implements Admin {
     return splitRegionAsync(regionName, null);
   }
 
+  @Override
+  public List<LogEntry> getLogEntries(Set<ServerName> serverNames, String logType,
+      ServerType serverType, int limit, Map<String, Object> filterParams)
+      throws IOException {
+    throw new NotImplementedException("getLogEntries not supported in ThriftAdmin");
+  }
 }

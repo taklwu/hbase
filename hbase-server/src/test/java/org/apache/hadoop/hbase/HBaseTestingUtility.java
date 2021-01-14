@@ -111,7 +111,7 @@ import org.apache.hadoop.hbase.regionserver.HRegion;
 import org.apache.hadoop.hbase.regionserver.HRegionServer;
 import org.apache.hadoop.hbase.regionserver.HStore;
 import org.apache.hadoop.hbase.regionserver.InternalScanner;
-import org.apache.hadoop.hbase.regionserver.MemStoreLABImpl;
+import org.apache.hadoop.hbase.regionserver.MemStoreLAB;
 import org.apache.hadoop.hbase.regionserver.Region;
 import org.apache.hadoop.hbase.regionserver.RegionScanner;
 import org.apache.hadoop.hbase.regionserver.RegionServerServices;
@@ -119,6 +119,7 @@ import org.apache.hadoop.hbase.regionserver.RegionServerStoppedException;
 import org.apache.hadoop.hbase.security.HBaseKerberosUtils;
 import org.apache.hadoop.hbase.security.User;
 import org.apache.hadoop.hbase.security.visibility.VisibilityLabelsCache;
+import org.apache.hadoop.hbase.shaded.protobuf.ProtobufUtil;
 import org.apache.hadoop.hbase.trace.TraceUtil;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.hbase.util.CommonFSUtils;
@@ -145,14 +146,11 @@ import org.apache.hadoop.mapred.JobConf;
 import org.apache.hadoop.mapred.MiniMRCluster;
 import org.apache.hadoop.mapred.TaskLog;
 import org.apache.hadoop.minikdc.MiniKdc;
+import org.apache.hbase.thirdparty.com.google.common.io.Closeables;
 import org.apache.yetus.audience.InterfaceAudience;
 import org.apache.zookeeper.WatchedEvent;
 import org.apache.zookeeper.ZooKeeper;
 import org.apache.zookeeper.ZooKeeper.States;
-
-import org.apache.hbase.thirdparty.com.google.common.annotations.VisibleForTesting;
-import org.apache.hbase.thirdparty.com.google.common.io.Closeables;
-import org.apache.hadoop.hbase.shaded.protobuf.ProtobufUtil;
 
 /**
  * Facility for testing HBase. Replacement for
@@ -505,7 +503,7 @@ public class HBaseTestingUtility extends HBaseZKTestingUtility {
    * @deprecated Since 2.3.0. No one should be using this internal. Used in testing only.
    */
   @Deprecated
-  @VisibleForTesting
+  @InterfaceAudience.Private
   public TableDescriptorBuilder getMetaTableDescriptorBuilder() {
     try {
       return FSTableDescriptors.createMetaTableDescriptorBuilder(conf);
@@ -1949,12 +1947,10 @@ public class HBaseTestingUtility extends HBaseZKTestingUtility {
    * Set the number of Region replicas.
    */
   public static void setReplicas(Admin admin, TableName table, int replicaCount)
-      throws IOException, InterruptedException {
-    admin.disableTable(table);
-    HTableDescriptor desc = new HTableDescriptor(admin.getTableDescriptor(table));
-    desc.setRegionReplication(replicaCount);
-    admin.modifyTable(desc.getTableName(), desc);
-    admin.enableTable(table);
+    throws IOException, InterruptedException {
+    TableDescriptor desc = TableDescriptorBuilder.newBuilder(admin.getDescriptor(table))
+      .setRegionReplication(replicaCount).build();
+    admin.modifyTable(desc);
   }
 
   /**
@@ -2098,14 +2094,29 @@ public class HBaseTestingUtility extends HBaseZKTestingUtility {
   /**
    * Create an HRegion that writes to the local tmp dirs with specified wal
    * @param info regioninfo
+   * @param conf configuration
    * @param desc table descriptor
    * @param wal wal for this region.
    * @return created hregion
    * @throws IOException
    */
-  public HRegion createLocalHRegion(RegionInfo info, TableDescriptor desc, WAL wal)
-      throws IOException {
-    return HRegion.createHRegion(info, getDataTestDir(), getConfiguration(), desc, wal);
+  public HRegion createLocalHRegion(RegionInfo info, Configuration conf, TableDescriptor desc,
+      WAL wal) throws IOException {
+    return HRegion.createHRegion(info, getDataTestDir(), conf, desc, wal);
+  }
+
+  /**
+   * Create an HRegion that writes to the local tmp dirs with specified wal
+   * @param info regioninfo
+   * @param info configuration
+   * @param desc table descriptor
+   * @param wal wal for this region.
+   * @return created hregion
+   * @throws IOException
+   */
+  public HRegion createLocalHRegion(HRegionInfo info, Configuration conf, HTableDescriptor desc,
+      WAL wal) throws IOException {
+    return HRegion.createHRegion(info, getDataTestDir(), conf, desc, wal);
   }
 
   /**
@@ -2129,9 +2140,8 @@ public class HBaseTestingUtility extends HBaseZKTestingUtility {
   public HRegion createLocalHRegion(byte[] tableName, byte[] startKey, byte[] stopKey,
       String callingMethod, Configuration conf, boolean isReadOnly, Durability durability,
       WAL wal, byte[]... families) throws IOException {
-    return this
-        .createLocalHRegion(TableName.valueOf(tableName), startKey, stopKey, isReadOnly, durability,
-            wal, families);
+    return createLocalHRegion(TableName.valueOf(tableName), startKey, stopKey, conf, isReadOnly,
+      durability, wal, families);
   }
 
   /**
@@ -2145,13 +2155,14 @@ public class HBaseTestingUtility extends HBaseZKTestingUtility {
    * @throws IOException
    */
   public HRegion createLocalHRegion(TableName tableName, byte[] startKey, byte[] stopKey,
-      boolean isReadOnly, Durability durability, WAL wal, byte[]... families) throws IOException {
-    return createLocalHRegionWithInMemoryFlags(tableName,startKey, stopKey, isReadOnly,
+      Configuration conf, boolean isReadOnly, Durability durability, WAL wal, byte[]... families)
+      throws IOException {
+    return createLocalHRegionWithInMemoryFlags(tableName,startKey, stopKey, conf, isReadOnly,
         durability, wal, null, families);
   }
 
   public HRegion createLocalHRegionWithInMemoryFlags(TableName tableName, byte[] startKey,
-      byte[] stopKey,
+      byte[] stopKey, Configuration conf,
       boolean isReadOnly, Durability durability, WAL wal, boolean[] compactedMemStore,
       byte[]... families)
       throws IOException {
@@ -2173,7 +2184,7 @@ public class HBaseTestingUtility extends HBaseZKTestingUtility {
     }
     htd.setDurability(durability);
     HRegionInfo info = new HRegionInfo(htd.getTableName(), startKey, stopKey, false);
-    return createLocalHRegion(info, htd, wal);
+    return createLocalHRegion(info, conf, htd, wal);
   }
 
   //
@@ -2651,7 +2662,7 @@ public class HBaseTestingUtility extends HBaseZKTestingUtility {
           .setStartKey(startKeys[i])
           .setEndKey(startKeys[j])
           .build();
-      MetaTableAccessor.addRegionToMeta(getConnection(), hri);
+      MetaTableAccessor.addRegionsToMeta(getConnection(), Collections.singletonList(hri), 1);
       newRegions.add(hri);
     }
 
@@ -2713,7 +2724,8 @@ public class HBaseTestingUtility extends HBaseZKTestingUtility {
   public static HRegion createRegionAndWAL(final RegionInfo info, final Path rootDir,
       final Configuration conf, final TableDescriptor htd, boolean initialize)
       throws IOException {
-    ChunkCreator.initialize(MemStoreLABImpl.CHUNK_SIZE_DEFAULT, false, 0, 0, 0, null);
+    ChunkCreator.initialize(MemStoreLAB.CHUNK_SIZE_DEFAULT, false, 0, 0,
+      0, null, MemStoreLAB.INDEX_CHUNK_SIZE_PERCENTAGE_DEFAULT);
     WAL wal = createWal(conf, rootDir, info);
     return HRegion.createHRegion(info, rootDir, conf, htd, wal, initialize);
   }

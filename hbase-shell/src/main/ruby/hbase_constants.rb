@@ -69,6 +69,7 @@ module HBaseConstants
   POLICY = 'POLICY'.freeze
   RAW = 'RAW'.freeze
   READ_TYPE = 'READ_TYPE'.freeze
+  REGEX = 'REGEX'.freeze
   REGIONSERVER = 'REGIONSERVER'.freeze
   REGION_REPLICATION = 'REGION_REPLICATION'.freeze
   REGION_REPLICA_ID = 'REGION_REPLICA_ID'.freeze
@@ -87,6 +88,8 @@ module HBaseConstants
   STOPROW = 'STOPROW'.freeze
   TABLE = 'TABLE'.freeze
   TABLE_CFS = 'TABLE_CFS'.freeze
+  TABLE_NAME = 'TABLE_NAME'.freeze
+  TABLE_NAMES = 'TABLE_NAMES'.freeze
   TIMERANGE = 'TIMERANGE'.freeze
   TIMESTAMP = 'TIMESTAMP'.freeze
   TYPE = 'TYPE'.freeze
@@ -114,7 +117,7 @@ module HBaseConstants
   promote_constants(org.apache.hadoop.hbase.HTableDescriptor.constants)
 end
 
-# Include classes definition
+# Ensure that hbase class definitions are imported
 require 'hbase/hbase'
 require 'hbase/admin'
 require 'hbase/taskmonitor'
@@ -124,5 +127,3 @@ require 'hbase/replication_admin'
 require 'hbase/security'
 require 'hbase/visibility_labels'
 require 'hbase/rsgroup_admin'
-
-include HBaseQuotasConstants

@@ -72,7 +72,7 @@ public class TestMasterRegionWALCleaner extends MasterRegionTestBase {
       public boolean isStopped() {
         return stopped;
       }
-    }, conf, fs, globalWALArchiveDir, cleanerPool);
+    }, conf, fs, globalWALArchiveDir, cleanerPool, null);
     choreService.scheduleChore(logCleaner);
   }
 
@@ -88,11 +88,11 @@ public class TestMasterRegionWALCleaner extends MasterRegionTestBase {
     region.requestRollAll();
     region.waitUntilWalRollFinished();
     // should have one
-    FileStatus[] files = fs.listStatus(globalWALArchiveDir);
+    FileStatus[] files = fs.listStatus(globalWALArchiveDir);  
     assertEquals(1, files.length);
-    Thread.sleep(2000);
-    // should still be there
-    assertTrue(fs.exists(files[0].getPath()));
+    Thread.sleep(2000); 
+    // should still be there  
+    assertTrue(fs.exists(files[0].getPath()));  
     Thread.sleep(6000);
     // should have been cleaned
     assertEquals(0, fs.listStatus(globalWALArchiveDir).length);

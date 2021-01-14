@@ -988,6 +988,17 @@ public final class HConstants {
   public static final int DEFAULT_HBASE_RPC_SHORTOPERATION_TIMEOUT = 10000;
 
   /**
+   * Retry pause time for short operation RPC
+   */
+  public static final String HBASE_RPC_SHORTOPERATION_RETRY_PAUSE_TIME =
+      "hbase.rpc.shortoperation.retry.pause.time";
+
+  /**
+   * Default value of {@link #HBASE_RPC_SHORTOPERATION_RETRY_PAUSE_TIME}
+   */
+  public static final long DEFAULT_HBASE_RPC_SHORTOPERATION_RETRY_PAUSE_TIME = 1000;
+
+  /**
    * Value indicating the server name was saved with no sequence number.
    */
   public static final long NO_SEQNUM = -1;
@@ -1165,7 +1176,20 @@ public final class HConstants {
   /** Conf key for enabling meta replication */
   public static final String USE_META_REPLICAS = "hbase.meta.replicas.use";
   public static final boolean DEFAULT_USE_META_REPLICAS = false;
+
+  /**
+   * @deprecated Since 2.4.0, will be removed in 4.0.0. Please change the meta replicas number by
+   *             altering meta table, i.e, set a new 'region replication' number and call
+   *             modifyTable.
+   */
+  @Deprecated
   public static final String META_REPLICAS_NUM = "hbase.meta.replica.count";
+  /**
+   * @deprecated Since 2.4.0, will be removed in 4.0.0. Please change the meta replicas number by
+   *             altering meta table, i.e, set a new 'region replication' number and call
+   *             modifyTable.
+   */
+  @Deprecated
   public static final int DEFAULT_META_REPLICA_NUM = 1;
 
   /**
@@ -1405,9 +1429,7 @@ public final class HConstants {
   public static final String BUCKET_CACHE_IOENGINE_KEY = "hbase.bucketcache.ioengine";
 
   /**
-   * When using bucket cache, this is a float that EITHER represents a percentage of total heap
-   * memory size to give to the cache (if &lt; 1.0) OR, it is the capacity in
-   * megabytes of the cache.
+   * When using bucket cache, it is the capacity in megabytes of the cache.
    */
   public static final String BUCKET_CACHE_SIZE_KEY = "hbase.bucketcache.size";
 

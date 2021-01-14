@@ -21,7 +21,6 @@ import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.fail;
-
 import java.io.Closeable;
 import java.io.IOException;
 import java.util.Arrays;
@@ -71,6 +70,7 @@ import org.apache.hadoop.hbase.wal.WALEdit;
 import org.apache.hadoop.hbase.zookeeper.MiniZooKeeperCluster;
 import org.apache.hadoop.hbase.zookeeper.ZKWatcher;
 import org.junit.After;
+import org.junit.Assert;
 import org.junit.Before;
 import org.junit.ClassRule;
 import org.junit.Test;
@@ -198,8 +198,8 @@ public class TestMasterReplication {
       // Load 100 rows for each hfile range in cluster '0' and validate whether its been replicated
       // to cluster '1'.
       byte[][][] hfileRanges =
-          new byte[][][] { new byte[][] { Bytes.toBytes("aaaa"), Bytes.toBytes("cccc") },
-              new byte[][] { Bytes.toBytes("ddd"), Bytes.toBytes("fff") }, };
+        new byte[][][] { new byte[][] { Bytes.toBytes("aaaa"), Bytes.toBytes("cccc") },
+          new byte[][] { Bytes.toBytes("ddd"), Bytes.toBytes("fff") }, };
       int numOfRows = 100;
       int[] expectedCounts =
           new int[] { hfileRanges.length * numOfRows, hfileRanges.length * numOfRows };
@@ -210,10 +210,10 @@ public class TestMasterReplication {
       // Load 200 rows for each hfile range in cluster '1' and validate whether its been replicated
       // to cluster '0'.
       hfileRanges = new byte[][][] { new byte[][] { Bytes.toBytes("gggg"), Bytes.toBytes("iiii") },
-          new byte[][] { Bytes.toBytes("jjj"), Bytes.toBytes("lll") }, };
+        new byte[][] { Bytes.toBytes("jjj"), Bytes.toBytes("lll") }, };
       numOfRows = 200;
       int[] newExpectedCounts = new int[] { hfileRanges.length * numOfRows + expectedCounts[0],
-          hfileRanges.length * numOfRows + expectedCounts[1] };
+        hfileRanges.length * numOfRows + expectedCounts[1] };
 
       loadAndValidateHFileReplication("testHFileCyclicReplication_10", 1, new int[] { 0 }, row,
         famName, htables, hfileRanges, numOfRows, newExpectedCounts, true);
@@ -312,12 +312,12 @@ public class TestMasterReplication {
       // Load 100 rows for each hfile range in cluster '0' and validate whether its been replicated
       // to cluster '1'.
       byte[][][] hfileRanges =
-          new byte[][][] { new byte[][] { Bytes.toBytes("mmmm"), Bytes.toBytes("oooo") },
-              new byte[][] { Bytes.toBytes("ppp"), Bytes.toBytes("rrr") }, };
+        new byte[][][] { new byte[][] { Bytes.toBytes("mmmm"), Bytes.toBytes("oooo") },
+          new byte[][] { Bytes.toBytes("ppp"), Bytes.toBytes("rrr") }, };
       int numOfRows = 100;
 
       int[] expectedCounts =
-          new int[] { hfileRanges.length * numOfRows, hfileRanges.length * numOfRows };
+        new int[] { hfileRanges.length * numOfRows, hfileRanges.length * numOfRows };
 
       loadAndValidateHFileReplication("testHFileCyclicReplication_0", 0, new int[] { 1 }, row,
         famName, htables, hfileRanges, numOfRows, expectedCounts, true);
@@ -333,11 +333,11 @@ public class TestMasterReplication {
       // Load 200 rows for each hfile range in cluster '0' and validate whether its been replicated
       // to cluster '1' and '2'. Previous data should be replicated to cluster '2'.
       hfileRanges = new byte[][][] { new byte[][] { Bytes.toBytes("ssss"), Bytes.toBytes("uuuu") },
-          new byte[][] { Bytes.toBytes("vvv"), Bytes.toBytes("xxx") }, };
+        new byte[][] { Bytes.toBytes("vvv"), Bytes.toBytes("xxx") }, };
       numOfRows = 200;
 
       int[] newExpectedCounts = new int[] { hfileRanges.length * numOfRows + expectedCounts[0],
-          hfileRanges.length * numOfRows + expectedCounts[1], hfileRanges.length * numOfRows };
+        hfileRanges.length * numOfRows + expectedCounts[1], hfileRanges.length * numOfRows };
 
       loadAndValidateHFileReplication("testHFileCyclicReplication_1", 0, new int[] { 1, 2 }, row,
         famName, htables, hfileRanges, numOfRows, newExpectedCounts, true);
@@ -368,8 +368,8 @@ public class TestMasterReplication {
 
       // Load 100 rows for each hfile range in cluster '0' for table CF 'f'
       byte[][][] hfileRanges =
-          new byte[][][] { new byte[][] { Bytes.toBytes("aaaa"), Bytes.toBytes("cccc") },
-              new byte[][] { Bytes.toBytes("ddd"), Bytes.toBytes("fff") }, };
+        new byte[][][] { new byte[][] { Bytes.toBytes("aaaa"), Bytes.toBytes("cccc") },
+          new byte[][] { Bytes.toBytes("ddd"), Bytes.toBytes("fff") }, };
       int numOfRows = 100;
       int[] expectedCounts =
           new int[] { hfileRanges.length * numOfRows, hfileRanges.length * numOfRows };
@@ -379,11 +379,11 @@ public class TestMasterReplication {
 
       // Load 100 rows for each hfile range in cluster '0' for table CF 'f1'
       hfileRanges = new byte[][][] { new byte[][] { Bytes.toBytes("gggg"), Bytes.toBytes("iiii") },
-          new byte[][] { Bytes.toBytes("jjj"), Bytes.toBytes("lll") }, };
+        new byte[][] { Bytes.toBytes("jjj"), Bytes.toBytes("lll") }, };
       numOfRows = 100;
 
       int[] newExpectedCounts =
-          new int[] { hfileRanges.length * numOfRows + expectedCounts[0], expectedCounts[1] };
+        new int[] { hfileRanges.length * numOfRows + expectedCounts[0], expectedCounts[1] };
 
       loadAndValidateHFileReplication("load_f1", 0, new int[] { 1 }, row, famName1, htables,
         hfileRanges, numOfRows, newExpectedCounts, false);
@@ -438,6 +438,139 @@ public class TestMasterReplication {
     } finally {
       close(htables);
       shutDownMiniClusters();
+    }
+  }
+
+  /**
+   * Tests that base replication peer configs are applied on peer creation
+   * and the configs are overriden if updated as part of updateReplicationPeerConfig()
+   *
+   */
+  @Test
+  public void testBasePeerConfigsForReplicationPeer()
+    throws Exception {
+    LOG.info("testBasePeerConfigsForPeerMutations");
+    String firstCustomPeerConfigKey = "hbase.xxx.custom_config";
+    String firstCustomPeerConfigValue = "test";
+    String firstCustomPeerConfigUpdatedValue = "test_updated";
+
+    String secondCustomPeerConfigKey = "hbase.xxx.custom_second_config";
+    String secondCustomPeerConfigValue = "testSecond";
+    String secondCustomPeerConfigUpdatedValue = "testSecondUpdated";
+    try {
+      baseConfiguration.set(ReplicationPeerConfigUtil.HBASE_REPLICATION_PEER_BASE_CONFIG,
+        firstCustomPeerConfigKey.concat("=").concat(firstCustomPeerConfigValue));
+      startMiniClusters(2);
+      addPeer("1", 0, 1);
+      addPeer("2", 0, 1);
+      Admin admin = utilities[0].getAdmin();
+
+      // Validates base configs 1 is present for both peer.
+      Assert.assertEquals(firstCustomPeerConfigValue, admin.getReplicationPeerConfig("1").
+        getConfiguration().get(firstCustomPeerConfigKey));
+      Assert.assertEquals(firstCustomPeerConfigValue, admin.getReplicationPeerConfig("2").
+        getConfiguration().get(firstCustomPeerConfigKey));
+
+      // override value of configuration 1 for peer "1".
+      ReplicationPeerConfig updatedReplicationConfigForPeer1 = ReplicationPeerConfig.
+        newBuilder(admin.getReplicationPeerConfig("1")).
+        putConfiguration(firstCustomPeerConfigKey, firstCustomPeerConfigUpdatedValue).build();
+
+      // add configuration 2 for peer "2".
+      ReplicationPeerConfig updatedReplicationConfigForPeer2 = ReplicationPeerConfig.
+        newBuilder(admin.getReplicationPeerConfig("2")).
+        putConfiguration(secondCustomPeerConfigKey, secondCustomPeerConfigUpdatedValue).build();
+
+      admin.updateReplicationPeerConfig("1", updatedReplicationConfigForPeer1);
+      admin.updateReplicationPeerConfig("2", updatedReplicationConfigForPeer2);
+
+      // validates configuration is overridden by updateReplicationPeerConfig
+      Assert.assertEquals(firstCustomPeerConfigUpdatedValue, admin.getReplicationPeerConfig("1").
+        getConfiguration().get(firstCustomPeerConfigKey));
+      Assert.assertEquals(secondCustomPeerConfigUpdatedValue, admin.getReplicationPeerConfig("2").
+        getConfiguration().get(secondCustomPeerConfigKey));
+
+      // Add second config to base config and perform restart.
+      utilities[0].getConfiguration().set(ReplicationPeerConfigUtil.
+        HBASE_REPLICATION_PEER_BASE_CONFIG, firstCustomPeerConfigKey.concat("=").
+        concat(firstCustomPeerConfigValue).concat(";").concat(secondCustomPeerConfigKey)
+        .concat("=").concat(secondCustomPeerConfigValue));
+
+      utilities[0].shutdownMiniHBaseCluster();
+      utilities[0].restartHBaseCluster(1);
+      admin = utilities[0].getAdmin();
+
+      // Configurations should be updated after restart again
+      Assert.assertEquals(firstCustomPeerConfigValue, admin.getReplicationPeerConfig("1").
+        getConfiguration().get(firstCustomPeerConfigKey));
+      Assert.assertEquals(firstCustomPeerConfigValue, admin.getReplicationPeerConfig("2").
+        getConfiguration().get(firstCustomPeerConfigKey));
+
+      Assert.assertEquals(secondCustomPeerConfigValue, admin.getReplicationPeerConfig("1").
+        getConfiguration().get(secondCustomPeerConfigKey));
+      Assert.assertEquals(secondCustomPeerConfigValue, admin.getReplicationPeerConfig("2").
+        getConfiguration().get(secondCustomPeerConfigKey));
+    } finally {
+      shutDownMiniClusters();
+      baseConfiguration.unset(ReplicationPeerConfigUtil.HBASE_REPLICATION_PEER_BASE_CONFIG);
+    }
+  }
+
+  @Test
+  public void testBasePeerConfigsRemovalForReplicationPeer()
+    throws Exception {
+    LOG.info("testBasePeerConfigsForPeerMutations");
+    String firstCustomPeerConfigKey = "hbase.xxx.custom_config";
+    String firstCustomPeerConfigValue = "test";
+
+    try {
+      baseConfiguration.set(ReplicationPeerConfigUtil.HBASE_REPLICATION_PEER_BASE_CONFIG,
+        firstCustomPeerConfigKey.concat("=").concat(firstCustomPeerConfigValue));
+      startMiniClusters(2);
+      addPeer("1", 0, 1);
+      Admin admin = utilities[0].getAdmin();
+
+      // Validates base configs 1 is present for both peer.
+      Assert.assertEquals(firstCustomPeerConfigValue, admin.getReplicationPeerConfig("1").
+        getConfiguration().get(firstCustomPeerConfigKey));
+
+      utilities[0].getConfiguration().unset(ReplicationPeerConfigUtil.
+        HBASE_REPLICATION_PEER_BASE_CONFIG);
+      utilities[0].getConfiguration().set(ReplicationPeerConfigUtil.
+        HBASE_REPLICATION_PEER_BASE_CONFIG, firstCustomPeerConfigKey.concat("=").concat(""));
+
+
+      utilities[0].shutdownMiniHBaseCluster();
+      utilities[0].restartHBaseCluster(1);
+      admin = utilities[0].getAdmin();
+
+      // Configurations should be removed after restart again
+      Assert.assertNull(admin.getReplicationPeerConfig("1")
+        .getConfiguration().get(firstCustomPeerConfigKey));
+    } finally {
+      shutDownMiniClusters();
+      baseConfiguration.unset(ReplicationPeerConfigUtil.HBASE_REPLICATION_PEER_BASE_CONFIG);
+    }
+  }
+
+  @Test
+  public void testRemoveBasePeerConfigWithoutExistingConfigForReplicationPeer()
+    throws Exception {
+    LOG.info("testBasePeerConfigsForPeerMutations");
+    String firstCustomPeerConfigKey = "hbase.xxx.custom_config";
+
+    try {
+      baseConfiguration.set(ReplicationPeerConfigUtil.HBASE_REPLICATION_PEER_BASE_CONFIG,
+        firstCustomPeerConfigKey.concat("=").concat(""));
+      startMiniClusters(2);
+      addPeer("1", 0, 1);
+      Admin admin = utilities[0].getAdmin();
+
+      Assert.assertNull("Config should not be there", admin.getReplicationPeerConfig("1").
+        getConfiguration().get(firstCustomPeerConfigKey));
+    } finally {
+      shutDownMiniClusters();
+      baseConfiguration.unset(ReplicationPeerConfigUtil.HBASE_REPLICATION_PEER_BASE_CONFIG);
     }
   }
 
@@ -665,11 +798,11 @@ public class TestMasterReplication {
 
     // listen for successful log rolls
     final WALActionsListener listener = new WALActionsListener() {
-          @Override
-          public void postLogRoll(final Path oldPath, final Path newPath) throws IOException {
-            latch.countDown();
-          }
-        };
+      @Override
+      public void postLogRoll(final Path oldPath, final Path newPath) throws IOException {
+        latch.countDown();
+      }
+    };
     region.getWAL().registerWALActionsListener(listener);
 
     // request a roll

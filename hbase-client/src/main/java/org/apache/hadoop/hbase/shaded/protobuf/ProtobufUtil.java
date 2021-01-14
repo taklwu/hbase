@@ -23,6 +23,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.lang.reflect.Constructor;
+import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.nio.ByteBuffer;
 import java.security.AccessController;
@@ -66,6 +67,7 @@ import org.apache.hadoop.hbase.NamespaceDescriptor;
 import org.apache.hadoop.hbase.ServerName;
 import org.apache.hadoop.hbase.TableName;
 import org.apache.hadoop.hbase.client.Append;
+import org.apache.hadoop.hbase.client.BalancerDecision;
 import org.apache.hadoop.hbase.client.CheckAndMutate;
 import org.apache.hadoop.hbase.client.ClientUtil;
 import org.apache.hadoop.hbase.client.ColumnFamilyDescriptor;
@@ -77,6 +79,7 @@ import org.apache.hadoop.hbase.client.Delete;
 import org.apache.hadoop.hbase.client.Durability;
 import org.apache.hadoop.hbase.client.Get;
 import org.apache.hadoop.hbase.client.Increment;
+import org.apache.hadoop.hbase.client.LogEntry;
 import org.apache.hadoop.hbase.client.Mutation;
 import org.apache.hadoop.hbase.client.OnlineLogRecord;
 import org.apache.hadoop.hbase.client.PackagePrivateFieldAccessor;
@@ -110,30 +113,6 @@ import org.apache.hadoop.hbase.replication.ReplicationLoadSink;
 import org.apache.hadoop.hbase.replication.ReplicationLoadSource;
 import org.apache.hadoop.hbase.security.visibility.Authorizations;
 import org.apache.hadoop.hbase.security.visibility.CellVisibility;
-import org.apache.hadoop.hbase.util.Addressing;
-import org.apache.hadoop.hbase.util.Bytes;
-import org.apache.hadoop.hbase.util.DynamicClassLoader;
-import org.apache.hadoop.hbase.util.ExceptionUtil;
-import org.apache.hadoop.hbase.util.Methods;
-import org.apache.hadoop.hbase.util.VersionInfo;
-import org.apache.hadoop.ipc.RemoteException;
-import org.apache.yetus.audience.InterfaceAudience;
-
-import org.apache.hbase.thirdparty.com.google.common.annotations.VisibleForTesting;
-import org.apache.hbase.thirdparty.com.google.common.io.ByteStreams;
-import org.apache.hbase.thirdparty.com.google.gson.JsonArray;
-import org.apache.hbase.thirdparty.com.google.gson.JsonElement;
-import org.apache.hbase.thirdparty.com.google.protobuf.ByteString;
-import org.apache.hbase.thirdparty.com.google.protobuf.CodedInputStream;
-import org.apache.hbase.thirdparty.com.google.protobuf.InvalidProtocolBufferException;
-import org.apache.hbase.thirdparty.com.google.protobuf.Message;
-import org.apache.hbase.thirdparty.com.google.protobuf.RpcChannel;
-import org.apache.hbase.thirdparty.com.google.protobuf.RpcController;
-import org.apache.hbase.thirdparty.com.google.protobuf.Service;
-import org.apache.hbase.thirdparty.com.google.protobuf.ServiceException;
-import org.apache.hbase.thirdparty.com.google.protobuf.TextFormat;
-import org.apache.hbase.thirdparty.com.google.protobuf.UnsafeByteOperations;
-
 import org.apache.hadoop.hbase.shaded.protobuf.generated.AdminProtos;
 import org.apache.hadoop.hbase.shaded.protobuf.generated.AdminProtos.AdminService;
 import org.apache.hadoop.hbase.shaded.protobuf.generated.AdminProtos.ClearSlowLogResponses;
@@ -191,6 +170,7 @@ import org.apache.hadoop.hbase.shaded.protobuf.generated.MasterProtos.ListTableD
 import org.apache.hadoop.hbase.shaded.protobuf.generated.MasterProtos.MajorCompactionTimestampResponse;
 import org.apache.hadoop.hbase.shaded.protobuf.generated.ProcedureProtos;
 import org.apache.hadoop.hbase.shaded.protobuf.generated.QuotaProtos;
+import org.apache.hadoop.hbase.shaded.protobuf.generated.RecentLogs;
 import org.apache.hadoop.hbase.shaded.protobuf.generated.RegionServerStatusProtos.RegionServerReportRequest;
 import org.apache.hadoop.hbase.shaded.protobuf.generated.RegionServerStatusProtos.RegionServerStartupRequest;
 import org.apache.hadoop.hbase.shaded.protobuf.generated.SnapshotProtos;
@@ -204,6 +184,28 @@ import org.apache.hadoop.hbase.shaded.protobuf.generated.WALProtos.RegionEventDe
 import org.apache.hadoop.hbase.shaded.protobuf.generated.WALProtos.RegionEventDescriptor.EventType;
 import org.apache.hadoop.hbase.shaded.protobuf.generated.WALProtos.StoreDescriptor;
 import org.apache.hadoop.hbase.shaded.protobuf.generated.ZooKeeperProtos;
+import org.apache.hadoop.hbase.util.Addressing;
+import org.apache.hadoop.hbase.util.Bytes;
+import org.apache.hadoop.hbase.util.DynamicClassLoader;
+import org.apache.hadoop.hbase.util.ExceptionUtil;
+import org.apache.hadoop.hbase.util.Methods;
+import org.apache.hadoop.hbase.util.VersionInfo;
+import org.apache.hadoop.ipc.RemoteException;
+import org.apache.hbase.thirdparty.com.google.common.io.ByteStreams;
+import org.apache.hbase.thirdparty.com.google.gson.JsonArray;
+import org.apache.hbase.thirdparty.com.google.gson.JsonElement;
+import org.apache.hbase.thirdparty.com.google.protobuf.ByteString;
+import org.apache.hbase.thirdparty.com.google.protobuf.CodedInputStream;
+import org.apache.hbase.thirdparty.com.google.protobuf.InvalidProtocolBufferException;
+import org.apache.hbase.thirdparty.com.google.protobuf.Message;
+import org.apache.hbase.thirdparty.com.google.protobuf.RpcChannel;
+import org.apache.hbase.thirdparty.com.google.protobuf.RpcController;
+import org.apache.hbase.thirdparty.com.google.protobuf.Service;
+import org.apache.hbase.thirdparty.com.google.protobuf.ServiceException;
+import org.apache.hbase.thirdparty.com.google.protobuf.TextFormat;
+import org.apache.hbase.thirdparty.com.google.protobuf.UnsafeByteOperations;
+import org.apache.hbase.thirdparty.org.apache.commons.collections4.CollectionUtils;
+import org.apache.yetus.audience.InterfaceAudience;
 
 /**
  * Protobufs utility.
@@ -283,7 +285,6 @@ public final class ProtobufUtil {
     }
   }
 
-  @VisibleForTesting
   public static boolean isClassLoaderLoaded() {
     return classLoaderLoaded;
   }
@@ -1388,6 +1389,21 @@ public final class ProtobufUtil {
    * @return the converted protocol buffer Result
    */
   public static ClientProtos.Result toResult(final Result result) {
+    return toResult(result, false);
+  }
+
+  /**
+   *  Convert a client Result to a protocol buffer Result
+   * @param result the client Result to convert
+   * @param encodeTags whether to includeTags in converted protobuf result or not
+   *                   When @encodeTags is set to true, it will return all the tags in the response.
+   *                   These tags may contain some sensitive data like acl permissions, etc.
+   *                   Only the tools like Export, Import which needs to take backup needs to set
+   *                   it to true so that cell tags are persisted in backup.
+   *                   Refer to HBASE-25246 for more context.
+   * @return the converted protocol buffer Result
+   */
+  public static ClientProtos.Result toResult(final Result result, boolean encodeTags) {
     if (result.getExists() != null) {
       return toResult(result.getExists(), result.isStale());
     }
@@ -1399,7 +1415,7 @@ public final class ProtobufUtil {
 
     ClientProtos.Result.Builder builder = ClientProtos.Result.newBuilder();
     for (Cell c : cells) {
-      builder.addCell(toCell(c));
+      builder.addCell(toCell(c, encodeTags));
     }
 
     builder.setStale(result.isStale());
@@ -1446,6 +1462,22 @@ public final class ProtobufUtil {
    * @return the converted client Result
    */
   public static Result toResult(final ClientProtos.Result proto) {
+    return toResult(proto, false);
+  }
+
+  /**
+   * Convert a protocol buffer Result to a client Result
+   *
+   * @param proto the protocol buffer Result to convert
+   * @param decodeTags whether to decode tags into converted client Result
+   *                   When @decodeTags is set to true, it will decode all the tags from the
+   *                   response. These tags may contain some sensitive data like acl permissions,
+   *                   etc. Only the tools like Export, Import which needs to take backup needs to
+   *                   set it to true so that cell tags are persisted in backup.
+   *                   Refer to HBASE-25246 for more context.
+   * @return the converted client Result
+   */
+  public static Result toResult(final ClientProtos.Result proto, boolean decodeTags) {
     if (proto.hasExists()) {
       if (proto.getStale()) {
         return proto.getExists() ? EMPTY_RESULT_EXISTS_TRUE_STALE :EMPTY_RESULT_EXISTS_FALSE_STALE;
@@ -1461,7 +1493,7 @@ public final class ProtobufUtil {
     List<Cell> cells = new ArrayList<>(values.size());
     ExtendedCellBuilder builder = ExtendedCellBuilderFactory.create(CellBuilderType.SHALLOW_COPY);
     for (CellProtos.Cell c : values) {
-      cells.add(toCell(builder, c));
+      cells.add(toCell(builder, c, decodeTags));
     }
     return Result.create(cells, null, proto.getStale(), proto.getPartial());
   }
@@ -1504,7 +1536,7 @@ public final class ProtobufUtil {
       if (cells == null) cells = new ArrayList<>(values.size());
       ExtendedCellBuilder builder = ExtendedCellBuilderFactory.create(CellBuilderType.SHALLOW_COPY);
       for (CellProtos.Cell c: values) {
-        cells.add(toCell(builder, c));
+        cells.add(toCell(builder, c, false));
       }
     }
 
@@ -1955,7 +1987,7 @@ public final class ProtobufUtil {
     throw new IOException(se);
   }
 
-  public static CellProtos.Cell toCell(final Cell kv) {
+  public static CellProtos.Cell toCell(final Cell kv, boolean encodeTags) {
     // Doing this is going to kill us if we do it for all data passed.
     // St.Ack 20121205
     CellProtos.Cell.Builder kvbuilder = CellProtos.Cell.newBuilder();
@@ -1970,7 +2002,10 @@ public final class ProtobufUtil {
       kvbuilder.setTimestamp(kv.getTimestamp());
       kvbuilder.setValue(wrap(((ByteBufferExtendedCell) kv).getValueByteBuffer(),
         ((ByteBufferExtendedCell) kv).getValuePosition(), kv.getValueLength()));
-      // TODO : Once tags become first class then we may have to set tags to kvbuilder.
+      if (encodeTags) {
+        kvbuilder.setTags(wrap(((ByteBufferExtendedCell) kv).getTagsByteBuffer(),
+          ((ByteBufferExtendedCell) kv).getTagsPosition(), kv.getTagsLength()));
+      }
     } else {
       kvbuilder.setRow(
         UnsafeByteOperations.unsafeWrap(kv.getRowArray(), kv.getRowOffset(), kv.getRowLength()));
@@ -1982,6 +2017,10 @@ public final class ProtobufUtil {
       kvbuilder.setTimestamp(kv.getTimestamp());
       kvbuilder.setValue(UnsafeByteOperations.unsafeWrap(kv.getValueArray(), kv.getValueOffset(),
         kv.getValueLength()));
+      if (encodeTags) {
+        kvbuilder.setTags(UnsafeByteOperations.unsafeWrap(kv.getTagsArray(), kv.getTagsOffset(),
+          kv.getTagsLength()));
+      }
     }
     return kvbuilder.build();
   }
@@ -1993,15 +2032,19 @@ public final class ProtobufUtil {
     return UnsafeByteOperations.unsafeWrap(dup);
   }
 
-  public static Cell toCell(ExtendedCellBuilder cellBuilder, final CellProtos.Cell cell) {
-    return cellBuilder.clear()
-            .setRow(cell.getRow().toByteArray())
-            .setFamily(cell.getFamily().toByteArray())
-            .setQualifier(cell.getQualifier().toByteArray())
-            .setTimestamp(cell.getTimestamp())
-            .setType((byte) cell.getCellType().getNumber())
-            .setValue(cell.getValue().toByteArray())
-            .build();
+  public static Cell toCell(ExtendedCellBuilder cellBuilder, final CellProtos.Cell cell,
+                            boolean decodeTags) {
+    ExtendedCellBuilder builder = cellBuilder.clear()
+        .setRow(cell.getRow().toByteArray())
+        .setFamily(cell.getFamily().toByteArray())
+        .setQualifier(cell.getQualifier().toByteArray())
+        .setTimestamp(cell.getTimestamp())
+        .setType((byte) cell.getCellType().getNumber())
+        .setValue(cell.getValue().toByteArray());
+    if (decodeTags && cell.hasTags()) {
+      builder.setTags(cell.getTags().toByteArray());
+    }
+    return builder.build();
   }
 
   public static HBaseProtos.NamespaceDescriptor toProtoNamespaceDescriptor(NamespaceDescriptor ns) {
@@ -2249,6 +2292,13 @@ public final class ProtobufUtil {
     return HBaseProtos.TableName.newBuilder()
         .setNamespace(UnsafeByteOperations.unsafeWrap(tableName.getNamespace()))
         .setQualifier(UnsafeByteOperations.unsafeWrap(tableName.getQualifier())).build();
+  }
+
+  public static List<HBaseProtos.TableName> toProtoTableNameList(List<TableName> tableNameList) {
+    if (tableNameList == null) {
+      return new ArrayList<>();
+    }
+    return tableNameList.stream().map(ProtobufUtil::toProtoTableName).collect(Collectors.toList());
   }
 
   public static List<TableName> toTableNameList(List<HBaseProtos.TableName> tableNamesList) {
@@ -2743,8 +2793,8 @@ public final class ProtobufUtil {
       ClusterStatusProtos.ReplicationLoadSink rls) {
     return new ReplicationLoadSink(rls.getAgeOfLastAppliedOp(),
         rls.getTimeStampsOfLastAppliedOp(),
-        rls.getTimestampStarted(),
-        rls.getTotalOpsProcessed());
+        rls.hasTimestampStarted()? rls.getTimestampStarted(): -1L,
+        rls.hasTotalOpsProcessed()? rls.getTotalOpsProcessed(): -1L);
   }
 
   public static ReplicationLoadSource toReplicationLoadSource(
@@ -2904,6 +2954,23 @@ public final class ProtobufUtil {
 
   public static GetRegionInfoResponse.CompactionState createCompactionState(CompactionState state) {
     return GetRegionInfoResponse.CompactionState.valueOf(state.toString());
+  }
+
+  /**
+   * Creates {@link CompactionState} from
+   * {@link org.apache.hadoop.hbase.shaded.protobuf.generated.ClusterStatusProtos
+   * .RegionLoad.CompactionState} state
+   * @param state the protobuf CompactionState
+   * @return CompactionState
+   */
+  public static CompactionState createCompactionStateForRegionLoad(
+      RegionLoad.CompactionState state) {
+    return CompactionState.valueOf(state.toString());
+  }
+
+  public static RegionLoad.CompactionState createCompactionStateForRegionLoad(
+      CompactionState state) {
+    return RegionLoad.CompactionState.valueOf(state.toString());
   }
 
   public static Optional<Long> toOptionalTimestamp(MajorCompactionTimestampResponse resp) {
@@ -3428,7 +3495,7 @@ public final class ProtobufUtil {
    * @param slowLogPayload SlowLog Payload protobuf instance
    * @return SlowLog Payload for client usecase
    */
-  private static OnlineLogRecord getSlowLogRecord(
+  private static LogEntry getSlowLogRecord(
       final TooSlowLog.SlowLogPayload slowLogPayload) {
     OnlineLogRecord onlineLogRecord = new OnlineLogRecord.OnlineLogRecordBuilder()
       .setCallDetails(slowLogPayload.getCallDetails())
@@ -3452,14 +3519,26 @@ public final class ProtobufUtil {
   /**
    * Convert  AdminProtos#SlowLogResponses to list of {@link OnlineLogRecord}
    *
-   * @param slowLogResponses slowlog response protobuf instance
+   * @param logEntry slowlog response protobuf instance
    * @return list of SlowLog payloads for client usecase
    */
-  public static List<OnlineLogRecord> toSlowLogPayloads(
-      final AdminProtos.SlowLogResponses slowLogResponses) {
-    List<OnlineLogRecord> slowLogRecords = slowLogResponses.getSlowLogPayloadsList()
-      .stream().map(ProtobufUtil::getSlowLogRecord).collect(Collectors.toList());
-    return slowLogRecords;
+  public static List<LogEntry> toSlowLogPayloads(
+      final HBaseProtos.LogEntry logEntry) {
+    try {
+      final String logClassName = logEntry.getLogClassName();
+      Class<?> logClass = Class.forName(logClassName).asSubclass(Message.class);
+      Method method = logClass.getMethod("parseFrom", ByteString.class);
+      if (logClassName.contains("SlowLogResponses")) {
+        AdminProtos.SlowLogResponses slowLogResponses = (AdminProtos.SlowLogResponses) method
+          .invoke(null, logEntry.getLogMessage());
+        return slowLogResponses.getSlowLogPayloadsList().stream()
+          .map(ProtobufUtil::getSlowLogRecord).collect(Collectors.toList());
+      }
+    } catch (ClassNotFoundException | NoSuchMethodException | IllegalAccessException
+      | InvocationTargetException e) {
+      throw new RuntimeException("Error while retrieving response from server");
+    }
+    throw new RuntimeException("Invalid response from server");
   }
 
   /**
@@ -3496,6 +3575,10 @@ public final class ProtobufUtil {
           return builder.build(ProtobufUtil.toPut(mutation, cellScanner));
         case DELETE:
           return builder.build(ProtobufUtil.toDelete(mutation, cellScanner));
+        case INCREMENT:
+          return builder.build(ProtobufUtil.toIncrement(mutation, cellScanner));
+        case APPEND:
+          return builder.build(ProtobufUtil.toAppend(mutation, cellScanner));
         default:
           throw new DoNotRetryIOException("Unsupported mutate type: " + type.name());
       }
@@ -3529,9 +3612,13 @@ public final class ProtobufUtil {
           return builder.build((Put) m);
         } else if (m instanceof Delete) {
           return builder.build((Delete) m);
+        } else if (m instanceof Increment) {
+          return builder.build((Increment) m);
+        } else if (m instanceof Append) {
+          return builder.build((Append) m);
         } else {
-          throw new DoNotRetryIOException("Unsupported mutate type: " + mutations.get(0)
-            .getClass().getSimpleName().toUpperCase());
+          throw new DoNotRetryIOException("Unsupported mutate type: " + m.getClass()
+            .getSimpleName().toUpperCase());
         }
       } else {
         return builder.build(new RowMutations(mutations.get(0).getRow()).add(mutations));
@@ -3540,4 +3627,49 @@ public final class ProtobufUtil {
       throw new DoNotRetryIOException(e.getMessage());
     }
   }
+
+  public static List<LogEntry> toBalancerDecisionResponse(
+      HBaseProtos.LogEntry logEntry) {
+    try {
+      final String logClassName = logEntry.getLogClassName();
+      Class<?> logClass = Class.forName(logClassName).asSubclass(Message.class);
+      Method method = logClass.getMethod("parseFrom", ByteString.class);
+      if (logClassName.contains("BalancerDecisionsResponse")) {
+        MasterProtos.BalancerDecisionsResponse response =
+          (MasterProtos.BalancerDecisionsResponse) method
+            .invoke(null, logEntry.getLogMessage());
+        return getBalancerDecisionEntries(response);
+      }
+    } catch (ClassNotFoundException | NoSuchMethodException | IllegalAccessException
+      | InvocationTargetException e) {
+      throw new RuntimeException("Error while retrieving response from server");
+    }
+    throw new RuntimeException("Invalid response from server");
+  }
+
+  public static List<LogEntry> getBalancerDecisionEntries(
+      MasterProtos.BalancerDecisionsResponse response) {
+    List<RecentLogs.BalancerDecision> balancerDecisions = response.getBalancerDecisionList();
+    if (CollectionUtils.isEmpty(balancerDecisions)) {
+      return Collections.emptyList();
+    }
+    return balancerDecisions.stream().map(balancerDecision -> new BalancerDecision.Builder()
+      .setInitTotalCost(balancerDecision.getInitTotalCost())
+      .setInitialFunctionCosts(balancerDecision.getInitialFunctionCosts())
+      .setComputedTotalCost(balancerDecision.getComputedTotalCost())
+      .setFinalFunctionCosts(balancerDecision.getFinalFunctionCosts())
+      .setComputedSteps(balancerDecision.getComputedSteps())
+      .setRegionPlans(balancerDecision.getRegionPlansList()).build())
+      .collect(Collectors.toList());
+  }
+
+  public static HBaseProtos.LogRequest toBalancerDecisionRequest(int limit) {
+    MasterProtos.BalancerDecisionsRequest balancerDecisionsRequest =
+      MasterProtos.BalancerDecisionsRequest.newBuilder().setLimit(limit).build();
+    return HBaseProtos.LogRequest.newBuilder()
+      .setLogClassName(balancerDecisionsRequest.getClass().getName())
+      .setLogMessage(balancerDecisionsRequest.toByteString())
+      .build();
+  }
+
 }

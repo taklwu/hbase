@@ -117,6 +117,8 @@ import org.apache.hadoop.hbase.replication.ReplicationPeerDescription;
 import org.apache.hadoop.hbase.replication.ReplicationQueueStorage;
 import org.apache.hadoop.hbase.replication.ReplicationStorageFactory;
 import org.apache.hadoop.hbase.security.UserProvider;
+import org.apache.hadoop.hbase.shaded.protobuf.ProtobufUtil;
+import org.apache.hadoop.hbase.shaded.protobuf.generated.AdminProtos.AdminService.BlockingInterface;
 import org.apache.hadoop.hbase.util.Bytes.ByteArrayComparator;
 import org.apache.hadoop.hbase.util.HbckErrorReporter.ERROR_CODE;
 import org.apache.hadoop.hbase.util.hbck.HFileCorruptionChecker;
@@ -133,21 +135,17 @@ import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.hadoop.util.ReflectionUtils;
 import org.apache.hadoop.util.Tool;
 import org.apache.hadoop.util.ToolRunner;
+import org.apache.hbase.thirdparty.com.google.common.base.Joiner;
+import org.apache.hbase.thirdparty.com.google.common.base.Preconditions;
+import org.apache.hbase.thirdparty.com.google.common.collect.Lists;
+import org.apache.hbase.thirdparty.com.google.common.collect.Sets;
+import org.apache.hbase.thirdparty.com.google.common.io.Closeables;
 import org.apache.hbase.thirdparty.com.google.common.util.concurrent.ThreadFactoryBuilder;
 import org.apache.yetus.audience.InterfaceAudience;
 import org.apache.yetus.audience.InterfaceStability;
 import org.apache.zookeeper.KeeperException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import org.apache.hbase.thirdparty.com.google.common.annotations.VisibleForTesting;
-import org.apache.hbase.thirdparty.com.google.common.base.Joiner;
-import org.apache.hbase.thirdparty.com.google.common.base.Preconditions;
-import org.apache.hbase.thirdparty.com.google.common.collect.Lists;
-import org.apache.hbase.thirdparty.com.google.common.collect.Sets;
-
-import org.apache.hadoop.hbase.shaded.protobuf.ProtobufUtil;
-import org.apache.hadoop.hbase.shaded.protobuf.generated.AdminProtos.AdminService.BlockingInterface;
 
 /**
  * HBaseFsck (hbck) is a tool for checking and repairing region consistency and
@@ -215,8 +213,9 @@ public class HBaseFsck extends Configured implements Closeable {
    * Here is where hbase-1.x used to default the lock for hbck1.
    * It puts in place a lock when it goes to write/make changes.
    */
-  @VisibleForTesting
+  @InterfaceAudience.Private
   public static final String HBCK_LOCK_FILE = "hbase-hbck.lock";
+
   private static final int DEFAULT_MAX_LOCK_FILE_ATTEMPTS = 5;
   private static final int DEFAULT_LOCK_FILE_ATTEMPT_SLEEP_INTERVAL = 200; // milliseconds
   private static final int DEFAULT_LOCK_FILE_ATTEMPT_MAX_SLEEP_TIME = 5000; // milliseconds
@@ -351,7 +350,7 @@ public class HBaseFsck extends Configured implements Closeable {
   private static ExecutorService createThreadPool(Configuration conf) {
     int numThreads = conf.getInt("hbasefsck.numthreads", MAX_NUM_THREADS);
     return new ScheduledThreadPoolExecutor(numThreads,
-      new ThreadFactoryBuilder().setNameFormat("hbasefsck-pool-%d")
+      new ThreadFactoryBuilder().setNameFormat("hbasefsck-pool-%d").setDaemon(true)
         .setUncaughtExceptionHandler(Threads.LOGGING_EXCEPTION_HANDLER).build());
   }
 
@@ -402,7 +401,7 @@ public class HBaseFsck extends Configured implements Closeable {
   /**
    * @return Return the tmp dir this tool writes too.
    */
-  @VisibleForTesting
+  @InterfaceAudience.Private
   public static Path getTmpDir(Configuration conf) throws IOException {
     return new Path(CommonFSUtils.getRootDir(conf), HConstants.HBASE_TEMP_DIRECTORY);
   }
@@ -515,7 +514,7 @@ public class HBaseFsck extends Configured implements Closeable {
       RetryCounter retryCounter = lockFileRetryCounterFactory.create();
       do {
         try {
-          IOUtils.closeQuietly(hbckOutFd);
+          Closeables.close(hbckOutFd, true);
           CommonFSUtils.delete(CommonFSUtils.getCurrentFileSystem(getConf()), HBCK_LOCK_PATH, true);
           LOG.info("Finishing hbck");
           return;
@@ -568,7 +567,7 @@ public class HBaseFsck extends Configured implements Closeable {
     Runtime.getRuntime().addShutdownHook(new Thread() {
       @Override
       public void run() {
-        IOUtils.closeQuietly(HBaseFsck.this);
+        IOUtils.closeQuietly(HBaseFsck.this, e -> LOG.warn("", e));
         cleanupHbckZnode();
         unlockHbck();
       }
@@ -867,9 +866,9 @@ public class HBaseFsck extends Configured implements Closeable {
         zkw.close();
         zkw = null;
       }
-      IOUtils.closeQuietly(admin);
-      IOUtils.closeQuietly(meta);
-      IOUtils.closeQuietly(connection);
+      IOUtils.closeQuietly(admin, e -> LOG.warn("", e));
+      IOUtils.closeQuietly(meta, e -> LOG.warn("", e));
+      IOUtils.closeQuietly(connection, e -> LOG.warn("", e));
     }
   }
 
@@ -3853,7 +3852,7 @@ public class HBaseFsck extends Configured implements Closeable {
         setRetCode(code);
       }
     } finally {
-      IOUtils.closeQuietly(this);
+      IOUtils.closeQuietly(this, e -> LOG.warn("", e));
     }
     return this;
   }

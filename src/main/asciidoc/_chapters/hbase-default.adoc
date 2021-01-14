@@ -1239,6 +1239,7 @@ Whether or not the bucketcache is used in league with the LRU
 .Description
 Used along with bucket cache, this is a float that EITHER represents a percentage of total heap
    memory size to give to the cache (if < 1.0) OR, it is the capacity in megabytes of the cache.
+   (After HBase-2.0, "hbase.bucketcache.size" cannot be between 0-1)
 +
 .Default
 `0` when specified as a float
@@ -2303,6 +2304,20 @@ The percent of region server RPC threads failed to abort RS.
       prevent RegionServer from serving
       very large batch size of rows and this way we can improve
       CPU usages by discarding too large batch request.
+
++
+.Default
+`false`
+
+[[hbase.master.balancer.decision.buffer.enabled]]
+*`hbase.master.balancer.decision.buffer.enabled`*::
++
+.Description
+
+      Indicates whether active HMaster has ring buffer running for storing
+      balancer decisions in FIFO manner with limited entries. The size of
+      the ring buffer is indicated by config:
+      hbase.master.balancer.decision.queue.size
 
 +
 .Default

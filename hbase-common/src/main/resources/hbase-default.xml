@@ -1013,9 +1013,7 @@ possible configurations would overwhelm and obscure the important.
   <property>
     <name>hbase.bucketcache.size</name>
     <value></value>
-    <description>A float that EITHER represents a percentage of total heap memory
-    size to give to the cache (if &lt; 1.0) OR, it is the total capacity in
-    megabytes of BucketCache. Default: 0.0</description>
+    <description>It is the total capacity in megabytes of BucketCache. Default: 0.0</description>
   </property>
   <property>
     <name>hbase.bucketcache.bucket.sizes</name>
@@ -1099,19 +1097,19 @@ possible configurations would overwhelm and obscure the important.
     http://docs.oracle.com/javase/1.5.0/docs/api/java/net/Socket.html#getTcpNoDelay()</description>
   </property>
   <property>
-    <name>hbase.regionserver.hostname</name>
+    <name>hbase.unsafe.regionserver.hostname</name>
     <value></value>
     <description>This config is for experts: don't set its value unless you really know what you are doing.
     When set to a non-empty value, this represents the (external facing) hostname for the underlying server.
     See https://issues.apache.org/jira/browse/HBASE-12954 for details.</description>
   </property>
   <property>
-    <name>hbase.regionserver.hostname.disable.master.reversedns</name>
+    <name>hbase.unsafe.regionserver.hostname.disable.master.reversedns</name>
     <value>false</value>
     <description>This config is for experts: don't set its value unless you really know what you are doing.
     When set to true, regionserver will use the current node hostname for the servername and HMaster will
     skip reverse DNS lookup and use the hostname sent by regionserver instead. Note that this config and
-    hbase.regionserver.hostname are mutually exclusive. See https://issues.apache.org/jira/browse/HBASE-18226
+    hbase.unsafe.regionserver.hostname are mutually exclusive. See https://issues.apache.org/jira/browse/HBASE-18226
     for more details.</description>
   </property>
   <!-- The following properties configure authentication information for
@@ -1442,7 +1440,7 @@ possible configurations would overwhelm and obscure the important.
   </property>
   <property>
     <name>dfs.client.read.shortcircuit</name>
-    <value>false</value>
+    <value></value>
     <description>
       If set to true, this configuration parameter enables short-circuit local
       reads.
@@ -1450,7 +1448,7 @@ possible configurations would overwhelm and obscure the important.
   </property>
   <property>
     <name>dfs.domain.socket.path</name>
-    <value>none</value>
+    <value></value>
     <description>
       This is a path to a UNIX domain socket that will be used for
       communication between the DataNode and local HDFS clients, if
@@ -1998,7 +1996,7 @@ possible configurations would overwhelm and obscure the important.
   </property>
   <property>
     <name>hbase.namedqueue.provider.classes</name>
-    <value>org.apache.hadoop.hbase.namequeues.impl.SlowLogQueueService</value>
+    <value>org.apache.hadoop.hbase.namequeues.impl.SlowLogQueueService,org.apache.hadoop.hbase.namequeues.impl.BalancerDecisionQueueService</value>
     <description>
       Default values for NamedQueueService implementors. This comma separated full class names
       represent all implementors of NamedQueueService that we would like to be invoked by
@@ -2006,6 +2004,15 @@ possible configurations would overwhelm and obscure the important.
       is used to store slow/large RPC logs in ringbuffer at each RegionServer.
       All implementors of NamedQueueService should be found under package:
       "org.apache.hadoop.hbase.namequeues.impl"
+    </description>
+  </property>
+  <property>
+    <name>hbase.master.balancer.decision.buffer.enabled</name>
+    <value>false</value>
+    <description>
+      Indicates whether active HMaster has ring buffer running for storing
+      balancer decisions in FIFO manner with limited entries. The size of
+      the ring buffer is indicated by config: hbase.master.balancer.decision.queue.size
     </description>
   </property>
 </configuration>

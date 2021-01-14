@@ -18,32 +18,23 @@
  */
 package org.apache.hadoop.hbase.master.normalizer;
 
-import java.io.IOException;
 import org.apache.commons.lang3.builder.EqualsBuilder;
 import org.apache.commons.lang3.builder.HashCodeBuilder;
 import org.apache.commons.lang3.builder.ToStringBuilder;
 import org.apache.commons.lang3.builder.ToStringStyle;
-import org.apache.hadoop.hbase.HConstants;
 import org.apache.hadoop.hbase.client.RegionInfo;
-import org.apache.hadoop.hbase.master.MasterServices;
 import org.apache.yetus.audience.InterfaceAudience;
 
 /**
- * Normalization plan to split region.
+ * Normalization plan to split a region.
  */
 @InterfaceAudience.Private
-public class SplitNormalizationPlan implements NormalizationPlan {
+final class SplitNormalizationPlan implements NormalizationPlan {
 
-  private final RegionInfo regionInfo;
+  private final NormalizationTarget splitTarget;
 
-  public SplitNormalizationPlan(RegionInfo regionInfo) {
-    this.regionInfo = regionInfo;
-  }
-
-  @Override
-  public long submit(MasterServices masterServices) throws IOException {
-    return masterServices.splitRegion(regionInfo, null, HConstants.NO_NONCE,
-      HConstants.NO_NONCE);
+  SplitNormalizationPlan(final RegionInfo splitTarget, final long splitTargetSizeMb) {
+    this.splitTarget = new NormalizationTarget(splitTarget, splitTargetSizeMb);
   }
 
   @Override
@@ -51,14 +42,14 @@ public class SplitNormalizationPlan implements NormalizationPlan {
     return PlanType.SPLIT;
   }
 
-  public RegionInfo getRegionInfo() {
-    return regionInfo;
+  public NormalizationTarget getSplitTarget() {
+    return splitTarget;
   }
 
   @Override
   public String toString() {
     return new ToStringBuilder(this, ToStringStyle.SHORT_PREFIX_STYLE)
-      .append("regionInfo", regionInfo)
+      .append("splitTarget", splitTarget)
       .toString();
   }
 
@@ -75,13 +66,13 @@ public class SplitNormalizationPlan implements NormalizationPlan {
     SplitNormalizationPlan that = (SplitNormalizationPlan) o;
 
     return new EqualsBuilder()
-      .append(regionInfo, that.regionInfo)
+      .append(splitTarget, that.splitTarget)
       .isEquals();
   }
 
   @Override public int hashCode() {
     return new HashCodeBuilder(17, 37)
-      .append(regionInfo)
+      .append(splitTarget)
       .toHashCode();
   }
 }

@@ -349,6 +349,8 @@ public class MetricsRegionServerSourceImpl
                       rsWrap.getWriteRequestsCount())
               .addCounter(Interns.info(RPC_GET_REQUEST_COUNT, RPC_GET_REQUEST_COUNT_DESC),
                       rsWrap.getRpcGetRequestsCount())
+              .addCounter(Interns.info(RPC_FULL_SCAN_REQUEST_COUNT, RPC_FULL_SCAN_REQUEST_COUNT_DESC),
+                      rsWrap.getRpcFullScanRequestsCount())
               .addCounter(Interns.info(RPC_SCAN_REQUEST_COUNT, RPC_SCAN_REQUEST_COUNT_DESC),
                       rsWrap.getRpcScanRequestsCount())
               .addCounter(Interns.info(RPC_MULTI_REQUEST_COUNT, RPC_MULTI_REQUEST_COUNT_DESC),
@@ -456,6 +458,8 @@ public class MetricsRegionServerSourceImpl
               .addCounter(Interns.info(HEDGED_READS, HEDGED_READS_DESC), rsWrap.getHedgedReadOps())
               .addCounter(Interns.info(HEDGED_READ_WINS, HEDGED_READ_WINS_DESC),
                       rsWrap.getHedgedReadWins())
+              .addCounter(Interns.info(HEDGED_READ_IN_CUR_THREAD, HEDGED_READ_IN_CUR_THREAD_DESC),
+                      rsWrap.getHedgedReadOpsInCurThread())
               .addCounter(Interns.info(BLOCKED_REQUESTS_COUNT, BLOCKED_REQUESTS_COUNT_DESC),
                       rsWrap.getBlockedRequestsCount())
               .tag(Interns.info(ZOOKEEPER_QUORUM_NAME, ZOOKEEPER_QUORUM_DESC),

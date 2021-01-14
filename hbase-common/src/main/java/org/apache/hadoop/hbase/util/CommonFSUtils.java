@@ -28,7 +28,6 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
-import org.apache.hadoop.HadoopIllegalArgumentException;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FSDataOutputStream;
 import org.apache.hadoop.fs.FSDataOutputStreamBuilder;
@@ -41,12 +40,10 @@ import org.apache.hadoop.fs.RemoteIterator;
 import org.apache.hadoop.fs.permission.FsPermission;
 import org.apache.hadoop.hbase.HConstants;
 import org.apache.hadoop.hbase.TableName;
-import org.apache.hadoop.ipc.RemoteException;
 import org.apache.yetus.audience.InterfaceAudience;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import org.apache.hbase.thirdparty.com.google.common.annotations.VisibleForTesting;
 import org.apache.hbase.thirdparty.com.google.common.collect.Lists;
 
 /**
@@ -321,6 +318,10 @@ public final class CommonFSUtils {
     c.set("fs.defaultFS", root.toString());    // for hadoop 0.21+
   }
 
+  public static void setFsDefault(final Configuration c, final String uri) {
+    c.set("fs.defaultFS", uri); // for hadoop 0.21+
+  }
+
   public static FileSystem getRootDirFileSystem(final Configuration c) throws IOException {
     Path p = getRootDir(c);
     return p.getFileSystem(c);
@@ -342,7 +343,20 @@ public final class CommonFSUtils {
     return p.makeQualified(fs.getUri(), fs.getWorkingDirectory());
   }
 
-  @VisibleForTesting
+  /**
+   * Returns the URI in the string format
+   * @param c configuration
+   * @param p path
+   * @return - the URI's to string format
+   * @throws IOException
+   */
+  public static String getDirUri(final Configuration c, Path p) throws IOException {
+    if (p.toUri().getScheme() != null) {
+      return p.toUri().toString();
+    }
+    return null;
+  }
+
   public static void setWALRootDir(final Configuration c, final Path root) {
     c.set(HBASE_WAL_DIR, root.toString());
   }
@@ -365,7 +379,8 @@ public final class CommonFSUtils {
     if (!qualifiedWalDir.equals(rootDir)) {
       if (qualifiedWalDir.toString().startsWith(rootDir.toString() + "/")) {
         throw new IllegalStateException("Illegal WAL directory specified. " +
-            "WAL directories are not permitted to be under the root directory if set.");
+          "WAL directories are not permitted to be under root directory: rootDir=" +
+          rootDir.toString() + ", qualifiedWALDir=" + qualifiedWalDir);
       }
     }
     return true;

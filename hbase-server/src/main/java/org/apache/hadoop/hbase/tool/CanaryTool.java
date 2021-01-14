@@ -99,7 +99,7 @@ import org.apache.zookeeper.client.ConnectStringParser;
 import org.apache.zookeeper.data.Stat;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.apache.hbase.thirdparty.com.google.common.annotations.VisibleForTesting;
+
 import org.apache.hbase.thirdparty.com.google.common.collect.Lists;
 
 /**
@@ -140,7 +140,7 @@ public class CanaryTool implements Tool, Canary {
       try {
         InfoServer infoServer = new InfoServer("canary", addr, port, false, conf);
         infoServer.addUnprivilegedServlet("canary", "/canary-status", CanaryStatusServlet.class);
-        infoServer.setAttribute("sink", this.sink);
+        infoServer.setAttribute("sink", getSink(conf, RegionStdOutSink.class));
         infoServer.start();
         LOG.info("Bind Canary http info server to {}:{} ", addr, port);
       } catch (BindException e) {
@@ -791,7 +791,7 @@ public class CanaryTool implements Tool, Canary {
     this(executor, null);
   }
 
-  @VisibleForTesting
+  @InterfaceAudience.Private
   CanaryTool(ExecutorService executor, Sink sink) {
     this.executor = executor;
     this.sink = sink;
@@ -979,8 +979,10 @@ public class CanaryTool implements Tool, Canary {
       monitorTargets = new String[length];
       System.arraycopy(args, index, monitorTargets, 0, length);
     }
-
-    putUpWebUI();
+    if (interval > 0) {
+      //Only show the web page in daemon mode
+      putUpWebUI();
+    }
     if (zookeeperMode) {
       return checkZooKeeper();
     } else if (regionServerMode) {

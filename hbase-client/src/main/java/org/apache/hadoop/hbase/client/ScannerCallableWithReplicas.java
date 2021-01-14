@@ -18,8 +18,6 @@
 
 package org.apache.hadoop.hbase.client;
 
-import org.apache.hbase.thirdparty.com.google.common.annotations.VisibleForTesting;
-
 import java.io.IOException;
 import java.io.InterruptedIOException;
 import java.util.HashSet;
@@ -37,18 +35,19 @@ import org.apache.hadoop.hbase.DoNotRetryIOException;
 import org.apache.hadoop.hbase.HRegionInfo;
 import org.apache.hadoop.hbase.RegionLocations;
 import org.apache.hadoop.hbase.TableName;
+import org.apache.hadoop.hbase.client.ScannerCallable.MoreResults;
+import org.apache.hadoop.hbase.util.Pair;
 import org.apache.yetus.audience.InterfaceAudience;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.apache.hadoop.hbase.client.ScannerCallable.MoreResults;
-import org.apache.hadoop.hbase.util.Pair;
 
 /**
  * This class has the logic for handling scanners for regions with and without replicas.
- * 1. A scan is attempted on the default (primary) region
- * 2. The scanner sends all the RPCs to the default region until it is done, or, there
- * is a timeout on the default (a timeout of zero is disallowed).
- * 3. If there is a timeout in (2) above, scanner(s) is opened on the non-default replica(s)
+ * 1. A scan is attempted on the default (primary) region, or a specific region.
+ * 2. The scanner sends all the RPCs to the default/specific region until it is done, or, there
+ * is a timeout on the default/specific region (a timeout of zero is disallowed).
+ * 3. If there is a timeout in (2) above, scanner(s) is opened on the non-default replica(s) only
+ *    for Consistency.TIMELINE without specific replica id specified.
  * 4. The results from the first successful scanner are taken, and it is stored which server
  * returned the results.
  * 5. The next RPCs are done on the above stored server until it is done or there is a timeout,
@@ -127,7 +126,7 @@ class ScannerCallableWithReplicas implements RetryingCallable<Result[]> {
   }
 
   @Override
-  public Result [] call(int timeout) throws IOException {
+  public Result[] call(int timeout) throws IOException {
     // If the active replica callable was closed somewhere, invoke the RPC to
     // really close it. In the case of regular scanners, this applies. We make couple
     // of RPCs to a RegionServer, and when that region is exhausted, we set
@@ -160,7 +159,7 @@ class ScannerCallableWithReplicas implements RetryingCallable<Result[]> {
       RegionLocations rl = null;
       try {
         rl = RpcRetryingCallerWithReadReplicas.getRegionLocations(true,
-            RegionReplicaUtil.DEFAULT_REPLICA_ID, cConnection, tableName,
+          RegionReplicaUtil.DEFAULT_REPLICA_ID, cConnection, tableName,
             currentScannerCallable.getRow());
       } catch (RetriesExhaustedException | DoNotRetryIOException e) {
         // We cannot get the primary replica region location, it is possible that the region server
@@ -187,7 +186,7 @@ class ScannerCallableWithReplicas implements RetryingCallable<Result[]> {
 
     AtomicBoolean done = new AtomicBoolean(false);
     replicaSwitched.set(false);
-    // submit call for the primary replica.
+    // submit call for the primary replica or user specified replica
     addCallsForCurrentReplica(cs);
     int startIndex = 0;
 
@@ -209,13 +208,13 @@ class ScannerCallableWithReplicas implements RetryingCallable<Result[]> {
         LOG.debug("Scan with primary region returns " + e.getCause());
       }
 
-      // If rl's size is 1 or scan's consitency is strong, it needs to throw
-      // out the exception from the primary replica
-      if ((regionReplication == 1) || (scan.getConsistency() == Consistency.STRONG)) {
+      // If rl's size is 1 or scan's consitency is strong, or scan is over specific replica,
+      // it needs to throw out the exception from the primary replica
+      if (regionReplication == 1 || scan.getConsistency() == Consistency.STRONG ||
+        scan.getReplicaId() >= 0) {
         // Rethrow the first exception
         RpcRetryingCallerWithReadReplicas.throwEnrichedException(e, retries);
       }
-
       startIndex = 1;
     } catch (CancellationException e) {
       throw new InterruptedIOException(e.getMessage());
@@ -225,8 +224,9 @@ class ScannerCallableWithReplicas implements RetryingCallable<Result[]> {
 
     // submit call for the all of the secondaries at once
     int endIndex = regionReplication;
-    if (scan.getConsistency() == Consistency.STRONG) {
-      // When scan's consistency is strong, do not send to the secondaries
+    if (scan.getConsistency() == Consistency.STRONG || scan.getReplicaId() >= 0) {
+      // When scan's consistency is strong or scan is over specific replica region, do not send to
+      // the secondaries
       endIndex = 1;
     } else {
       // TODO: this may be an overkill for large region replication
@@ -362,7 +362,6 @@ class ScannerCallableWithReplicas implements RetryingCallable<Result[]> {
     callable.getScan().withStartRow(this.lastResult.getRow(), this.lastResult.mayHaveMoreCellsInRow());
   }
 
-  @VisibleForTesting
   boolean isAnyRPCcancelled() {
     return someRPCcancelled;
   }

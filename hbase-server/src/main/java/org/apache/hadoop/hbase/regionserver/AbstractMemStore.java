@@ -18,7 +18,6 @@
  */
 package org.apache.hadoop.hbase.regionserver;
 
-import org.apache.hbase.thirdparty.com.google.common.annotations.VisibleForTesting;
 import java.io.IOException;
 import java.util.List;
 import java.util.NavigableSet;
@@ -80,6 +79,7 @@ public abstract class AbstractMemStore implements MemStore {
     this.comparator = c;
     this.regionServices = regionServices;
     resetActive();
+    resetTimeOfOldestEdit();
     this.snapshot = SegmentFactory.instance().createImmutableSegment(c);
     this.snapshotId = NO_SNAPSHOT_ID;
   }
@@ -95,7 +95,10 @@ public abstract class AbstractMemStore implements MemStore {
         memstoreAccounting.getHeapSize(), memstoreAccounting.getOffHeapSize(),
         memstoreAccounting.getCellsCount());
     }
-    timeOfOldestEdit = Long.MAX_VALUE;
+  }
+
+  protected void resetTimeOfOldestEdit() {
+    this.timeOfOldestEdit = Long.MAX_VALUE;
   }
 
   /**
@@ -373,12 +376,10 @@ public abstract class AbstractMemStore implements MemStore {
     return comparator;
   }
 
-  @VisibleForTesting
   MutableSegment getActive() {
     return active;
   }
 
-  @VisibleForTesting
   ImmutableSegment getSnapshot() {
     return snapshot;
   }

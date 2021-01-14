@@ -21,34 +21,30 @@ import static org.apache.hadoop.hbase.client.ConnectionUtils.calcEstimatedSize;
 import static org.apache.hadoop.hbase.client.ConnectionUtils.createScanResultCache;
 import static org.apache.hadoop.hbase.client.ConnectionUtils.incRegionCountMetrics;
 
-import org.apache.hbase.thirdparty.com.google.common.annotations.VisibleForTesting;
-
 import java.io.IOException;
 import java.io.InterruptedIOException;
 import java.util.ArrayDeque;
 import java.util.Queue;
 import java.util.concurrent.ExecutorService;
-
 import org.apache.commons.lang3.mutable.MutableBoolean;
 import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.hbase.client.ScannerCallable.MoreResults;
 import org.apache.hadoop.hbase.DoNotRetryIOException;
-import org.apache.hadoop.hbase.exceptions.OutOfOrderScannerNextException;
-import org.apache.hadoop.hbase.exceptions.ScannerResetException;
 import org.apache.hadoop.hbase.HConstants;
 import org.apache.hadoop.hbase.HRegionInfo;
-import org.apache.hadoop.hbase.ipc.RpcControllerFactory;
-import org.apache.hadoop.hbase.regionserver.LeaseException;
 import org.apache.hadoop.hbase.NotServingRegionException;
-import org.apache.hadoop.hbase.regionserver.RegionServerStoppedException;
 import org.apache.hadoop.hbase.TableName;
 import org.apache.hadoop.hbase.UnknownScannerException;
+import org.apache.hadoop.hbase.client.ScannerCallable.MoreResults;
+import org.apache.hadoop.hbase.exceptions.OutOfOrderScannerNextException;
+import org.apache.hadoop.hbase.exceptions.ScannerResetException;
+import org.apache.hadoop.hbase.ipc.RpcControllerFactory;
+import org.apache.hadoop.hbase.regionserver.LeaseException;
+import org.apache.hadoop.hbase.regionserver.RegionServerStoppedException;
+import org.apache.hadoop.hbase.shaded.protobuf.ProtobufUtil;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.yetus.audience.InterfaceAudience;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import org.apache.hadoop.hbase.shaded.protobuf.ProtobufUtil;
 
 /**
  * Implements the scanner interface for the HBase client. If there are multiple regions in a table,
@@ -142,6 +138,11 @@ public abstract class ClientScanner extends AbstractClientScanner {
     initCache();
   }
 
+  protected final int getScanReplicaId() {
+    return scan.getReplicaId() >= RegionReplicaUtil.DEFAULT_REPLICA_ID ? scan.getReplicaId() :
+      RegionReplicaUtil.DEFAULT_REPLICA_ID;
+  }
+
   protected ClusterConnection getConnection() {
     return this.connection;
   }
@@ -182,7 +183,6 @@ public abstract class ClientScanner extends AbstractClientScanner {
     return lastNext;
   }
 
-  @VisibleForTesting
   protected long getMaxResultSize() {
     return maxScannerResultSize;
   }
@@ -215,7 +215,6 @@ public abstract class ClientScanner extends AbstractClientScanner {
    * Marked as protected only because TestClientScanner need to override this method.
    * @return false if we should terminate the scan. Otherwise
    */
-  @VisibleForTesting
   protected boolean moveToNextRegion() {
     // Close the previous scanner if it's open
     try {
@@ -252,7 +251,6 @@ public abstract class ClientScanner extends AbstractClientScanner {
     return true;
   }
 
-  @VisibleForTesting
   boolean isAnyRPCcancelled() {
     return callable.isAnyRPCcancelled();
   }
@@ -319,7 +317,6 @@ public abstract class ClientScanner extends AbstractClientScanner {
     return result;
   }
 
-  @VisibleForTesting
   public int getCacheSize() {
     return cache != null ? cache.size() : 0;
   }
@@ -542,7 +539,6 @@ public abstract class ClientScanner extends AbstractClientScanner {
     return;
   }
 
-  @VisibleForTesting
   public int getCacheCount() {
     return cache != null ? cache.size() : 0;
   }

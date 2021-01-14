@@ -89,23 +89,6 @@ import org.apache.hadoop.hbase.security.access.GetUserPermissionsRequest;
 import org.apache.hadoop.hbase.security.access.Permission;
 import org.apache.hadoop.hbase.security.access.ShadedAccessControlUtil;
 import org.apache.hadoop.hbase.security.access.UserPermission;
-import org.apache.hadoop.hbase.snapshot.ClientSnapshotDescriptionUtils;
-import org.apache.hadoop.hbase.snapshot.RestoreSnapshotException;
-import org.apache.hadoop.hbase.snapshot.SnapshotCreationException;
-import org.apache.hadoop.hbase.util.Bytes;
-import org.apache.hadoop.hbase.util.EnvironmentEdgeManager;
-import org.apache.hadoop.hbase.util.ForeignExceptionUtil;
-import org.apache.yetus.audience.InterfaceAudience;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.apache.hbase.thirdparty.com.google.common.annotations.VisibleForTesting;
-import org.apache.hbase.thirdparty.com.google.common.base.Preconditions;
-import org.apache.hbase.thirdparty.com.google.protobuf.RpcCallback;
-import org.apache.hbase.thirdparty.io.netty.util.HashedWheelTimer;
-import org.apache.hbase.thirdparty.io.netty.util.Timeout;
-import org.apache.hbase.thirdparty.io.netty.util.TimerTask;
-import org.apache.hbase.thirdparty.org.apache.commons.collections4.CollectionUtils;
-
 import org.apache.hadoop.hbase.shaded.protobuf.ProtobufUtil;
 import org.apache.hadoop.hbase.shaded.protobuf.RequestConverter;
 import org.apache.hadoop.hbase.shaded.protobuf.generated.AccessControlProtos;
@@ -299,6 +282,21 @@ import org.apache.hadoop.hbase.shaded.protobuf.generated.ReplicationProtos.Remov
 import org.apache.hadoop.hbase.shaded.protobuf.generated.ReplicationProtos.UpdateReplicationPeerConfigRequest;
 import org.apache.hadoop.hbase.shaded.protobuf.generated.ReplicationProtos.UpdateReplicationPeerConfigResponse;
 import org.apache.hadoop.hbase.shaded.protobuf.generated.SnapshotProtos;
+import org.apache.hadoop.hbase.snapshot.ClientSnapshotDescriptionUtils;
+import org.apache.hadoop.hbase.snapshot.RestoreSnapshotException;
+import org.apache.hadoop.hbase.snapshot.SnapshotCreationException;
+import org.apache.hadoop.hbase.util.Bytes;
+import org.apache.hadoop.hbase.util.EnvironmentEdgeManager;
+import org.apache.hadoop.hbase.util.ForeignExceptionUtil;
+import org.apache.hbase.thirdparty.com.google.common.base.Preconditions;
+import org.apache.hbase.thirdparty.com.google.protobuf.RpcCallback;
+import org.apache.hbase.thirdparty.io.netty.util.HashedWheelTimer;
+import org.apache.hbase.thirdparty.io.netty.util.Timeout;
+import org.apache.hbase.thirdparty.io.netty.util.TimerTask;
+import org.apache.hbase.thirdparty.org.apache.commons.collections4.CollectionUtils;
+import org.apache.yetus.audience.InterfaceAudience;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * The implementation of AsyncAdmin.
@@ -1531,7 +1529,7 @@ class RawAsyncHBaseAdmin implements AsyncAdmin {
   }
 
   @Override
-  public CompletableFuture<Void> unassign(byte[] regionName, boolean forcible) {
+  public CompletableFuture<Void> unassign(byte[] regionName) {
     CompletableFuture<Void> future = new CompletableFuture<>();
     addListener(getRegionInfo(regionName), (regionInfo, err) -> {
       if (err != null) {
@@ -1542,7 +1540,7 @@ class RawAsyncHBaseAdmin implements AsyncAdmin {
         this.<Void> newMasterCaller().priority(regionInfo.getTable())
           .action(((controller, stub) -> this
             .<UnassignRegionRequest, UnassignRegionResponse, Void> call(controller, stub,
-              RequestConverter.buildUnassignRegionRequest(regionInfo.getRegionName(), forcible),
+              RequestConverter.buildUnassignRegionRequest(regionInfo.getRegionName()),
               (s, c, req, done) -> s.unassignRegion(c, req, done), resp -> null)))
           .call(),
         (ret, err2) -> {
@@ -2356,7 +2354,6 @@ class RawAsyncHBaseAdmin implements AsyncAdmin {
    * @param regionNameOrEncodedRegionName region name or encoded region name
    * @return region location, wrapped by a {@link CompletableFuture}
    */
-  @VisibleForTesting
   CompletableFuture<HRegionLocation> getRegionLocation(byte[] regionNameOrEncodedRegionName) {
     if (regionNameOrEncodedRegionName == null) {
       return failedFuture(new IllegalArgumentException("Passed region name can't be null"));
@@ -3257,14 +3254,18 @@ class RawAsyncHBaseAdmin implements AsyncAdmin {
   }
 
   @Override
-  public CompletableFuture<Boolean> normalize() {
+  public CompletableFuture<Boolean> normalize(NormalizeTableFilterParams ntfp) {
+    return normalize(RequestConverter.buildNormalizeRequest(ntfp));
+  }
+
+  private CompletableFuture<Boolean> normalize(NormalizeRequest request) {
     return this
-        .<Boolean> newMasterCaller()
-        .action(
-          (controller, stub) -> this.<NormalizeRequest, NormalizeResponse, Boolean> call(
-            controller, stub, RequestConverter.buildNormalizeRequest(),
-            (s, c, req, done) -> s.normalize(c, req, done), (resp) -> resp.getNormalizerRan()))
-        .call();
+      .<Boolean> newMasterCaller()
+      .action(
+        (controller, stub) -> this.call(
+          controller, stub, request, MasterService.Interface::normalize,
+          NormalizeResponse::getNormalizerRan))
+      .call();
   }
 
   @Override
@@ -3902,49 +3903,26 @@ class RawAsyncHBaseAdmin implements AsyncAdmin {
         .call();
   }
 
-  @Override
-  public CompletableFuture<List<OnlineLogRecord>> getSlowLogResponses(
-      @Nullable final Set<ServerName> serverNames, final LogQueryFilter logQueryFilter) {
+  private CompletableFuture<List<LogEntry>> getSlowLogResponses(
+      final Map<String, Object> filterParams, final Set<ServerName> serverNames, final int limit,
+      final String logType) {
     if (CollectionUtils.isEmpty(serverNames)) {
       return CompletableFuture.completedFuture(Collections.emptyList());
     }
-    if (logQueryFilter.getType() == null
-      || logQueryFilter.getType() == LogQueryFilter.Type.SLOW_LOG) {
-      return CompletableFuture.supplyAsync(() -> serverNames.stream()
-        .map((ServerName serverName) ->
-          getSlowLogResponseFromServer(serverName, logQueryFilter))
-        .map(CompletableFuture::join)
-        .flatMap(List::stream)
-        .collect(Collectors.toList()));
-    } else {
-      return CompletableFuture.supplyAsync(() -> serverNames.stream()
-        .map((ServerName serverName) ->
-          getLargeLogResponseFromServer(serverName, logQueryFilter))
-        .map(CompletableFuture::join)
-        .flatMap(List::stream)
-        .collect(Collectors.toList()));
-    }
+    return CompletableFuture.supplyAsync(() -> serverNames.stream()
+      .map((ServerName serverName) ->
+        getSlowLogResponseFromServer(serverName, filterParams, limit, logType))
+      .map(CompletableFuture::join)
+      .flatMap(List::stream)
+      .collect(Collectors.toList()));
   }
 
-  private CompletableFuture<List<OnlineLogRecord>> getLargeLogResponseFromServer(
-      final ServerName serverName, final LogQueryFilter logQueryFilter) {
-    return this.<List<OnlineLogRecord>>newAdminCaller()
-      .action((controller, stub) -> this
-        .adminCall(
-          controller, stub, RequestConverter.buildSlowLogResponseRequest(logQueryFilter),
-          AdminService.Interface::getLargeLogResponses,
-          ProtobufUtil::toSlowLogPayloads))
-      .serverName(serverName).call();
-  }
-
-  private CompletableFuture<List<OnlineLogRecord>> getSlowLogResponseFromServer(
-    final ServerName serverName, final LogQueryFilter logQueryFilter) {
-    return this.<List<OnlineLogRecord>>newAdminCaller()
-      .action((controller, stub) -> this
-        .adminCall(
-          controller, stub, RequestConverter.buildSlowLogResponseRequest(logQueryFilter),
-          AdminService.Interface::getSlowLogResponses,
-          ProtobufUtil::toSlowLogPayloads))
+  private CompletableFuture<List<LogEntry>> getSlowLogResponseFromServer(ServerName serverName,
+      Map<String, Object> filterParams, int limit, String logType) {
+    return this.<List<LogEntry>>newAdminCaller().action((controller, stub) -> this
+      .adminCall(controller, stub,
+        RequestConverter.buildSlowLogResponseRequest(filterParams, limit, logType),
+        AdminService.Interface::getLogEntries, ProtobufUtil::toSlowLogPayloads))
       .serverName(serverName).call();
   }
 
@@ -3981,4 +3959,34 @@ class RawAsyncHBaseAdmin implements AsyncAdmin {
     );
   }
 
+  private CompletableFuture<List<LogEntry>> getBalancerDecisions(final int limit) {
+    return this.<List<LogEntry>>newMasterCaller()
+      .action((controller, stub) ->
+        this.call(controller, stub,
+          ProtobufUtil.toBalancerDecisionRequest(limit),
+          MasterService.Interface::getLogEntries, ProtobufUtil::toBalancerDecisionResponse))
+      .call();
+  }
+
+  @Override
+  public CompletableFuture<List<LogEntry>> getLogEntries(Set<ServerName> serverNames,
+      String logType, ServerType serverType, int limit,
+      Map<String, Object> filterParams) {
+    if (logType == null || serverType == null) {
+      throw new IllegalArgumentException("logType and/or serverType cannot be empty");
+    }
+    if (logType.equals("SLOW_LOG") || logType.equals("LARGE_LOG")) {
+      if (ServerType.MASTER.equals(serverType)) {
+        throw new IllegalArgumentException("Slow/Large logs are not maintained by HMaster");
+      }
+      return getSlowLogResponses(filterParams, serverNames, limit, logType);
+    } else if (logType.equals("BALANCER_DECISION")) {
+      if (ServerType.REGION_SERVER.equals(serverType)) {
+        throw new IllegalArgumentException(
+          "Balancer Decision logs are not maintained by HRegionServer");
+      }
+      return getBalancerDecisions(limit);
+    }
+    return CompletableFuture.completedFuture(Collections.emptyList());
+  }
 }

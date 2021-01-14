@@ -52,6 +52,7 @@
   import="org.apache.hadoop.hbase.client.RegionLocator"
   import="org.apache.hadoop.hbase.client.RegionReplicaUtil"
   import="org.apache.hadoop.hbase.client.Table"
+  import="org.apache.hadoop.hbase.client.TableState"
   import="org.apache.hadoop.hbase.client.ColumnFamilyDescriptor"
   import="org.apache.hadoop.hbase.http.InfoServer"
   import="org.apache.hadoop.hbase.master.HMaster"
@@ -116,8 +117,8 @@
   boolean withReplica = false;
   boolean showFragmentation = conf.getBoolean("hbase.master.ui.fragmentation.enabled", false);
   boolean readOnly = !InfoServer.canUserModifyUI(request, getServletContext(), conf);
-  int numMetaReplicas = conf.getInt(HConstants.META_REPLICAS_NUM,
-          HConstants.DEFAULT_META_REPLICA_NUM);
+  int numMetaReplicas =
+    master.getTableDescriptors().get(TableName.META_TABLE_NAME).getRegionReplication();
   Map<String, Integer> frags = null;
   if (showFragmentation) {
     frags = FSUtils.getTableFragmentation(master);
@@ -601,33 +602,20 @@
       </tr>
       <tr>
         <td>Enabled</td>
-        <td><%= master.getAssignmentManager().isTableEnabled(table.getName()) %></td>
+        <td><%= master.getTableStateManager().isTableState(table.getName(), TableState.State.ENABLED) %></td>
         <td>Is the table enabled</td>
       </tr>
       <tr>
         <td>Compaction</td>
         <td>
           <%
-            if (master.getAssignmentManager().isTableEnabled(table.getName())) {
-              try {
-                CompactionState compactionState = admin.getCompactionState(table.getName()).get();
-          %><%= compactionState %><%
-        } catch (Exception e) {
-
-          if(e.getCause() != null && e.getCause().getCause() instanceof NotServingRegionException) {
+            if (master.getTableStateManager().isTableState(table.getName(), TableState.State.ENABLED)) {
+              CompactionState compactionState = master.getCompactionState(table.getName());
+              %><%= compactionState==null?"UNKNOWN":compactionState %><%
+            } else {
             %><%= CompactionState.NONE %><%
-          } else {
-          // Nothing really to do here
-          for(StackTraceElement element : e.getStackTrace()) {
-          %><%= StringEscapeUtils.escapeHtml4(element.toString()) %><%
-              }
-          %> Unknown <%
             }
-          }
-        } else {
-        %><%= CompactionState.NONE %><%
-          }
-        %>
+            %>
         </td>
         <td>Is the table compacting</td>
       </tr>

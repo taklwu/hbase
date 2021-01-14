@@ -1,5 +1,3 @@
-#
-#
 # Licensed to the Apache Software Foundation (ASF) under one
 # or more contributor license agreements.  See the NOTICE file
 # distributed with this work for additional information
@@ -25,6 +23,8 @@ java_import org.apache.hadoop.hbase.util.RegionSplitter
 java_import org.apache.hadoop.hbase.util.Bytes
 java_import org.apache.hadoop.hbase.ServerName
 java_import org.apache.hadoop.hbase.TableName
+java_import org.apache.hadoop.hbase.client.ColumnFamilyDescriptorBuilder
+java_import org.apache.hadoop.hbase.HConstants
 
 # Wrapper for org.apache.hadoop.hbase.client.HBaseAdmin
 
@@ -234,9 +234,54 @@ module Hbase
 
     #----------------------------------------------------------------------------------------------
     # Requests region normalization for all configured tables in the cluster
-    # Returns true if normalizer ran successfully
-    def normalize
-      @admin.normalize
+    # Returns true if normalize request was successfully submitted
+    def normalize(*args)
+      builder = org.apache.hadoop.hbase.client.NormalizeTableFilterParams::Builder.new
+      args.each do |arg|
+        unless arg.is_a?(String) || arg.is_a?(Hash)
+          raise(ArgumentError, "#{arg.class} of #{arg.inspect} is not of Hash or String type")
+        end
+
+        if arg.key?(TABLE_NAME)
+          table_name = arg.delete(TABLE_NAME)
+          unless table_name.is_a?(String)
+            raise(ArgumentError, "#{TABLE_NAME} must be of type String")
+          end
+
+          builder.tableNames(java.util.Collections.singletonList(TableName.valueOf(table_name)))
+        elsif arg.key?(TABLE_NAMES)
+          table_names = arg.delete(TABLE_NAMES)
+          unless table_names.is_a?(Array)
+            raise(ArgumentError, "#{TABLE_NAMES} must be of type Array")
+          end
+
+          table_name_list = java.util.LinkedList.new
+          table_names.each do |tn|
+            unless tn.is_a?(String)
+              raise(ArgumentError, "#{TABLE_NAMES} value #{tn} must be of type String")
+            end
+
+            table_name_list.add(TableName.valueOf(tn))
+          end
+          builder.tableNames(table_name_list)
+        elsif arg.key?(REGEX)
+          regex = arg.delete(REGEX)
+          raise(ArgumentError, "#{REGEX} must be of type String") unless regex.is_a?(String)
+
+          builder.regex(regex)
+        elsif arg.key?(NAMESPACE)
+          namespace = arg.delete(NAMESPACE)
+          unless namespace.is_a?(String)
+            raise(ArgumentError, "#{NAMESPACE} must be of type String")
+          end
+
+          builder.namespace(namespace)
+        else
+          raise(ArgumentError, "Unrecognized argument #{arg}")
+        end
+      end
+      ntfp = builder.build
+      @admin.normalize(ntfp)
     end
 
     #----------------------------------------------------------------------------------------------
@@ -513,8 +558,9 @@ module Hbase
 
     #----------------------------------------------------------------------------------------------
     # Unassign a region
-    def unassign(region_name, force)
-      @admin.unassign(region_name.to_java_bytes, java.lang.Boolean.valueOf(force))
+    # the force parameter is deprecated, if it is specified, will be ignored.
+    def unassign(region_name, force = nil)
+      @admin.unassign(region_name.to_java_bytes)
     end
 
     #----------------------------------------------------------------------------------------------
@@ -971,25 +1017,25 @@ module Hbase
       family.setCacheIndexesOnWrite(JBoolean.valueOf(arg.delete(org.apache.hadoop.hbase.HColumnDescriptor::CACHE_INDEX_ON_WRITE))) if arg.include?(org.apache.hadoop.hbase.HColumnDescriptor::CACHE_INDEX_ON_WRITE)
       family.setCacheBloomsOnWrite(JBoolean.valueOf(arg.delete(org.apache.hadoop.hbase.HColumnDescriptor::CACHE_BLOOMS_ON_WRITE))) if arg.include?(org.apache.hadoop.hbase.HColumnDescriptor::CACHE_BLOOMS_ON_WRITE)
       family.setEvictBlocksOnClose(JBoolean.valueOf(arg.delete(org.apache.hadoop.hbase.HColumnDescriptor::EVICT_BLOCKS_ON_CLOSE))) if arg.include?(org.apache.hadoop.hbase.HColumnDescriptor::EVICT_BLOCKS_ON_CLOSE)
-      family.setInMemory(JBoolean.valueOf(arg.delete(org.apache.hadoop.hbase.HColumnDescriptor::IN_MEMORY))) if arg.include?(org.apache.hadoop.hbase.HColumnDescriptor::IN_MEMORY)
+      family.setInMemory(JBoolean.valueOf(arg.delete(ColumnFamilyDescriptorBuilder::IN_MEMORY))) if arg.include?(ColumnFamilyDescriptorBuilder::IN_MEMORY)
       if arg.include?(org.apache.hadoop.hbase.HColumnDescriptor::IN_MEMORY_COMPACTION)
         family.setInMemoryCompaction(
           org.apache.hadoop.hbase.MemoryCompactionPolicy.valueOf(arg.delete(org.apache.hadoop.hbase.HColumnDescriptor::IN_MEMORY_COMPACTION))
         )
       end
-      family.setTimeToLive(arg.delete(org.apache.hadoop.hbase.HColumnDescriptor::TTL)) if arg.include?(org.apache.hadoop.hbase.HColumnDescriptor::TTL)
-      family.setDataBlockEncoding(org.apache.hadoop.hbase.io.encoding.DataBlockEncoding.valueOf(arg.delete(org.apache.hadoop.hbase.HColumnDescriptor::DATA_BLOCK_ENCODING))) if arg.include?(org.apache.hadoop.hbase.HColumnDescriptor::DATA_BLOCK_ENCODING)
-      family.setBlocksize(JInteger.valueOf(arg.delete(org.apache.hadoop.hbase.HColumnDescriptor::BLOCKSIZE))) if arg.include?(org.apache.hadoop.hbase.HColumnDescriptor::BLOCKSIZE)
-      family.setMaxVersions(JInteger.valueOf(arg.delete(org.apache.hadoop.hbase.HColumnDescriptor::VERSIONS))) if arg.include?(org.apache.hadoop.hbase.HColumnDescriptor::VERSIONS)
-      family.setMinVersions(JInteger.valueOf(arg.delete(org.apache.hadoop.hbase.HColumnDescriptor::MIN_VERSIONS))) if arg.include?(org.apache.hadoop.hbase.HColumnDescriptor::MIN_VERSIONS)
-      family.setKeepDeletedCells(org.apache.hadoop.hbase.KeepDeletedCells.valueOf(arg.delete(org.apache.hadoop.hbase.HColumnDescriptor::KEEP_DELETED_CELLS).to_s.upcase)) if arg.include?(org.apache.hadoop.hbase.HColumnDescriptor::KEEP_DELETED_CELLS)
-      family.setCompressTags(JBoolean.valueOf(arg.delete(org.apache.hadoop.hbase.HColumnDescriptor::COMPRESS_TAGS))) if arg.include?(org.apache.hadoop.hbase.HColumnDescriptor::COMPRESS_TAGS)
-      family.setPrefetchBlocksOnOpen(JBoolean.valueOf(arg.delete(org.apache.hadoop.hbase.HColumnDescriptor::PREFETCH_BLOCKS_ON_OPEN))) if arg.include?(org.apache.hadoop.hbase.HColumnDescriptor::PREFETCH_BLOCKS_ON_OPEN)
-      family.setMobEnabled(JBoolean.valueOf(arg.delete(org.apache.hadoop.hbase.HColumnDescriptor::IS_MOB))) if arg.include?(org.apache.hadoop.hbase.HColumnDescriptor::IS_MOB)
-      family.setMobThreshold(JLong.valueOf(arg.delete(org.apache.hadoop.hbase.HColumnDescriptor::MOB_THRESHOLD))) if arg.include?(org.apache.hadoop.hbase.HColumnDescriptor::MOB_THRESHOLD)
-      family.setNewVersionBehavior(JBoolean.valueOf(arg.delete(org.apache.hadoop.hbase.HColumnDescriptor::NEW_VERSION_BEHAVIOR))) if arg.include?(org.apache.hadoop.hbase.HColumnDescriptor::NEW_VERSION_BEHAVIOR)
-      if arg.include?(org.apache.hadoop.hbase.HColumnDescriptor::BLOOMFILTER)
-        bloomtype = arg.delete(org.apache.hadoop.hbase.HColumnDescriptor::BLOOMFILTER).upcase.to_sym
+      family.setTimeToLive(arg.delete(ColumnFamilyDescriptorBuilder::TTL)) if arg.include?(ColumnFamilyDescriptorBuilder::TTL)
+      family.setDataBlockEncoding(org.apache.hadoop.hbase.io.encoding.DataBlockEncoding.valueOf(arg.delete(ColumnFamilyDescriptorBuilder::DATA_BLOCK_ENCODING))) if arg.include?(ColumnFamilyDescriptorBuilder::DATA_BLOCK_ENCODING)
+      family.setBlocksize(JInteger.valueOf(arg.delete(ColumnFamilyDescriptorBuilder::BLOCKSIZE))) if arg.include?(ColumnFamilyDescriptorBuilder::BLOCKSIZE)
+      family.setMaxVersions(JInteger.valueOf(arg.delete(HConstants::VERSIONS))) if arg.include?(HConstants::VERSIONS)
+      family.setMinVersions(JInteger.valueOf(arg.delete(ColumnFamilyDescriptorBuilder::MIN_VERSIONS))) if arg.include?(ColumnFamilyDescriptorBuilder::MIN_VERSIONS)
+      family.setKeepDeletedCells(org.apache.hadoop.hbase.KeepDeletedCells.valueOf(arg.delete(ColumnFamilyDescriptorBuilder::KEEP_DELETED_CELLS).to_s.upcase)) if arg.include?(ColumnFamilyDescriptorBuilder::KEEP_DELETED_CELLS)
+      family.setCompressTags(JBoolean.valueOf(arg.delete(ColumnFamilyDescriptorBuilder::COMPRESS_TAGS))) if arg.include?(ColumnFamilyDescriptorBuilder::COMPRESS_TAGS)
+      family.setPrefetchBlocksOnOpen(JBoolean.valueOf(arg.delete(ColumnFamilyDescriptorBuilder::PREFETCH_BLOCKS_ON_OPEN))) if arg.include?(ColumnFamilyDescriptorBuilder::PREFETCH_BLOCKS_ON_OPEN)
+      family.setMobEnabled(JBoolean.valueOf(arg.delete(ColumnFamilyDescriptorBuilder::IS_MOB))) if arg.include?(ColumnFamilyDescriptorBuilder::IS_MOB)
+      family.setMobThreshold(JLong.valueOf(arg.delete(ColumnFamilyDescriptorBuilder::MOB_THRESHOLD))) if arg.include?(ColumnFamilyDescriptorBuilder::MOB_THRESHOLD)
+      family.setNewVersionBehavior(JBoolean.valueOf(arg.delete(ColumnFamilyDescriptorBuilder::NEW_VERSION_BEHAVIOR))) if arg.include?(ColumnFamilyDescriptorBuilder::NEW_VERSION_BEHAVIOR)
+      if arg.include?(ColumnFamilyDescriptorBuilder::BLOOMFILTER)
+        bloomtype = arg.delete(ColumnFamilyDescriptorBuilder::BLOOMFILTER).upcase.to_sym
         if org.apache.hadoop.hbase.regionserver.BloomType.constants.include?(bloomtype)
           family.setBloomFilterType(org.apache.hadoop.hbase.regionserver.BloomType.valueOf(bloomtype))
         else
@@ -1008,8 +1054,8 @@ module Hbase
         algorithm = arg.delete(org.apache.hadoop.hbase.HColumnDescriptor::ENCRYPTION).upcase
         family.setEncryptionType(algorithm)
         if arg.include?(org.apache.hadoop.hbase.HColumnDescriptor::ENCRYPTION_KEY)
-          key = org.apache.hadoop.hbase.io.crypto.Encryption.pbkdf128(
-            arg.delete(org.apache.hadoop.hbase.HColumnDescriptor::ENCRYPTION_KEY)
+          key = org.apache.hadoop.hbase.io.crypto.Encryption.generateSecretKey(
+            @conf, algorithm, arg.delete(org.apache.hadoop.hbase.HColumnDescriptor::ENCRYPTION_KEY)
           )
           family.setEncryptionKey(org.apache.hadoop.hbase.security.EncryptionUtil.wrapKey(@conf, key,
                                                                                           algorithm))
@@ -1451,7 +1497,7 @@ module Hbase
 
     #----------------------------------------------------------------------------------------------
     # Retrieve SlowLog Responses from RegionServers
-    def get_slowlog_responses(server_names, args)
+    def get_slowlog_responses(server_names, args, is_large_log = false)
       unless server_names.is_a?(Array) || server_names.is_a?(String)
         raise(ArgumentError,
               "#{server_names.class} of #{server_names.inspect} is not of Array/String type")
@@ -1463,38 +1509,44 @@ module Hbase
         server_names = getServerNames(server_names_list, false)
       end
       filter_params = get_filter_params(args)
-      filter_params.setType(org.apache.hadoop.hbase.client.LogQueryFilter::Type::SLOW_LOG)
-      slow_log_responses = @admin.getSlowLogResponses(java.util.HashSet.new(server_names),
-                                                      filter_params)
-      slow_log_responses_arr = []
-      for slow_log_response in slow_log_responses
-        slow_log_responses_arr << slow_log_response.toJsonPrettyPrint
+      if args.key? 'LIMIT'
+        limit = args['LIMIT']
+      else
+        limit = 10
       end
-      puts 'Retrieved SlowLog Responses from RegionServers'
-      puts slow_log_responses_arr
+      if is_large_log
+        log_type = 'LARGE_LOG'
+      else
+        log_type = 'SLOW_LOG'
+      end
+      log_dest = org.apache.hadoop.hbase.client.ServerType::REGION_SERVER
+      server_names_set = java.util.HashSet.new(server_names)
+      slow_log_responses = @admin.getLogEntries(server_names_set, log_type, log_dest, limit,
+                                                filter_params)
+      slow_log_responses_arr = []
+      slow_log_responses.each { |slow_log_response|
+        slow_log_responses_arr << slow_log_response.toJsonPrettyPrint
+      }
+      slow_log_responses_arr
     end
 
     def get_filter_params(args)
-      filter_params = org.apache.hadoop.hbase.client.LogQueryFilter.new
+      filter_params = java.util.HashMap.new
       if args.key? 'REGION_NAME'
         region_name = args['REGION_NAME']
-        filter_params.setRegionName(region_name)
+        filter_params.put('regionName', region_name)
       end
       if args.key? 'TABLE_NAME'
         table_name = args['TABLE_NAME']
-        filter_params.setTableName(table_name)
+        filter_params.put('tableName', table_name)
       end
       if args.key? 'CLIENT_IP'
-        client_ip = args['CLIENT_IP']
-        filter_params.setClientAddress(client_ip)
+        client_address = args['CLIENT_IP']
+        filter_params.put('clientAddress', client_address)
       end
       if args.key? 'USER'
         user = args['USER']
-        filter_params.setUserName(user)
-      end
-      if args.key? 'LIMIT'
-        limit = args['LIMIT']
-        filter_params.setLimit(limit)
+        filter_params.put('userName', user)
       end
       if args.key? 'FILTER_BY_OP'
         filter_by_op = args['FILTER_BY_OP']
@@ -1502,36 +1554,10 @@ module Hbase
           raise(ArgumentError, "FILTER_BY_OP should be either OR / AND")
         end
         if filter_by_op == 'AND'
-          filter_params.setFilterByOperator(
-              org.apache.hadoop.hbase.client.LogQueryFilter::FilterByOperator::AND)
+          filter_params.put('filterByOperator', 'AND')
         end
       end
       filter_params
-    end
-
-    #----------------------------------------------------------------------------------------------
-    # Retrieve LargeLog Responses from RegionServers
-    def get_largelog_responses(server_names, args)
-      unless server_names.is_a?(Array) || server_names.is_a?(String)
-        raise(ArgumentError,
-              "#{server_names.class} of #{server_names.inspect} is not of Array/String type")
-      end
-      if server_names == '*'
-        server_names = getServerNames([], true)
-      else
-        server_names_list = to_server_names(server_names)
-        server_names = getServerNames(server_names_list, false)
-      end
-      filter_params = get_filter_params(args)
-      filter_params.setType(org.apache.hadoop.hbase.client.LogQueryFilter::Type::LARGE_LOG)
-      large_log_responses = @admin.getSlowLogResponses(java.util.HashSet.new(server_names),
-                                                       filter_params)
-      large_log_responses_arr = []
-      for large_log_response in large_log_responses
-        large_log_responses_arr << large_log_response.toJsonPrettyPrint
-      end
-      puts 'Retrieved LargeLog Responses from RegionServers'
-      puts large_log_responses_arr
     end
 
     #----------------------------------------------------------------------------------------------
@@ -1620,6 +1646,24 @@ module Hbase
       end
 
       @admin.recommissionRegionServer(server_name, region_names_in_bytes)
+    end
+
+    #----------------------------------------------------------------------------------------------
+    # Retrieve latest balancer decisions made by LoadBalancers
+    def get_balancer_decisions(args)
+      if args.key? 'LIMIT'
+        limit = args['LIMIT']
+      else
+        limit = 250
+      end
+      log_type = 'BALANCER_DECISION'
+      log_dest = org.apache.hadoop.hbase.client.ServerType::MASTER
+      balancer_decisions_responses = @admin.getLogEntries(nil, log_type, log_dest, limit, nil)
+      balancer_decisions_resp_arr = []
+      balancer_decisions_responses.each { |balancer_dec_resp|
+        balancer_decisions_resp_arr << balancer_dec_resp.toJsonPrettyPrint
+      }
+      balancer_decisions_resp_arr
     end
 
     #----------------------------------------------------------------------------------------------

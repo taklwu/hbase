@@ -41,8 +41,6 @@ import org.apache.yetus.audience.InterfaceAudience;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import org.apache.hbase.thirdparty.com.google.common.annotations.VisibleForTesting;
-
 import org.apache.hadoop.hbase.shaded.protobuf.ProtobufUtil;
 import org.apache.hadoop.hbase.shaded.protobuf.generated.MasterProcedureProtos.RegionStateTransitionState;
 import org.apache.hadoop.hbase.shaded.protobuf.generated.MasterProcedureProtos.RegionStateTransitionStateData;
@@ -143,7 +141,6 @@ public class TransitRegionStateProcedure
     }
   }
 
-  @VisibleForTesting
   protected TransitRegionStateProcedure(MasterProcedureEnv env, RegionInfo hri,
       ServerName assignCandidate, boolean forceNewPlan, TransitionType type) {
     super(env, hri);
@@ -348,6 +345,7 @@ public class TransitRegionStateProcedure
               LOG.error(
                 "Cannot assign replica region {} because its primary region {} does not exist.",
                 regionNode.getRegionInfo(), defaultRI);
+              regionNode.unsetProcedure(this);
               return Flow.NO_MORE_STATE;
             }
           }

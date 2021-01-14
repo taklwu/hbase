@@ -19,7 +19,6 @@ package org.apache.hadoop.hbase;
 
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
@@ -33,12 +32,12 @@ import static org.mockito.Mockito.verify;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
 import java.util.concurrent.TimeUnit;
-
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hbase.client.Admin;
 import org.apache.hadoop.hbase.client.Connection;
@@ -77,7 +76,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import org.apache.hbase.thirdparty.com.google.common.collect.Lists;
-import org.apache.hbase.thirdparty.com.google.common.collect.Sets;
 
 /**
  * Test {@link org.apache.hadoop.hbase.MetaTableAccessor}.
@@ -219,9 +217,11 @@ public class TestMetaTableAccessor {
       }
     };
     MetaTask writer = new MetaTask(connection, "writer") {
+
       @Override
-      void metaTask() throws Throwable {
-        MetaTableAccessor.addRegionToMeta(connection, regions.get(0));
+      void metaTask() throws IOException {
+        MetaTableAccessor.addRegionsToMeta(connection, Collections.singletonList(regions.get(0)),
+          1);
         LOG.info("Wrote " + regions.get(0).getEncodedName());
       }
     };
@@ -328,25 +328,8 @@ public class TestMetaTableAccessor {
         MetaTableLocator.getMetaRegionsAndLocations(UTIL.getZooKeeperWatcher()).size() >= 1);
   }
 
-  @Test public void testTableExists() throws IOException {
-    final TableName tableName = TableName.valueOf(name.getMethodName());
-    assertFalse(MetaTableAccessor.tableExists(connection, tableName));
-    UTIL.createTable(tableName, HConstants.CATALOG_FAMILY);
-    assertTrue(MetaTableAccessor.tableExists(connection, tableName));
-    Admin admin = UTIL.getAdmin();
-    admin.disableTable(tableName);
-    admin.deleteTable(tableName);
-    assertFalse(MetaTableAccessor.tableExists(connection, tableName));
-    assertTrue(MetaTableAccessor.tableExists(connection,
-        TableName.META_TABLE_NAME));
-    UTIL.createTable(tableName, HConstants.CATALOG_FAMILY);
-    assertTrue(MetaTableAccessor.tableExists(connection, tableName));
-    admin.disableTable(tableName);
-    admin.deleteTable(tableName);
-    assertFalse(MetaTableAccessor.tableExists(connection, tableName));
-  }
-
-  @Test public void testGetRegion() throws IOException, InterruptedException {
+  @Test
+  public void testGetRegion() throws IOException, InterruptedException {
     final String name = this.name.getMethodName();
     LOG.info("Started " + name);
     // Test get on non-existent region.
@@ -420,6 +403,29 @@ public class TestMetaTableAccessor {
     String column6 = HConstants.STARTCODE_QUALIFIER_STR;
     assertEquals(-1,
         MetaTableAccessor.parseReplicaIdFromServerColumn(Bytes.toBytes(column6)));
+  }
+
+  /**
+   * The info we can get from the regionName is: table name, start key, regionId, replicaId.
+   */
+  @Test
+  public void testParseRegionInfoFromRegionName() throws IOException  {
+    RegionInfo originalRegionInfo = RegionInfoBuilder.newBuilder(
+      TableName.valueOf(name.getMethodName())).setRegionId(999999L)
+      .setStartKey(Bytes.toBytes("2")).setEndKey(Bytes.toBytes("3"))
+      .setReplicaId(1).build();
+    RegionInfo newParsedRegionInfo = MetaTableAccessor
+      .parseRegionInfoFromRegionName(originalRegionInfo.getRegionName());
+    assertEquals("Parse TableName error", originalRegionInfo.getTable(),
+      newParsedRegionInfo.getTable());
+    assertEquals("Parse regionId error", originalRegionInfo.getRegionId(),
+      newParsedRegionInfo.getRegionId());
+    assertTrue("Parse startKey error", Bytes.equals(originalRegionInfo.getStartKey(),
+      newParsedRegionInfo.getStartKey()));
+    assertEquals("Parse replicaId error", originalRegionInfo.getReplicaId(),
+      newParsedRegionInfo.getReplicaId());
+    assertTrue("We can't parse endKey from regionName only",
+      Bytes.equals(HConstants.EMPTY_END_ROW, newParsedRegionInfo.getEndKey()));
   }
 
   @Test
@@ -531,44 +537,6 @@ public class TestMetaTableAccessor {
     assertNotNull(startCodeCell);
     assertEquals(0, serverCell.getValueLength());
     assertEquals(0, startCodeCell.getValueLength());
-  }
-
-  @Test
-  public void testMetaLocationForRegionReplicasIsRemovedAtTableDeletion() throws IOException {
-    long regionId = System.currentTimeMillis();
-    RegionInfo primary = RegionInfoBuilder.newBuilder(TableName.valueOf(name.getMethodName()))
-        .setStartKey(HConstants.EMPTY_START_ROW).setEndKey(HConstants.EMPTY_END_ROW).setSplit(false)
-        .setRegionId(regionId).setReplicaId(0).build();
-
-    Table meta = MetaTableAccessor.getMetaHTable(connection);
-    try {
-      List<RegionInfo> regionInfos = Lists.newArrayList(primary);
-      MetaTableAccessor.addRegionsToMeta(connection, regionInfos, 3);
-      MetaTableAccessor.removeRegionReplicasFromMeta(Sets.newHashSet(primary.getRegionName()), 1, 2,
-        connection);
-      Get get = new Get(primary.getRegionName());
-      Result result = meta.get(get);
-      for (int replicaId = 0; replicaId < 3; replicaId++) {
-        Cell serverCell = result.getColumnLatestCell(HConstants.CATALOG_FAMILY,
-          MetaTableAccessor.getServerColumn(replicaId));
-        Cell startCodeCell = result.getColumnLatestCell(HConstants.CATALOG_FAMILY,
-          MetaTableAccessor.getStartCodeColumn(replicaId));
-        Cell stateCell = result.getColumnLatestCell(HConstants.CATALOG_FAMILY,
-          MetaTableAccessor.getRegionStateColumn(replicaId));
-        Cell snCell = result.getColumnLatestCell(HConstants.CATALOG_FAMILY,
-          MetaTableAccessor.getServerNameColumn(replicaId));
-        if (replicaId == 0) {
-          assertNotNull(stateCell);
-        } else {
-          assertNull(serverCell);
-          assertNull(startCodeCell);
-          assertNull(stateCell);
-          assertNull(snCell);
-        }
-      }
-    } finally {
-      meta.close();
-    }
   }
 
   @Test

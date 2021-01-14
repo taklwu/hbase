@@ -43,8 +43,6 @@ import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.yetus.audience.InterfaceAudience;
 import org.apache.yetus.audience.InterfaceAudience.Private;
 
-import org.apache.hbase.thirdparty.com.google.common.annotations.VisibleForTesting;
-
 /**
  * Utility methods helpful for slinging {@link Cell} instances. Some methods below are for internal
  * use only and are marked InterfaceAudience.Private at the method level. Note that all such methods
@@ -789,6 +787,11 @@ public final class CellUtil {
   public static boolean matchingFamily(final Cell left, final Cell right) {
     byte lfamlength = left.getFamilyLength();
     byte rfamlength = right.getFamilyLength();
+    return matchingFamily(left, lfamlength, right, rfamlength);
+  }
+
+  public static boolean matchingFamily(final Cell left, final byte lfamlength, final Cell right,
+      final byte rfamlength) {
     if (left instanceof ByteBufferExtendedCell && right instanceof ByteBufferExtendedCell) {
       return ByteBufferUtils.equals(((ByteBufferExtendedCell) left).getFamilyByteBuffer(),
         ((ByteBufferExtendedCell) left).getFamilyPosition(), lfamlength,
@@ -835,6 +838,11 @@ public final class CellUtil {
   public static boolean matchingQualifier(final Cell left, final Cell right) {
     int lqlength = left.getQualifierLength();
     int rqlength = right.getQualifierLength();
+    return matchingQualifier(left, lqlength, right, rqlength);
+  }
+
+  private static boolean matchingQualifier(final Cell left, final int lqlength, final Cell right,
+      final int rqlength) {
     if (left instanceof ByteBufferExtendedCell && right instanceof ByteBufferExtendedCell) {
       return ByteBufferUtils.equals(((ByteBufferExtendedCell) left).getQualifierByteBuffer(),
         ((ByteBufferExtendedCell) left).getQualifierPosition(), lqlength,
@@ -918,6 +926,14 @@ public final class CellUtil {
   public static boolean matchingColumn(final Cell left, final Cell right) {
     if (!matchingFamily(left, right)) return false;
     return matchingQualifier(left, right);
+  }
+
+  private static boolean matchingColumn(final Cell left, final byte lFamLen, final int lQualLength,
+      final Cell right, final byte rFamLen, final int rQualLength) {
+    if (!matchingFamily(left, lFamLen, right, rFamLen)) {
+      return false;
+    }
+    return matchingQualifier(left, lQualLength, right, rQualLength);
   }
 
   public static boolean matchingValue(final Cell left, final Cell right) {
@@ -1570,6 +1586,11 @@ public final class CellUtil {
   public static boolean matchingRows(final Cell left, final Cell right) {
     short lrowlength = left.getRowLength();
     short rrowlength = right.getRowLength();
+    return matchingRows(left, lrowlength, right, rrowlength);
+  }
+
+  public static boolean matchingRows(final Cell left, final short lrowlength, final Cell right,
+      final short rrowlength) {
     if (lrowlength != rrowlength) return false;
     if (left instanceof ByteBufferExtendedCell && right instanceof ByteBufferExtendedCell) {
       return ByteBufferUtils.equals(((ByteBufferExtendedCell) left).getRowByteBuffer(),
@@ -1598,16 +1619,29 @@ public final class CellUtil {
    * @return True if same row and column.
    */
   public static boolean matchingRowColumn(final Cell left, final Cell right) {
-    if ((left.getRowLength() + left.getFamilyLength()
-        + left.getQualifierLength()) != (right.getRowLength() + right.getFamilyLength()
-            + right.getQualifierLength())) {
+    short lrowlength = left.getRowLength();
+    short rrowlength = right.getRowLength();
+    // match length
+    if (lrowlength != rrowlength) {
       return false;
     }
 
-    if (!matchingRows(left, right)) {
+    byte lfamlength = left.getFamilyLength();
+    byte rfamlength = right.getFamilyLength();
+    if (lfamlength != rfamlength) {
       return false;
     }
-    return matchingColumn(left, right);
+
+    int lqlength = left.getQualifierLength();
+    int rqlength = right.getQualifierLength();
+    if (lqlength != rqlength) {
+      return false;
+    }
+
+    if (!matchingRows(left, lrowlength, right, rrowlength)) {
+      return false;
+    }
+    return matchingColumn(left, lfamlength, lqlength, right, rfamlength, rqlength);
   }
 
   public static boolean matchingRowColumnBytes(final Cell left, final Cell right) {
@@ -1617,9 +1651,9 @@ public final class CellUtil {
     int rfamlength = right.getFamilyLength();
     int lqlength = left.getQualifierLength();
     int rqlength = right.getQualifierLength();
+
     // match length
-    if ((lrowlength + lfamlength + lqlength) !=
-        (rrowlength + rfamlength + rqlength)) {
+    if ((lrowlength != rrowlength) || (lfamlength != rfamlength) || (lqlength != rqlength)) {
       return false;
     }
 
@@ -1672,7 +1706,7 @@ public final class CellUtil {
    *         than right equal to 0 if left is equal to right
    * @deprecated As of HBase-2.0. Will be removed in HBase-3.0
    */
-  @VisibleForTesting
+  @InterfaceAudience.Private
   @Deprecated
   public static final int compare(CellComparator comparator, Cell left, byte[] key, int offset,
       int length) {

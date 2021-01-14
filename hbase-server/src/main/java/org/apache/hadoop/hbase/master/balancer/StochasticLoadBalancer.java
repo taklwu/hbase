@@ -29,7 +29,6 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Random;
 import java.util.stream.Collectors;
-
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hbase.ClusterMetrics;
 import org.apache.hadoop.hbase.HBaseInterfaceAudience;
@@ -37,6 +36,7 @@ import org.apache.hadoop.hbase.RegionMetrics;
 import org.apache.hadoop.hbase.ServerMetrics;
 import org.apache.hadoop.hbase.ServerName;
 import org.apache.hadoop.hbase.TableName;
+import org.apache.hadoop.hbase.client.BalancerDecision;
 import org.apache.hadoop.hbase.client.RegionInfo;
 import org.apache.hadoop.hbase.master.MasterServices;
 import org.apache.hadoop.hbase.master.RegionPlan;
@@ -46,6 +46,8 @@ import org.apache.hadoop.hbase.master.balancer.BaseLoadBalancer.Cluster.AssignRe
 import org.apache.hadoop.hbase.master.balancer.BaseLoadBalancer.Cluster.LocalityType;
 import org.apache.hadoop.hbase.master.balancer.BaseLoadBalancer.Cluster.MoveRegionAction;
 import org.apache.hadoop.hbase.master.balancer.BaseLoadBalancer.Cluster.SwapRegionsAction;
+import org.apache.hadoop.hbase.namequeues.BalancerDecisionDetails;
+import org.apache.hadoop.hbase.namequeues.NamedQueueRecorder;
 import org.apache.hadoop.hbase.regionserver.compactions.OffPeakHours;
 import org.apache.hadoop.hbase.util.EnvironmentEdgeManager;
 import org.apache.hadoop.hbase.util.ReflectionUtils;
@@ -53,9 +55,7 @@ import org.apache.yetus.audience.InterfaceAudience;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import org.apache.hbase.thirdparty.com.google.common.annotations.VisibleForTesting;
 import org.apache.hbase.thirdparty.com.google.common.collect.Lists;
-
 
 /**
  * <p>This is a best effort load balancer. Given a Cost function F(C) =&gt; x It will
@@ -204,22 +204,29 @@ public class StochasticLoadBalancer extends BaseLoadBalancer {
     regionReplicaRackCostFunction = new RegionReplicaRackCostFunction(conf);
 
     costFunctions = new ArrayList<>();
-    costFunctions.add(new RegionCountSkewCostFunction(conf));
-    costFunctions.add(new PrimaryRegionCountSkewCostFunction(conf));
-    costFunctions.add(new MoveCostFunction(conf));
-    costFunctions.add(localityCost);
-    costFunctions.add(rackLocalityCost);
-    costFunctions.add(new TableSkewCostFunction(conf));
-    costFunctions.add(regionReplicaHostCostFunction);
-    costFunctions.add(regionReplicaRackCostFunction);
-    costFunctions.add(regionLoadFunctions[0]);
-    costFunctions.add(regionLoadFunctions[1]);
-    costFunctions.add(regionLoadFunctions[2]);
-    costFunctions.add(regionLoadFunctions[3]);
+    addCostFunction(new RegionCountSkewCostFunction(conf));
+    addCostFunction(new PrimaryRegionCountSkewCostFunction(conf));
+    addCostFunction(new MoveCostFunction(conf));
+    addCostFunction(localityCost);
+    addCostFunction(rackLocalityCost);
+    addCostFunction(new TableSkewCostFunction(conf));
+    addCostFunction(regionReplicaHostCostFunction);
+    addCostFunction(regionReplicaRackCostFunction);
+    addCostFunction(regionLoadFunctions[0]);
+    addCostFunction(regionLoadFunctions[1]);
+    addCostFunction(regionLoadFunctions[2]);
+    addCostFunction(regionLoadFunctions[3]);
     loadCustomCostFunctions(conf);
 
     curFunctionCosts = new Double[costFunctions.size()];
     tempFunctionCosts = new Double[costFunctions.size()];
+
+    boolean isBalancerDecisionRecording = getConf()
+      .getBoolean(BaseLoadBalancer.BALANCER_DECISION_BUFFER_ENABLED,
+        BaseLoadBalancer.DEFAULT_BALANCER_DECISION_BUFFER_ENABLED);
+    if (this.namedQueueRecorder == null && isBalancerDecisionRecording) {
+      this.namedQueueRecorder = NamedQueueRecorder.getInstance(getConf());
+    }
 
     LOG.info("Loaded config; maxSteps=" + maxSteps + ", stepsPerRegion=" + stepsPerRegion +
             ", maxRunningTime=" + maxRunningTime + ", isByTable=" + isByTable + ", CostFunctions=" +
@@ -233,26 +240,21 @@ public class StochasticLoadBalancer extends BaseLoadBalancer {
       return;
     }
 
-    costFunctions.addAll(Arrays.stream(functionsNames)
-            .map(c -> {
-              Class<? extends CostFunction> klass = null;
-              try {
-                klass = (Class<? extends CostFunction>) Class.forName(c);
-              } catch (ClassNotFoundException e) {
-                LOG.warn("Cannot load class " + c + "': " + e.getMessage());
-              }
-              if (null == klass) {
-                return null;
-              }
-
-              CostFunction reflected = ReflectionUtils.newInstance(klass, conf);
-              LOG.info("Successfully loaded custom CostFunction '" +
-                      reflected.getClass().getSimpleName() + "'");
-
-              return reflected;
-            })
-            .filter(Objects::nonNull)
-            .collect(Collectors.toList()));
+    costFunctions.addAll(Arrays.stream(functionsNames).map(c -> {
+      Class<? extends CostFunction> klass = null;
+      try {
+        klass = (Class<? extends CostFunction>) Class.forName(c);
+      } catch (ClassNotFoundException e) {
+        LOG.warn("Cannot load class " + c + "': " + e.getMessage());
+      }
+      if (null == klass) {
+        return null;
+      }
+      CostFunction reflected = ReflectionUtils.newInstance(klass, conf);
+      LOG.info(
+        "Successfully loaded custom CostFunction '" + reflected.getClass().getSimpleName() + "'");
+      return reflected;
+    }).filter(Objects::nonNull).collect(Collectors.toList()));
   }
 
   protected void setCandidateGenerators(List<CandidateGenerator> customCandidateGenerators) {
@@ -358,7 +360,7 @@ public class StochasticLoadBalancer extends BaseLoadBalancer {
     return !balanced;
   }
 
-  @VisibleForTesting
+  @InterfaceAudience.Private
   Cluster.Action nextAction(Cluster cluster) {
     return candidateGenerators.get(RANDOM.nextInt(candidateGenerators.size()))
             .generate(cluster);
@@ -411,7 +413,7 @@ public class StochasticLoadBalancer extends BaseLoadBalancer {
     curOverallCost = currentCost;
     System.arraycopy(tempFunctionCosts, 0, curFunctionCosts, 0, curFunctionCosts.length);
     double initCost = currentCost;
-    double newCost = currentCost;
+    double newCost;
 
     long computedMaxSteps;
     if (runMaxSteps) {
@@ -432,6 +434,7 @@ public class StochasticLoadBalancer extends BaseLoadBalancer {
     LOG.info("start StochasticLoadBalancer.balancer, initCost=" + currentCost + ", functionCost="
         + functionCost() + " computedMaxSteps: " + computedMaxSteps);
 
+    final String initFunctionTotalCosts = totalCostsPerFunc();
     // Perform a stochastic walk to see if we can get a good fit.
     long step;
 
@@ -480,12 +483,34 @@ public class StochasticLoadBalancer extends BaseLoadBalancer {
         "{} regions; Going from a computed cost of {}" +
         " to a new cost of {}", java.time.Duration.ofMillis(endTime - startTime),
         step, plans.size(), initCost, currentCost);
+      sendRegionPlansToRingBuffer(plans, currentCost, initCost, initFunctionTotalCosts, step);
       return plans;
     }
     LOG.info("Could not find a better load balance plan.  Tried {} different configurations in " +
       "{}, and did not find anything with a computed cost less than {}", step,
       java.time.Duration.ofMillis(endTime - startTime), initCost);
     return null;
+  }
+
+  private void sendRegionPlansToRingBuffer(List<RegionPlan> plans, double currentCost,
+      double initCost, String initFunctionTotalCosts, long step) {
+    if (this.namedQueueRecorder != null) {
+      List<String> regionPlans = new ArrayList<>();
+      for (RegionPlan plan : plans) {
+        regionPlans.add(
+          "table: " + plan.getRegionInfo().getTable() + " , region: " + plan.getRegionName()
+            + " , source: " + plan.getSource() + " , destination: " + plan.getDestination());
+      }
+      BalancerDecision balancerDecision =
+        new BalancerDecision.Builder()
+          .setInitTotalCost(initCost)
+          .setInitialFunctionCosts(initFunctionTotalCosts)
+          .setComputedTotalCost(currentCost)
+          .setFinalFunctionCosts(totalCostsPerFunc())
+          .setComputedSteps(step)
+          .setRegionPlans(regionPlans).build();
+      namedQueueRecorder.addRecord(new BalancerDecisionDetails(balancerDecision));
+    }
   }
 
   /**
@@ -513,6 +538,12 @@ public class StochasticLoadBalancer extends BaseLoadBalancer {
     }
   }
 
+  private void addCostFunction(CostFunction costFunction) {
+    if (costFunction.getMultiplier() > 0) {
+      costFunctions.add(costFunction);
+    }
+  }
+
   private String functionCost() {
     StringBuilder builder = new StringBuilder();
     for (CostFunction c:costFunctions) {
@@ -522,6 +553,23 @@ public class StochasticLoadBalancer extends BaseLoadBalancer {
       builder.append(", ");
       builder.append(c.cost());
       builder.append("); ");
+    }
+    return builder.toString();
+  }
+
+  private String totalCostsPerFunc() {
+    StringBuilder builder = new StringBuilder();
+    for (CostFunction c : costFunctions) {
+      if (c.getMultiplier() * c.cost() > 0.0) {
+        builder.append(" ");
+        builder.append(c.getClass().getSimpleName());
+        builder.append(" : ");
+        builder.append(c.getMultiplier() * c.cost());
+        builder.append(";");
+      }
+    }
+    if (builder.length() > 0) {
+      builder.deleteCharAt(builder.length() - 1);
     }
     return builder.toString();
   }

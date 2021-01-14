@@ -18,6 +18,7 @@
  */
 package org.apache.hadoop.hbase.master.balancer;
 
+import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -36,7 +37,6 @@ import java.util.Set;
 import java.util.TreeMap;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
-
 import org.apache.commons.lang3.NotImplementedException;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hbase.ClusterMetrics;
@@ -55,14 +55,15 @@ import org.apache.hadoop.hbase.master.MasterServices;
 import org.apache.hadoop.hbase.master.RackManager;
 import org.apache.hadoop.hbase.master.RegionPlan;
 import org.apache.hadoop.hbase.master.balancer.BaseLoadBalancer.Cluster.Action.Type;
-import org.apache.hbase.thirdparty.com.google.common.annotations.VisibleForTesting;
+import org.apache.hadoop.hbase.namequeues.NamedQueueRecorder;
+import org.apache.yetus.audience.InterfaceAudience;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import org.apache.hbase.thirdparty.com.google.common.base.Joiner;
 import org.apache.hbase.thirdparty.com.google.common.collect.ArrayListMultimap;
 import org.apache.hbase.thirdparty.com.google.common.collect.Lists;
 import org.apache.hbase.thirdparty.com.google.common.collect.Sets;
-import org.apache.yetus.audience.InterfaceAudience;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /**
  * The base class for load balancers. It provides the the functions used to by
@@ -73,6 +74,11 @@ import org.slf4j.LoggerFactory;
  */
 @InterfaceAudience.Private
 public abstract class BaseLoadBalancer implements LoadBalancer {
+
+  public static final String BALANCER_DECISION_BUFFER_ENABLED =
+    "hbase.master.balancer.decision.buffer.enabled";
+  public static final boolean DEFAULT_BALANCER_DECISION_BUFFER_ENABLED = false;
+
   protected static final int MIN_SERVER_BALANCE = 2;
   private volatile boolean stopped = false;
 
@@ -84,6 +90,11 @@ public abstract class BaseLoadBalancer implements LoadBalancer {
   protected RegionLocationFinder regionFinder;
   protected boolean useRegionFinder;
   protected boolean isByTable = false;
+
+  /**
+   * Use to add balancer decision history to ring-buffer
+   */
+  protected NamedQueueRecorder namedQueueRecorder;
 
   private static class DefaultRackManager extends RackManager {
     @Override
@@ -987,12 +998,10 @@ public abstract class BaseLoadBalancer implements LoadBalancer {
       }
     }
 
-    @VisibleForTesting
     protected void setNumRegions(int numRegions) {
       this.numRegions = numRegions;
     }
 
-    @VisibleForTesting
     protected void setNumMovedRegions(int numMovedRegions) {
       this.numMovedRegions = numMovedRegions;
     }
@@ -1029,7 +1038,14 @@ public abstract class BaseLoadBalancer implements LoadBalancer {
   protected ClusterMetrics clusterStatus = null;
   protected ServerName masterServerName;
   protected MasterServices services;
+
+  /**
+   * @deprecated since 2.4.0, will be removed in 3.0.0.
+   * @see <a href="https://issues.apache.org/jira/browse/HBASE-15549">HBASE-15549</a>
+   */
+  @Deprecated
   protected boolean onlySystemTablesOnMaster;
+
   protected boolean maintenanceMode;
 
   @Override
@@ -1062,7 +1078,11 @@ public abstract class BaseLoadBalancer implements LoadBalancer {
   /**
    * Check if a region belongs to some system table.
    * If so, the primary replica may be expected to be put on the master regionserver.
+   *
+   * @deprecated since 2.4.0, will be removed in 3.0.0.
+   * @see <a href="https://issues.apache.org/jira/browse/HBASE-15549">HBASE-15549</a>
    */
+  @Deprecated
   public boolean shouldBeOnMaster(RegionInfo region) {
     return (this.maintenanceMode || this.onlySystemTablesOnMaster)
         && region.getTable().isSystemTable();
@@ -1070,7 +1090,11 @@ public abstract class BaseLoadBalancer implements LoadBalancer {
 
   /**
    * Balance the regions that should be on master regionserver.
+   *
+   * @deprecated since 2.4.0, will be removed in 3.0.0.
+   * @see <a href="https://issues.apache.org/jira/browse/HBASE-15549">HBASE-15549</a>
    */
+  @Deprecated
   protected List<RegionPlan> balanceMasterRegions(Map<ServerName, List<RegionInfo>> clusterMap) {
     if (masterServerName == null || clusterMap == null || clusterMap.size() <= 1) return null;
     List<RegionPlan> plans = null;
@@ -1119,12 +1143,14 @@ public abstract class BaseLoadBalancer implements LoadBalancer {
   /**
    * If master is configured to carry system tables only, in here is
    * where we figure what to assign it.
+   *
+   * @deprecated since 2.4.0, will be removed in 3.0.0.
+   * @see <a href="https://issues.apache.org/jira/browse/HBASE-15549">HBASE-15549</a>
    */
+  @Deprecated
+  @NonNull
   protected Map<ServerName, List<RegionInfo>> assignMasterSystemRegions(
       Collection<RegionInfo> regions, List<ServerName> servers) {
-    if (servers == null || regions == null || regions.isEmpty()) {
-      return null;
-    }
     Map<ServerName, List<RegionInfo>> assignments = new TreeMap<>();
     if (this.maintenanceMode || this.onlySystemTablesOnMaster) {
       if (masterServerName != null && servers.contains(masterServerName)) {
@@ -1255,15 +1281,16 @@ public abstract class BaseLoadBalancer implements LoadBalancer {
    *
    * @param regions all regions
    * @param servers all servers
-   * @return map of server to the regions it should take, or null if no
-   *         assignment is possible (ie. no regions or no servers)
+   * @return map of server to the regions it should take, or emptyMap if no
+   *         assignment is possible (ie. no servers)
    */
   @Override
+  @NonNull
   public Map<ServerName, List<RegionInfo>> roundRobinAssignment(List<RegionInfo> regions,
       List<ServerName> servers) throws HBaseIOException {
     metricsBalancer.incrMiscInvocations();
     Map<ServerName, List<RegionInfo>> assignments = assignMasterSystemRegions(regions, servers);
-    if (assignments != null && !assignments.isEmpty()) {
+    if (!assignments.isEmpty()) {
       servers = new ArrayList<>(servers);
       // Guarantee not to put other regions on master
       servers.remove(masterServerName);
@@ -1273,14 +1300,17 @@ public abstract class BaseLoadBalancer implements LoadBalancer {
         regions.removeAll(masterRegions);
       }
     }
-    if (this.maintenanceMode || regions == null || regions.isEmpty()) {
+    /**
+     * only need assign system table
+     */
+    if (this.maintenanceMode || regions.isEmpty()) {
       return assignments;
     }
 
     int numServers = servers == null ? 0 : servers.size();
     if (numServers == 0) {
       LOG.warn("Wanted to do round robin assignment but no servers to assign to");
-      return null;
+      return Collections.emptyMap();
     }
 
     // TODO: instead of retainAssignment() and roundRobinAssignment(), we should just run the
@@ -1395,15 +1425,17 @@ public abstract class BaseLoadBalancer implements LoadBalancer {
    *
    * @param regions regions and existing assignment from meta
    * @param servers available servers
-   * @return map of servers and regions to be assigned to them
+   * @return map of servers and regions to be assigned to them, or emptyMap if no
+   *           assignment is possible (ie. no servers)
    */
   @Override
+  @NonNull
   public Map<ServerName, List<RegionInfo>> retainAssignment(Map<RegionInfo, ServerName> regions,
       List<ServerName> servers) throws HBaseIOException {
     // Update metrics
     metricsBalancer.incrMiscInvocations();
     Map<ServerName, List<RegionInfo>> assignments = assignMasterSystemRegions(regions.keySet(), servers);
-    if (assignments != null && !assignments.isEmpty()) {
+    if (!assignments.isEmpty()) {
       servers = new ArrayList<>(servers);
       // Guarantee not to put other regions on master
       servers.remove(masterServerName);
@@ -1418,7 +1450,7 @@ public abstract class BaseLoadBalancer implements LoadBalancer {
     int numServers = servers == null ? 0 : servers.size();
     if (numServers == 0) {
       LOG.warn("Wanted to do retain assignment but no servers to assign to");
-      return null;
+      return Collections.emptyMap();
     }
     if (numServers == 1) { // Only one server, nothing fancy we can do here
       ServerName server = servers.get(0);

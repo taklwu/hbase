@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -20,7 +20,6 @@ package org.apache.hadoop.hbase.replication.regionserver;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.OptionalLong;
 import java.util.UUID;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -42,6 +41,7 @@ import org.apache.hadoop.hbase.replication.ReplicationStorageFactory;
 import org.apache.hadoop.hbase.replication.ReplicationTracker;
 import org.apache.hadoop.hbase.replication.ReplicationUtils;
 import org.apache.hadoop.hbase.util.Pair;
+import org.apache.hadoop.hbase.wal.WALFactory;
 import org.apache.hadoop.hbase.wal.WALProvider;
 import org.apache.hadoop.hbase.zookeeper.ZKClusterId;
 import org.apache.yetus.audience.InterfaceAudience;
@@ -85,7 +85,7 @@ public class Replication implements ReplicationSourceService, ReplicationSinkSer
 
   @Override
   public void initialize(Server server, FileSystem fs, Path logDir, Path oldLogDir,
-      WALProvider walProvider) throws IOException {
+      WALFactory walFactory) throws IOException {
     this.server = server;
     this.conf = this.server.getConfiguration();
     this.isReplicationForBulkLoadDataEnabled =
@@ -123,10 +123,11 @@ public class Replication implements ReplicationSourceService, ReplicationSinkSer
     }
     this.globalMetricsSource = CompatibilitySingletonFactory
         .getInstance(MetricsReplicationSourceFactory.class).getGlobalSource();
-    this.replicationManager = new ReplicationSourceManager(queueStorage, replicationPeers, replicationTracker, conf,
-      this.server, fs, logDir, oldLogDir, clusterId,
-        walProvider != null ? walProvider.getWALFileLengthProvider() : p -> OptionalLong.empty(),
-        globalMetricsSource);
+    this.replicationManager = new ReplicationSourceManager(queueStorage, replicationPeers,
+        replicationTracker, conf, this.server, fs, logDir, oldLogDir, clusterId, walFactory,
+      globalMetricsSource);
+    // Get the user-space WAL provider
+    WALProvider walProvider = walFactory != null? walFactory.getWALProvider(): null;
     if (walProvider != null) {
       walProvider
         .addWALActionsListener(new ReplicationSourceWALActionListener(conf, replicationManager));
@@ -187,7 +188,6 @@ public class Replication implements ReplicationSourceService, ReplicationSinkSer
   /**
    * If replication is enabled and this cluster is a master,
    * it starts
-   * @throws IOException
    */
   @Override
   public void startReplicationService() throws IOException {

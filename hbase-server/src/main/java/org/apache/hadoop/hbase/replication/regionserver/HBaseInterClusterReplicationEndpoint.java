@@ -39,7 +39,6 @@ import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
-
 import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
@@ -69,11 +68,10 @@ import org.apache.yetus.audience.InterfaceAudience;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import org.apache.hadoop.hbase.shaded.protobuf.generated.AdminProtos.AdminService.BlockingInterface;
-
-import org.apache.hbase.thirdparty.com.google.common.annotations.VisibleForTesting;
 import org.apache.hbase.thirdparty.com.google.common.base.Preconditions;
 import org.apache.hbase.thirdparty.com.google.common.util.concurrent.ThreadFactoryBuilder;
+
+import org.apache.hadoop.hbase.shaded.protobuf.generated.AdminProtos.AdminService.BlockingInterface;
 
 /**
  * A {@link org.apache.hadoop.hbase.replication.ReplicationEndpoint}
@@ -238,7 +236,7 @@ public class HBaseInterClusterReplicationEndpoint extends HBaseReplicationEndpoi
    * @param sleepMultiplier by how many times the default sleeping time is augmented
    * @return True if <code>sleepMultiplier</code> is &lt; <code>maxRetriesMultiplier</code>
    */
-  protected boolean sleepForRetries(String msg, int sleepMultiplier) {
+  private boolean sleepForRetries(String msg, int sleepMultiplier) {
     try {
       if (LOG.isTraceEnabled()) {
         LOG.trace("{} {}, sleeping {} times {}",
@@ -246,8 +244,9 @@ public class HBaseInterClusterReplicationEndpoint extends HBaseReplicationEndpoi
       }
       Thread.sleep(this.sleepForRetries * sleepMultiplier);
     } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
       if (LOG.isDebugEnabled()) {
-        LOG.debug("{} Interrupted while sleeping between retries", logPeerId());
+        LOG.debug("{} {} Interrupted while sleeping between retries", msg, logPeerId());
       }
     }
     return sleepMultiplier < maxRetriesMultiplier;
@@ -307,7 +306,6 @@ public class HBaseInterClusterReplicationEndpoint extends HBaseReplicationEndpoi
   /**
    * Check if there's an {@link TableNotFoundException} in the caused by stacktrace.
    */
-  @VisibleForTesting
   public static boolean isTableNotFoundException(Throwable io) {
     if (io instanceof RemoteException) {
       io = ((RemoteException) io).unwrapRemoteException();
@@ -326,7 +324,6 @@ public class HBaseInterClusterReplicationEndpoint extends HBaseReplicationEndpoi
   /**
    * Check if there's an {@link NoSuchColumnFamilyException} in the caused by stacktrace.
    */
-  @VisibleForTesting
   public static boolean isNoSuchColumnFamilyException(Throwable io) {
     if (io instanceof RemoteException) {
       io = ((RemoteException) io).unwrapRemoteException();
@@ -342,7 +339,6 @@ public class HBaseInterClusterReplicationEndpoint extends HBaseReplicationEndpoi
     return false;
   }
 
-  @VisibleForTesting
   List<List<Entry>> filterNotExistTableEdits(final List<List<Entry>> oldEntryList) {
     List<List<Entry>> entryList = new ArrayList<>();
     Map<TableName, Boolean> existMap = new HashMap<>();
@@ -386,7 +382,6 @@ public class HBaseInterClusterReplicationEndpoint extends HBaseReplicationEndpoi
     return entryList;
   }
 
-  @VisibleForTesting
   List<List<Entry>> filterNotExistColumnFamilyEdits(final List<List<Entry>> oldEntryList) {
     List<List<Entry>> entryList = new ArrayList<>();
     Map<TableName, Set<String>> existColumnFamilyMap = new HashMap<>();
@@ -559,10 +554,14 @@ public class HBaseInterClusterReplicationEndpoint extends HBaseReplicationEndpoi
           } else if (dropOnDeletedColumnFamilies && isNoSuchColumnFamilyException(ioe)) {
             batches = filterNotExistColumnFamilyEdits(batches);
             if (batches.isEmpty()) {
-              LOG.warn(
-                  "After filter not exist column family's edits, 0 edits to replicate, just return");
+              LOG.warn("After filter not exist column family's edits, 0 edits to replicate, "
+                      + "just return");
               return true;
             }
+          } else {
+            LOG.warn("{} Peer encountered RemoteException, rechecking all sinks: ", logPeerId(),
+                ioe);
+            replicationSinkMgr.chooseSinks();
           }
         } else {
           if (ioe instanceof SocketTimeoutException) {
@@ -619,7 +618,6 @@ public class HBaseInterClusterReplicationEndpoint extends HBaseReplicationEndpoi
     notifyStopped();
   }
 
-  @VisibleForTesting
   protected int replicateEntries(List<Entry> entries, int batchIndex, int timeout)
       throws IOException {
     SinkPeer sinkPeer = null;
@@ -674,7 +672,6 @@ public class HBaseInterClusterReplicationEndpoint extends HBaseReplicationEndpoi
     return batchIndex;
   }
 
-  @VisibleForTesting
   protected Callable<Integer> createReplicator(List<Entry> entries, int batchIndex, int timeout) {
     return isSerial ? () -> serialReplicateRegionEntries(entries, batchIndex, timeout)
         : () -> replicateEntries(entries, batchIndex, timeout);

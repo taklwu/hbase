@@ -26,6 +26,7 @@ import java.io.OutputStreamWriter;
 import java.io.PrintWriter;
 import java.net.InetSocketAddress;
 import java.net.Socket;
+import java.net.UnknownHostException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -37,14 +38,11 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
-
 import javax.security.auth.login.AppConfigurationEntry;
 import javax.security.auth.login.AppConfigurationEntry.LoginModuleControlFlag;
-
 import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hbase.AuthUtil;
-import org.apache.hadoop.hbase.HBaseConfiguration;
 import org.apache.hadoop.hbase.HConstants;
 import org.apache.hadoop.hbase.exceptions.DeserializationException;
 import org.apache.hadoop.hbase.security.Superusers;
@@ -78,6 +76,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import org.apache.hbase.thirdparty.com.google.protobuf.InvalidProtocolBufferException;
+
 import org.apache.hadoop.hbase.shaded.protobuf.ProtobufUtil;
 import org.apache.hadoop.hbase.shaded.protobuf.generated.ReplicationProtos;
 
@@ -447,16 +446,15 @@ public final class ZKUtil {
     } catch(KeeperException.NoNodeException ke) {
       LOG.debug(zkw.prefix("Unable to list children of znode " + znode + " " +
           "because node does not exist (not an error)"));
-      return null;
     } catch (KeeperException e) {
       LOG.warn(zkw.prefix("Unable to list children of znode " + znode + " "), e);
       zkw.keeperException(e);
-      return null;
     } catch (InterruptedException e) {
       LOG.warn(zkw.prefix("Unable to list children of znode " + znode + " "), e);
       zkw.interruptedException(e);
-      return null;
     }
+
+    return null;
   }
 
   /**
@@ -1861,9 +1859,7 @@ public final class ZKUtil {
       }
       sb.append("\nRegion server holding hbase:meta: "
         + MetaTableLocator.getMetaRegionLocation(zkw));
-      Configuration conf = HBaseConfiguration.create();
-      int numMetaReplicas = conf.getInt(HConstants.META_REPLICAS_NUM,
-               HConstants.DEFAULT_META_REPLICA_NUM);
+      int numMetaReplicas = zkw.getMetaReplicaNodes().size();
       for (int i = 1; i < numMetaReplicas; i++) {
         sb.append("\nRegion server holding hbase:meta, replicaId " + i + " "
                     + MetaTableLocator.getMetaRegionLocation(zkw, i));
@@ -2074,10 +2070,12 @@ public final class ZKUtil {
     int port = sp.length > 1 ? Integer.parseInt(sp[1])
         : HConstants.DEFAULT_ZOOKEEPER_CLIENT_PORT;
 
-    InetSocketAddress sockAddr = new InetSocketAddress(host, port);
     try (Socket socket = new Socket()) {
+      InetSocketAddress sockAddr = new InetSocketAddress(host, port);
+      if (sockAddr.isUnresolved()) {
+        throw new UnknownHostException(host + " cannot be resolved");
+      }
       socket.connect(sockAddr, timeout);
-
       socket.setSoTimeout(timeout);
       try (PrintWriter out = new PrintWriter(new BufferedWriter(
           new OutputStreamWriter(socket.getOutputStream(), StandardCharsets.UTF_8)), true);
@@ -2109,7 +2107,7 @@ public final class ZKUtil {
       " byte(s) of data from znode " + znode +
       (watcherSet? " and set watcher; ": "; data=") +
       (data == null? "null": data.length == 0? "empty": (
-          zkw.getZNodePaths().isMetaZNodePrefix(znode)?
+          zkw.getZNodePaths().isMetaZNodePath(znode)?
             getServerNameOrEmptyString(data):
           znode.startsWith(zkw.getZNodePaths().backupMasterAddressesZNode)?
             getServerNameOrEmptyString(data):

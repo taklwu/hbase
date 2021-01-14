@@ -37,6 +37,7 @@ import "Quota.proto";
 import "Replication.proto";
 import "Snapshot.proto";
 import "AccessControl.proto";
+import "RecentLogs.proto";
 
 /* Column-level protobufs */
 
@@ -108,6 +109,7 @@ message AssignRegionResponse {
 
 message UnassignRegionRequest {
   required RegionSpecifier region = 1;
+  // This parameter is ignored
   optional bool force = 2 [default = false];
 }
 
@@ -353,6 +355,9 @@ message IsSplitOrMergeEnabledResponse {
 }
 
 message NormalizeRequest {
+  repeated TableName table_names = 1;
+  optional string regex = 2;
+  optional string namespace = 3;
 }
 
 message NormalizeResponse {
@@ -687,6 +692,28 @@ message SwitchExceedThrottleQuotaRequest {
 
 message SwitchExceedThrottleQuotaResponse {
   required bool previous_exceed_throttle_quota_enabled = 1;
+}
+
+/**
+ * BalancerDecision (LogRequest) use-case specific RPC request. This request payload will be
+ * converted in bytes and sent to generic RPC API: GetLogEntries
+ * LogRequest message has two params:
+ * 1. log_class_name: BalancerDecisionsRequest (for BalancerDecision use-case)
+ * 2. log_message: BalancerDecisionsRequest converted in bytes (for BalancerDecision use-case)
+ */
+message BalancerDecisionsRequest {
+  optional uint32 limit = 1;
+}
+
+/**
+ * BalancerDecision (LogEntry) use-case specific RPC response. This response payload will be
+ * converted in bytes by servers and sent as response to generic RPC API: GetLogEntries
+ * LogEntry message has two params:
+ * 1. log_class_name: BalancerDecisionsResponse (for BalancerDecision use-case)
+ * 2. log_message: BalancerDecisionsResponse converted in bytes (for BalancerDecision use-case)
+ */
+message BalancerDecisionsResponse {
+  repeated BalancerDecision balancer_decision = 1;
 }
 
 service MasterService {
@@ -1076,6 +1103,9 @@ service MasterService {
   /** returns a list of namespace names */
   rpc ListNamespaces(ListNamespacesRequest)
     returns(ListNamespacesResponse);
+
+  rpc GetLogEntries(LogRequest)
+    returns(LogEntry);
 }
 
 // HBCK Service definitions.
@@ -1217,6 +1247,17 @@ message GetActiveMasterResponse {
   optional ServerName server_name = 1;
 }
 
+/** Request and response to get the current list of all registers master servers */
+message GetMastersRequest {
+}
+message GetMastersResponseEntry {
+  required ServerName server_name = 1;
+  required bool is_active = 2;
+}
+message GetMastersResponse {
+  repeated GetMastersResponseEntry master_servers = 1;
+}
+
 /** Request and response to get the current list of meta region locations */
 message GetMetaRegionLocationsRequest {
 }
@@ -1226,7 +1267,8 @@ message GetMetaRegionLocationsResponse {
 }
 
 /**
- * Implements all the RPCs needed by clients to look up cluster meta information needed for connection establishment.
+ * Implements all the RPCs needed by clients to look up cluster meta information needed for
+ * connection establishment.
  */
 service ClientMetaService {
   /**
@@ -1235,9 +1277,15 @@ service ClientMetaService {
   rpc GetClusterId(GetClusterIdRequest) returns(GetClusterIdResponse);
 
   /**
-   * Get active master server name for this cluster.
+   * Get active master server name for this cluster. Retained for out of sync client and master
+   * rolling upgrades. Newer clients switched to GetMasters RPC request.
    */
   rpc GetActiveMaster(GetActiveMasterRequest) returns(GetActiveMasterResponse);
+
+  /**
+   * Get registered list of master servers in this cluster.
+   */
+  rpc GetMasters(GetMastersRequest) returns(GetMastersResponse);
 
   /**
    * Get current meta replicas' region locations.

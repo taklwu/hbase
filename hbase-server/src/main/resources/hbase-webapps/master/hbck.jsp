@@ -35,8 +35,8 @@
 <%@ page import="org.apache.hadoop.hbase.ServerName" %>
 <%@ page import="org.apache.hadoop.hbase.util.Bytes" %>
 <%@ page import="org.apache.hadoop.hbase.util.Pair" %>
-<%@ page import="org.apache.hadoop.hbase.master.CatalogJanitor" %>
-<%@ page import="org.apache.hadoop.hbase.master.CatalogJanitor.Report" %>
+<%@ page import="org.apache.hadoop.hbase.master.janitor.CatalogJanitor" %>
+<%@ page import="org.apache.hadoop.hbase.master.janitor.Report" %>
 <%
   final String cacheParameterValue = request.getParameter("cache");
   final HMaster master = (HMaster) getServletContext().getAttribute(HMaster.MASTER);
@@ -74,7 +74,7 @@
     ZoneId.systemDefault());
   String iso8601end = startTimestamp == 0? "-1": zdt.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME);
   CatalogJanitor cj = master.getCatalogJanitor();
-  CatalogJanitor.Report report = cj == null? null: cj.getLastReport();
+  Report report = cj == null? null: cj.getLastReport();
   final ServerManager serverManager = master.getServerManager();
 %>
 <jsp:include page="header.jsp">
@@ -247,8 +247,8 @@
             </tr>
             <% for (Pair<RegionInfo, RegionInfo> p : report.getHoles()) { %>
             <tr>
-              <td><span title="<%= p.getFirst() %>"><%= p.getFirst().getEncodedName() %></span></td>
-              <td><span title="<%= p.getSecond() %>"><%= p.getSecond().getEncodedName() %></span></td>
+              <td><span title="<%= p.getFirst() %>"><%= p.getFirst().getRegionNameAsString() %></span></td>
+              <td><span title="<%= p.getSecond() %>"><%= p.getSecond().getRegionNameAsString() %></span></td>
             </tr>
             <% } %>
 
@@ -275,14 +275,14 @@
               <% for (Pair<RegionInfo, RegionInfo> p : report.getOverlaps()) { %>
               <tr>
                 <% if (report.getMergedRegions().containsKey(p.getFirst())) { %>
-                  <td><span style="color:blue;" title="<%= p.getFirst() %>"><%= p.getFirst().getEncodedName() %></span></td>
+                  <td><span style="color:blue;" title="<%= p.getFirst() %>"><%= p.getFirst().getRegionNameAsString() %></span></td>
                 <% } else { %>
-                  <td><span title="<%= p.getFirst() %>"><%= p.getFirst().getEncodedName() %></span></td>
+                  <td><span title="<%= p.getFirst() %>"><%= p.getFirst().getRegionNameAsString() %></span></td>
                 <% } %>
                 <% if (report.getMergedRegions().containsKey(p.getSecond())) { %>
-                  <td><span style="color:blue;" title="<%= p.getSecond() %>"><%= p.getSecond().getEncodedName() %></span></td>
+                  <td><span style="color:blue;" title="<%= p.getSecond() %>"><%= p.getSecond().getRegionNameAsString() %></span></td>
                 <% } else { %>
-                  <td><span title="<%= p.getSecond() %>"><%= p.getSecond().getEncodedName() %></span></td>
+                  <td><span title="<%= p.getSecond() %>"><%= p.getSecond().getRegionNameAsString() %></span></td>
                 <% } %>
               </tr>
               <% } %>
@@ -318,7 +318,7 @@
               </tr>
               <% for (Pair<RegionInfo, ServerName> p: report.getUnknownServers()) { %>
               <tr>
-                <td><span title="<%= p.getFirst() %>"><%= p.getFirst().getEncodedName() %></span></td>
+                <td><span title="<%= p.getFirst() %>"><%= p.getFirst().getRegionNameAsString() %></span></td>
                 <td><%= p.getSecond() %></td>
               </tr>
               <% } %>

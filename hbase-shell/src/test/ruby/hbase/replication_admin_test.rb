@@ -17,7 +17,7 @@
 # limitations under the License.
 #
 
-require 'shell'
+require 'hbase_shell'
 require 'hbase_constants'
 require 'hbase/hbase'
 require 'hbase/table'
@@ -27,6 +27,7 @@ include HBaseConstants
 module Hbase
   class ReplicationAdminTest < Test::Unit::TestCase
     include TestHelpers
+    include HBaseConstants
 
     def setup
       @peer_id = '1'

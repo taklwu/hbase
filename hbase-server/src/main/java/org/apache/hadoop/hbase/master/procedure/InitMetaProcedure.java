@@ -25,7 +25,6 @@ import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.LocatedFileStatus;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.fs.RemoteIterator;
-import org.apache.hadoop.hbase.HConstants;
 import org.apache.hadoop.hbase.TableName;
 import org.apache.hadoop.hbase.client.RegionInfoBuilder;
 import org.apache.hadoop.hbase.client.TableDescriptor;
@@ -71,7 +70,7 @@ public class InitMetaProcedure extends AbstractStateMachineTableProcedure<InitMe
     return TableOperationType.CREATE;
   }
 
-  private static void writeFsLayout(Path rootDir, Configuration conf) throws IOException {
+  private static TableDescriptor writeFsLayout(Path rootDir, Configuration conf) throws IOException {
     LOG.info("BOOTSTRAP: creating hbase:meta region");
     FileSystem fs = rootDir.getFileSystem(conf);
     Path tableDir = CommonFSUtils.getTableDir(rootDir, TableName.META_TABLE_NAME);
@@ -82,13 +81,12 @@ public class InitMetaProcedure extends AbstractStateMachineTableProcedure<InitMe
     // created here in bootstrap and it'll need to be cleaned up. Better to
     // not make it in first place. Turn off block caching for bootstrap.
     // Enable after.
-    FSTableDescriptors.tryUpdateMetaTableDescriptor(conf, fs, rootDir,
-      builder -> builder.setRegionReplication(
-        conf.getInt(HConstants.META_REPLICAS_NUM, HConstants.DEFAULT_META_REPLICA_NUM)));
-    TableDescriptor metaDescriptor = new FSTableDescriptors(conf).get(TableName.META_TABLE_NAME);
+    TableDescriptor metaDescriptor =
+      FSTableDescriptors.tryUpdateAndGetMetaTableDescriptor(conf, fs, rootDir);
     HRegion
       .createHRegion(RegionInfoBuilder.FIRST_META_REGIONINFO, rootDir, conf, metaDescriptor, null)
       .close();
+    return metaDescriptor;
   }
 
   @Override
@@ -100,7 +98,8 @@ public class InitMetaProcedure extends AbstractStateMachineTableProcedure<InitMe
         case INIT_META_WRITE_FS_LAYOUT:
           Configuration conf = env.getMasterConfiguration();
           Path rootDir = CommonFSUtils.getRootDir(conf);
-          writeFsLayout(rootDir, conf);
+          TableDescriptor td = writeFsLayout(rootDir, conf);
+          env.getMasterServices().getTableDescriptors().update(td, true);
           setNextState(InitMetaState.INIT_META_ASSIGN_META);
           return Flow.HAS_MORE_STATE;
         case INIT_META_ASSIGN_META:

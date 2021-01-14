@@ -75,15 +75,13 @@ import org.apache.hadoop.hbase.zookeeper.ZKUtil;
 import org.apache.hadoop.hbase.zookeeper.ZKWatcher;
 import org.apache.hadoop.hbase.zookeeper.ZNodePaths;
 import org.apache.hadoop.util.Shell;
+import org.apache.hbase.thirdparty.com.google.common.collect.Lists;
+import org.apache.hbase.thirdparty.com.google.common.collect.Maps;
+import org.apache.hbase.thirdparty.com.google.common.collect.Sets;
 import org.apache.yetus.audience.InterfaceAudience;
 import org.apache.zookeeper.KeeperException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import org.apache.hbase.thirdparty.com.google.common.annotations.VisibleForTesting;
-import org.apache.hbase.thirdparty.com.google.common.collect.Lists;
-import org.apache.hbase.thirdparty.com.google.common.collect.Maps;
-import org.apache.hbase.thirdparty.com.google.common.collect.Sets;
 
 /**
  * This is an implementation of {@link RSGroupInfoManager} which makes use of an HBase table as the
@@ -140,7 +138,6 @@ final class RSGroupInfoManagerImpl implements RSGroupInfoManager {
     new ServerEventsListenerThread();
 
   /** Get rsgroup table mapping script */
-  @VisibleForTesting
   RSGroupMappingScript script;
 
   // Package visibility for testing
@@ -247,6 +244,7 @@ final class RSGroupInfoManagerImpl implements RSGroupInfoManager {
       String dstGroup) throws IOException {
     RSGroupInfo src = getRSGroupInfo(srcGroup);
     RSGroupInfo dst = getRSGroupInfo(dstGroup);
+    Set<Address> movedServers = new HashSet<>();
     // If destination is 'default' rsgroup, only add servers that are online. If not online, drop
     // it. If not 'default' group, add server to 'dst' rsgroup EVEN IF IT IS NOT online (could be a
     // rsgroup of dead servers that are to come back later).
@@ -264,12 +262,13 @@ final class RSGroupInfoManagerImpl implements RSGroupInfoManager {
         }
       }
       dst.addServer(el);
+      movedServers.add(el);
     }
     Map<String, RSGroupInfo> newGroupMap = Maps.newHashMap(rsGroupMap);
     newGroupMap.put(src.getName(), src);
     newGroupMap.put(dst.getName(), dst);
     flushConfig(newGroupMap);
-    return dst.getServers();
+    return movedServers;
   }
 
   @Override
@@ -404,11 +403,14 @@ final class RSGroupInfoManagerImpl implements RSGroupInfoManager {
     if (oldName.equals(RSGroupInfo.DEFAULT_GROUP)) {
       throw new ConstraintException("Can't rename default rsgroup");
     }
+    RSGroupInfo oldGroup = getRSGroup(oldName);
+    if (oldGroup == null) {
+      throw new ConstraintException("RSGroup " + oldName + " does not exist");
+    }
     if (rsGroupMap.containsKey(newName)) {
       throw new ConstraintException("Group already exists: " + newName);
     }
 
-    RSGroupInfo oldGroup = getRSGroup(oldName);
     Map<String,RSGroupInfo> newGroupMap = Maps.newHashMap(rsGroupMap);
     newGroupMap.remove(oldName);
     RSGroupInfo newGroup = new RSGroupInfo(newName,
@@ -459,6 +461,12 @@ final class RSGroupInfoManagerImpl implements RSGroupInfoManager {
   @Override
   public void updateRSGroupConfig(String groupName, Map<String, String> configuration)
       throws IOException {
+    if (RSGroupInfo.DEFAULT_GROUP.equals(groupName)) {
+      // We do not persist anything of default group, therefore, it is not supported to update
+      // default group's configuration which lost once master down.
+      throw new ConstraintException("configuration of " + RSGroupInfo.DEFAULT_GROUP
+          + " can't be stored persistently");
+    }
     RSGroupInfo rsGroupInfo = getRSGroupInfo(groupName);
     new HashSet<>(rsGroupInfo.getConfiguration().keySet())
         .forEach(rsGroupInfo::removeConfiguration);
@@ -495,7 +503,7 @@ final class RSGroupInfoManagerImpl implements RSGroupInfoManager {
         }
         for (String znode : children) {
           byte[] data = ZKUtil.getData(watcher, ZNodePaths.joinZNode(groupBasePath, znode));
-          if (data.length > 0) {
+          if (data != null && data.length > 0) {
             ProtobufUtil.expectPBMagicPrefix(data);
             ByteArrayInputStream bis =
               new ByteArrayInputStream(data, ProtobufUtil.lengthOfPBMagic(), data.length);

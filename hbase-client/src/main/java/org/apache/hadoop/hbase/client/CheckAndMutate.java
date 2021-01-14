@@ -17,22 +17,18 @@
  */
 package org.apache.hadoop.hbase.client;
 
-import java.util.Collections;
-import java.util.List;
-import java.util.NavigableMap;
-import org.apache.hadoop.hbase.Cell;
 import org.apache.hadoop.hbase.CompareOperator;
-import org.apache.hadoop.hbase.HConstants;
 import org.apache.hadoop.hbase.filter.Filter;
 import org.apache.hadoop.hbase.io.TimeRange;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.yetus.audience.InterfaceAudience;
 import org.apache.yetus.audience.InterfaceStability;
 import org.apache.hbase.thirdparty.com.google.common.base.Preconditions;
+import java.util.Arrays;
+import java.util.Objects;
 
 /**
- * Used to perform CheckAndMutate operations. Currently {@link Put}, {@link Delete}
- * and {@link RowMutations} are supported.
+ * Used to perform CheckAndMutate operations.
  * <p>
  * Use the builder class to instantiate a CheckAndMutate object.
  * This builder class is fluent style APIs, the code are like:
@@ -59,7 +55,7 @@ import org.apache.hbase.thirdparty.com.google.common.base.Preconditions;
  */
 @InterfaceAudience.Public
 @InterfaceStability.Evolving
-public final class CheckAndMutate extends Mutation {
+public final class CheckAndMutate implements Row {
 
   /**
    * A builder class for building a CheckAndMutate object.
@@ -137,9 +133,9 @@ public final class CheckAndMutate extends Mutation {
     }
 
     private void preCheck(Row action) {
-      Preconditions.checkNotNull(action, "action (Put/Delete/RowMutations) is null");
+      Preconditions.checkNotNull(action, "action is null");
       if (!Bytes.equals(row, action.getRow())) {
-        throw new IllegalArgumentException("The row of the action (Put/Delete/RowMutations) <" +
+        throw new IllegalArgumentException("The row of the action <" +
           Bytes.toStringBinary(action.getRow()) + "> doesn't match the original one <" +
           Bytes.toStringBinary(this.row) + ">");
       }
@@ -175,15 +171,41 @@ public final class CheckAndMutate extends Mutation {
     }
 
     /**
-     * @param mutation mutations to perform if check succeeds
+     * @param increment data to increment if check succeeds
      * @return a CheckAndMutate object
      */
-    public CheckAndMutate build(RowMutations mutation) {
-      preCheck(mutation);
+    public CheckAndMutate build(Increment increment) {
+      preCheck(increment);
       if (filter != null) {
-        return new CheckAndMutate(row, filter, timeRange, mutation);
+        return new CheckAndMutate(row, filter, timeRange, increment);
       } else {
-        return new CheckAndMutate(row, family, qualifier, op, value, timeRange, mutation);
+        return new CheckAndMutate(row, family, qualifier, op, value, timeRange, increment);
+      }
+    }
+
+    /**
+     * @param append data to append if check succeeds
+     * @return a CheckAndMutate object
+     */
+    public CheckAndMutate build(Append append) {
+      preCheck(append);
+      if (filter != null) {
+        return new CheckAndMutate(row, filter, timeRange, append);
+      } else {
+        return new CheckAndMutate(row, family, qualifier, op, value, timeRange, append);
+      }
+    }
+
+    /**
+     * @param mutations mutations to perform if check succeeds
+     * @return a CheckAndMutate object
+     */
+    public CheckAndMutate build(RowMutations mutations) {
+      preCheck(mutations);
+      if (filter != null) {
+        return new CheckAndMutate(row, filter, timeRange, mutations);
+      } else {
+        return new CheckAndMutate(row, family, qualifier, op, value, timeRange, mutations);
       }
     }
   }
@@ -198,6 +220,7 @@ public final class CheckAndMutate extends Mutation {
     return new Builder(row);
   }
 
+  private final byte[] row;
   private final byte[] family;
   private final byte[] qualifier;
   private final CompareOperator op;
@@ -208,7 +231,7 @@ public final class CheckAndMutate extends Mutation {
 
   private CheckAndMutate(byte[] row, byte[] family, byte[] qualifier,final CompareOperator op,
     byte[] value, TimeRange timeRange, Row action) {
-    super(row, HConstants.LATEST_TIMESTAMP, Collections.emptyNavigableMap());
+    this.row = row;
     this.family = family;
     this.qualifier = qualifier;
     this.op = op;
@@ -219,7 +242,7 @@ public final class CheckAndMutate extends Mutation {
   }
 
   private CheckAndMutate(byte[] row, Filter filter, TimeRange timeRange, Row action) {
-    super(row, HConstants.LATEST_TIMESTAMP, Collections.emptyNavigableMap());
+    this.row = row;
     this.family = null;
     this.qualifier = null;
     this.op = null;
@@ -227,6 +250,37 @@ public final class CheckAndMutate extends Mutation {
     this.filter = filter;
     this.timeRange = timeRange != null ? timeRange : TimeRange.allTime();
     this.action = action;
+  }
+
+  /**
+   * @return the row
+   */
+  @Override
+  public byte[] getRow() {
+    return row;
+  }
+
+  @Override
+  public int compareTo(Row row) {
+    return Bytes.compareTo(this.getRow(), row.getRow());
+  }
+
+  // Added to get rid of the stopbugs error
+  @Override
+  public boolean equals(Object obj) {
+    if (this == obj) {
+      return true;
+    }
+    if (obj == null || getClass() != obj.getClass()) {
+      return false;
+    }
+    Row other = (Row) obj;
+    return compareTo(other) == 0;
+  }
+
+  @Override
+  public int hashCode() {
+    return Bytes.hashCode(this.getRow());
   }
 
   /**
@@ -283,77 +337,5 @@ public final class CheckAndMutate extends Mutation {
    */
   public Row getAction() {
     return action;
-  }
-
-  @Override
-  public NavigableMap<byte[], List<Cell>> getFamilyCellMap() {
-    if (action instanceof Mutation) {
-      return ((Mutation) action).getFamilyCellMap();
-    }
-    throw new UnsupportedOperationException();
-  }
-
-  @Override
-  public long getTimestamp() {
-    if (action instanceof Mutation) {
-      return ((Mutation) action).getTimestamp();
-    }
-    throw new UnsupportedOperationException();
-  }
-
-  @Override
-  public Mutation setTimestamp(long timestamp) {
-    if (action instanceof Mutation) {
-      return ((Mutation) action).setTimestamp(timestamp);
-    }
-    throw new UnsupportedOperationException();
-  }
-
-  @Override
-  public Durability getDurability() {
-    if (action instanceof Mutation) {
-      return ((Mutation) action).getDurability();
-    }
-    throw new UnsupportedOperationException();
-  }
-
-  @Override
-  public Mutation setDurability(Durability d) {
-    if (action instanceof Mutation) {
-      return ((Mutation) action).setDurability(d);
-    }
-    throw new UnsupportedOperationException();
-  }
-
-  @Override
-  public byte[] getAttribute(String name) {
-    if (action instanceof Mutation) {
-      return ((Mutation) action).getAttribute(name);
-    }
-    throw new UnsupportedOperationException();
-  }
-
-  @Override
-  public OperationWithAttributes setAttribute(String name, byte[] value) {
-    if (action instanceof Mutation) {
-      return ((Mutation) action).setAttribute(name, value);
-    }
-    throw new UnsupportedOperationException();
-  }
-
-  @Override
-  public int getPriority() {
-    if (action instanceof Mutation) {
-      return ((Mutation) action).getPriority();
-    }
-    return ((RowMutations) action).getMaxPriority();
-  }
-
-  @Override
-  public OperationWithAttributes setPriority(int priority) {
-    if (action instanceof Mutation) {
-      return ((Mutation) action).setPriority(priority);
-    }
-    throw new UnsupportedOperationException();
   }
 }

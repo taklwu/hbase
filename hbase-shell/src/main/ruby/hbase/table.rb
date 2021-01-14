@@ -303,18 +303,18 @@ EOF
 
     #----------------------------------------------------------------------------------------------
     # Count rows in a table
-    def _count_internal(interval = 1000, scan = nil)
+    def _count_internal(interval = 1000, scan = nil, cacheBlocks=false)
       raise(ArgumentError, 'Scan argument should be org.apache.hadoop.hbase.client.Scan') \
         unless scan.nil? || scan.is_a?(org.apache.hadoop.hbase.client.Scan)
       # We can safely set scanner caching with the first key only filter
 
       if scan.nil?
         scan = org.apache.hadoop.hbase.client.Scan.new
-        scan.setCacheBlocks(false)
+        scan.setCacheBlocks(cacheBlocks)
         scan.setCaching(10)
         scan.setFilter(org.apache.hadoop.hbase.filter.FirstKeyOnlyFilter.new)
       else
-        scan.setCacheBlocks(false)
+        scan.setCacheBlocks(cacheBlocks)
         filter = scan.getFilter
         firstKeyOnlyFilter = org.apache.hadoop.hbase.filter.FirstKeyOnlyFilter.new
         if filter.nil?
@@ -750,8 +750,9 @@ EOF
       [spec.family, spec.qualifier]
     end
 
-    def toISO8601(millis)
-      return java.time.Instant.ofEpochMilli(millis).toString
+    def toLocalDateTime(millis)
+      instant = java.time.Instant.ofEpochMilli(millis)
+      return java.time.LocalDateTime.ofInstant(instant, java.time.ZoneId.systemDefault()).toString
     end
 
     # Make a String of the passed kv
@@ -762,7 +763,7 @@ EOF
             column.start_with?('info:merge')
           hri = org.apache.hadoop.hbase.HRegionInfo.parseFromOrNull(kv.getValueArray,
             kv.getValueOffset, kv.getValueLength)
-          return format('timestamp=%s, value=%s', toISO8601(kv.getTimestamp),
+          return format('timestamp=%s, value=%s', toLocalDateTime(kv.getTimestamp),
             hri.nil? ? '' : hri.toString)
         end
         if column == 'info:serverstartcode'
@@ -773,14 +774,14 @@ EOF
             str_val = org.apache.hadoop.hbase.util.Bytes.toStringBinary(kv.getValueArray,
                                                                         kv.getValueOffset, kv.getValueLength)
           end
-          return format('timestamp=%s, value=%s', toISO8601(kv.getTimestamp), str_val)
+          return format('timestamp=%s, value=%s', toLocalDateTime(kv.getTimestamp), str_val)
         end
       end
 
       if org.apache.hadoop.hbase.CellUtil.isDelete(kv)
-        val = "timestamp=#{toISO8601(kv.getTimestamp)}, type=#{org.apache.hadoop.hbase.KeyValue::Type.codeToType(kv.getTypeByte)}"
+        val = "timestamp=#{toLocalDateTime(kv.getTimestamp)}, type=#{org.apache.hadoop.hbase.KeyValue::Type.codeToType(kv.getTypeByte)}"
       else
-        val = "timestamp=#{toISO8601(kv.getTimestamp)}, value=#{convert(column, kv, converter_class, converter)}"
+        val = "timestamp=#{toLocalDateTime(kv.getTimestamp)}, value=#{convert(column, kv, converter_class, converter)}"
       end
       maxlength != -1 ? val[0, maxlength] : val
     end

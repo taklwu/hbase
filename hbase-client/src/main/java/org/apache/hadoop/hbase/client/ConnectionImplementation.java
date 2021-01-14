@@ -18,10 +18,14 @@
  */
 package org.apache.hadoop.hbase.client;
 
+import static org.apache.hadoop.hbase.HConstants.DEFAULT_USE_META_REPLICAS;
+import static org.apache.hadoop.hbase.HConstants.USE_META_REPLICAS;
+import static org.apache.hadoop.hbase.TableName.META_TABLE_NAME;
 import static org.apache.hadoop.hbase.client.ConnectionUtils.NO_NONCE_GENERATOR;
 import static org.apache.hadoop.hbase.client.ConnectionUtils.getStubKey;
 import static org.apache.hadoop.hbase.client.ConnectionUtils.retries2Attempts;
 import static org.apache.hadoop.hbase.client.MetricsConnection.CLIENT_SIDE_METRICS_ENABLED_KEY;
+import static org.apache.hadoop.hbase.client.RegionLocator.LOCATOR_META_REPLICAS_MODE;
 import static org.apache.hadoop.hbase.util.ConcurrentMapUtils.computeIfAbsent;
 import static org.apache.hadoop.hbase.util.ConcurrentMapUtils.computeIfAbsentEx;
 
@@ -30,6 +34,8 @@ import java.io.Closeable;
 import java.io.IOException;
 import java.io.InterruptedIOException;
 import java.lang.reflect.UndeclaredThrowableException;
+import java.net.InetAddress;
+import java.net.InetSocketAddress;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Date;
@@ -64,6 +70,7 @@ import org.apache.hadoop.hbase.client.Scan.ReadType;
 import org.apache.hadoop.hbase.client.backoff.ClientBackoffPolicy;
 import org.apache.hadoop.hbase.client.backoff.ClientBackoffPolicyFactory;
 import org.apache.hadoop.hbase.exceptions.ClientExceptionsUtil;
+import org.apache.hadoop.hbase.exceptions.ConnectionClosedException;
 import org.apache.hadoop.hbase.exceptions.RegionMovedException;
 import org.apache.hadoop.hbase.ipc.RpcClient;
 import org.apache.hadoop.hbase.ipc.RpcClientFactory;
@@ -71,26 +78,6 @@ import org.apache.hadoop.hbase.ipc.RpcControllerFactory;
 import org.apache.hadoop.hbase.log.HBaseMarkers;
 import org.apache.hadoop.hbase.regionserver.RegionServerStoppedException;
 import org.apache.hadoop.hbase.security.User;
-import org.apache.hadoop.hbase.util.Bytes;
-import org.apache.hadoop.hbase.util.EnvironmentEdgeManager;
-import org.apache.hadoop.hbase.util.ExceptionUtil;
-import org.apache.hadoop.hbase.util.Pair;
-import org.apache.hadoop.hbase.util.ReflectionUtils;
-import org.apache.hadoop.hbase.util.Threads;
-import org.apache.hadoop.ipc.RemoteException;
-import org.apache.hadoop.security.UserGroupInformation;
-import org.apache.hbase.thirdparty.com.google.common.util.concurrent.ThreadFactoryBuilder;
-import org.apache.yetus.audience.InterfaceAudience;
-import org.apache.zookeeper.KeeperException;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import org.apache.hbase.thirdparty.com.google.common.annotations.VisibleForTesting;
-import org.apache.hbase.thirdparty.com.google.common.base.Throwables;
-import org.apache.hbase.thirdparty.com.google.protobuf.BlockingRpcChannel;
-import org.apache.hbase.thirdparty.com.google.protobuf.RpcController;
-import org.apache.hbase.thirdparty.com.google.protobuf.ServiceException;
-
 import org.apache.hadoop.hbase.shaded.protobuf.ProtobufUtil;
 import org.apache.hadoop.hbase.shaded.protobuf.RequestConverter;
 import org.apache.hadoop.hbase.shaded.protobuf.generated.AccessControlProtos;
@@ -101,6 +88,7 @@ import org.apache.hadoop.hbase.shaded.protobuf.generated.AccessControlProtos.Has
 import org.apache.hadoop.hbase.shaded.protobuf.generated.AdminProtos;
 import org.apache.hadoop.hbase.shaded.protobuf.generated.ClientProtos;
 import org.apache.hadoop.hbase.shaded.protobuf.generated.ClientProtos.ClientService.BlockingInterface;
+import org.apache.hadoop.hbase.shaded.protobuf.generated.HBaseProtos;
 import org.apache.hadoop.hbase.shaded.protobuf.generated.MasterProtos;
 import org.apache.hadoop.hbase.shaded.protobuf.generated.MasterProtos.DecommissionRegionServersRequest;
 import org.apache.hadoop.hbase.shaded.protobuf.generated.MasterProtos.DecommissionRegionServersResponse;
@@ -142,6 +130,23 @@ import org.apache.hadoop.hbase.shaded.protobuf.generated.ReplicationProtos.Remov
 import org.apache.hadoop.hbase.shaded.protobuf.generated.ReplicationProtos.RemoveReplicationPeerResponse;
 import org.apache.hadoop.hbase.shaded.protobuf.generated.ReplicationProtos.UpdateReplicationPeerConfigRequest;
 import org.apache.hadoop.hbase.shaded.protobuf.generated.ReplicationProtos.UpdateReplicationPeerConfigResponse;
+import org.apache.hadoop.hbase.util.Bytes;
+import org.apache.hadoop.hbase.util.EnvironmentEdgeManager;
+import org.apache.hadoop.hbase.util.ExceptionUtil;
+import org.apache.hadoop.hbase.util.Pair;
+import org.apache.hadoop.hbase.util.ReflectionUtils;
+import org.apache.hadoop.hbase.util.Threads;
+import org.apache.hadoop.ipc.RemoteException;
+import org.apache.hadoop.security.UserGroupInformation;
+import org.apache.hbase.thirdparty.com.google.common.util.concurrent.ThreadFactoryBuilder;
+import org.apache.hbase.thirdparty.com.google.common.base.Throwables;
+import org.apache.hbase.thirdparty.com.google.protobuf.BlockingRpcChannel;
+import org.apache.hbase.thirdparty.com.google.protobuf.RpcController;
+import org.apache.hbase.thirdparty.com.google.protobuf.ServiceException;
+import org.apache.yetus.audience.InterfaceAudience;
+import org.apache.zookeeper.KeeperException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Main implementation of {@link Connection} and {@link ClusterConnection} interfaces.
@@ -155,12 +160,13 @@ class ConnectionImplementation implements ClusterConnection, Closeable {
   public static final String RETRIES_BY_SERVER_KEY = "hbase.client.retries.by.server";
   private static final Logger LOG = LoggerFactory.getLogger(ConnectionImplementation.class);
 
-  private static final String RESOLVE_HOSTNAME_ON_FAIL_KEY = "hbase.resolve.hostnames.on.failure";
-
-  private final boolean hostnamesCanChange;
   private final long pause;
   private final long pauseForCQTBE;// pause for CallQueueTooBigException, if specified
-  private boolean useMetaReplicas;
+  // The mode tells if HedgedRead, LoadBalance mode is supported.
+  // The default mode is CatalogReplicaMode.None.
+  private CatalogReplicaMode metaReplicaMode;
+  private CatalogReplicaLoadBalanceSelector metaReplicaSelector;
+
   private final int metaReplicaCallTimeoutScanInMicroSecond;
   private final int numTries;
   final int rpcTimeout;
@@ -231,7 +237,7 @@ class ConnectionImplementation implements ClusterConnection, Closeable {
   /** lock guards against multiple threads trying to query the meta region at the same time */
   private final ReentrantLock userRegionLock = new ReentrantLock();
 
-  private ChoreService authService;
+  private ChoreService choreService;
 
   /**
    * constructor
@@ -257,8 +263,6 @@ class ConnectionImplementation implements ClusterConnection, Closeable {
     } else {
       this.pauseForCQTBE = configuredPauseForCQTBE;
     }
-    this.useMetaReplicas = conf.getBoolean(HConstants.USE_META_REPLICAS,
-      HConstants.DEFAULT_USE_META_REPLICAS);
     this.metaReplicaCallTimeoutScanInMicroSecond =
         connectionConfig.getMetaReplicaCallTimeoutMicroSecondScan();
 
@@ -293,7 +297,6 @@ class ConnectionImplementation implements ClusterConnection, Closeable {
 
     boolean shouldListen = conf.getBoolean(HConstants.STATUS_PUBLISHED,
         HConstants.STATUS_PUBLISHED_DEFAULT);
-    this.hostnamesCanChange = conf.getBoolean(RESOLVE_HOSTNAME_ON_FAIL_KEY, true);
     Class<? extends ClusterStatusListener.Listener> listenerClass =
         conf.getClass(ClusterStatusListener.STATUS_LISTENER_CLASS,
             ClusterStatusListener.DEFAULT_STATUS_LISTENER_CLASS,
@@ -331,19 +334,47 @@ class ConnectionImplementation implements ClusterConnection, Closeable {
       close();
       throw e;
     }
+
+    // Get the region locator's meta replica mode.
+    this.metaReplicaMode = CatalogReplicaMode.fromString(conf.get(LOCATOR_META_REPLICAS_MODE,
+      CatalogReplicaMode.NONE.toString()));
+
+    switch (this.metaReplicaMode) {
+      case LOAD_BALANCE:
+        String replicaSelectorClass = conf.get(
+          RegionLocator.LOCATOR_META_REPLICAS_MODE_LOADBALANCE_SELECTOR,
+          CatalogReplicaLoadBalanceSimpleSelector.class.getName());
+
+        this.metaReplicaSelector = CatalogReplicaLoadBalanceSelectorFactory.createSelector(
+          replicaSelectorClass, META_TABLE_NAME, getChoreService(), () -> {
+            int numOfReplicas = 1;
+            try {
+              RegionLocations metaLocations = registry.getMetaRegionLocations().get(
+                connectionConfig.getReadRpcTimeout(), TimeUnit.MILLISECONDS);
+              numOfReplicas = metaLocations.size();
+            } catch (Exception e) {
+              LOG.error("Failed to get table {}'s region replication, ", META_TABLE_NAME, e);
+            }
+            return numOfReplicas;
+          });
+        break;
+      case NONE:
+        // If user does not configure LOCATOR_META_REPLICAS_MODE, let's check the legacy config.
+
+        boolean useMetaReplicas = conf.getBoolean(USE_META_REPLICAS,
+          DEFAULT_USE_META_REPLICAS);
+        if (useMetaReplicas) {
+          this.metaReplicaMode = CatalogReplicaMode.HEDGED_READ;
+        }
+        break;
+      default:
+        // Doing nothing
+    }
   }
 
   private void spawnRenewalChore(final UserGroupInformation user) {
-    authService = new ChoreService("Relogin service");
-    authService.scheduleChore(AuthUtil.getAuthRenewalChore(user));
-  }
-
-  /**
-   * @param useMetaReplicas
-   */
-  @VisibleForTesting
-  void setUseMetaReplicas(final boolean useMetaReplicas) {
-    this.useMetaReplicas = useMetaReplicas;
+    ChoreService service = getChoreService();
+    service.scheduleChore(AuthUtil.getAuthRenewalChore(user));
   }
 
   /**
@@ -351,7 +382,6 @@ class ConnectionImplementation implements ClusterConnection, Closeable {
    * @param cnm Replaces the nonce generator used, for testing.
    * @return old nonce generator.
    */
-  @VisibleForTesting
   static NonceGenerator injectNonceGeneratorForTesting(
       ClusterConnection conn, NonceGenerator cnm) {
     ConnectionImplementation connImpl = (ConnectionImplementation)conn;
@@ -445,7 +475,7 @@ class ConnectionImplementation implements ClusterConnection, Closeable {
       throw new RegionServerStoppedException(masterServer + " is dead.");
     }
     String key = getStubKey(MasterProtos.HbckService.BlockingInterface.class.getName(),
-      masterServer, this.hostnamesCanChange);
+      masterServer);
 
     return new HBaseHbck(
       (MasterProtos.HbckService.BlockingInterface) computeIfAbsentEx(stubs, key, () -> {
@@ -549,7 +579,6 @@ class ConnectionImplementation implements ClusterConnection, Closeable {
   /**
    * For tests only.
    */
-  @VisibleForTesting
   RpcClient getRpcClient() {
     return rpcClient;
   }
@@ -579,14 +608,36 @@ class ConnectionImplementation implements ClusterConnection, Closeable {
     }
   }
 
+  /**
+   * If choreService has not been created yet, create the ChoreService.
+   * @return ChoreService
+   */
+  synchronized ChoreService getChoreService() {
+    if (choreService == null) {
+      choreService = new ChoreService("AsyncConn Chore Service");
+    }
+    return choreService;
+  }
+
   @Override
   public Configuration getConfiguration() {
     return this.conf;
   }
 
-  private void checkClosed() throws DoNotRetryIOException {
+  private void checkClosed() throws LocalConnectionClosedException {
     if (this.closed) {
-      throw new DoNotRetryIOException(toString() + " closed");
+      throw new LocalConnectionClosedException(toString() + " closed");
+    }
+  }
+
+  /**
+   * Like {@link ConnectionClosedException} but thrown from the checkClosed call which looks
+   * at the local this.closed flag. We use this rather than {@link ConnectionClosedException}
+   * because the latter does not inherit from DoNotRetryIOE (it should. TODO).
+   */
+  private static class LocalConnectionClosedException extends DoNotRetryIOException {
+    LocalConnectionClosedException(String message) {
+      super(message);
     }
   }
 
@@ -840,8 +891,23 @@ class ConnectionImplementation implements ClusterConnection, Closeable {
     Scan s = new Scan().withStartRow(metaStartKey).withStopRow(metaStopKey, true)
       .addFamily(HConstants.CATALOG_FAMILY).setReversed(true).setCaching(5)
       .setReadType(ReadType.PREAD);
-    if (this.useMetaReplicas) {
-      s.setConsistency(Consistency.TIMELINE);
+
+    switch (this.metaReplicaMode) {
+      case LOAD_BALANCE:
+        int metaReplicaId = this.metaReplicaSelector.select(tableName, row,
+          RegionLocateType.CURRENT);
+        if (metaReplicaId != RegionInfo.DEFAULT_REPLICA_ID) {
+          // If the selector gives a non-primary meta replica region, then go with it.
+          // Otherwise, just go to primary in non-hedgedRead mode.
+          s.setConsistency(Consistency.TIMELINE);
+          s.setReplicaId(metaReplicaId);
+        }
+        break;
+      case HEDGED_READ:
+        s.setConsistency(Consistency.TIMELINE);
+        break;
+      default:
+        // do nothing
     }
     int maxAttempts = (retry ? numTries : 1);
     boolean relocateMeta = false;
@@ -863,13 +929,15 @@ class ConnectionImplementation implements ClusterConnection, Closeable {
       }
       // Query the meta region
       long pauseBase = this.pause;
-      userRegionLock.lock();
+      takeUserRegionLock();
       try {
-        if (useCache) {// re-check cache after get lock
-          RegionLocations locations = getCachedLocation(tableName, row);
-          if (locations != null && locations.getRegionLocation(replicaId) != null) {
-            return locations;
-          }
+        // We don't need to check if useCache is enabled or not. Even if useCache is false
+        // we already cleared the cache for this row before acquiring userRegion lock so if this
+        // row is present in cache that means some other thread has populated it while we were
+        // waiting to acquire user region lock.
+        RegionLocations locations = getCachedLocation(tableName, row);
+        if (locations != null && locations.getRegionLocation(replicaId) != null) {
+          return locations;
         }
         if (relocateMeta) {
           relocateRegion(TableName.META_TABLE_NAME, HConstants.EMPTY_START_ROW,
@@ -892,7 +960,7 @@ class ConnectionImplementation implements ClusterConnection, Closeable {
             }
             tableNotFound = false;
             // convert the row result into the HRegionLocation we need!
-            RegionLocations locations = MetaTableAccessor.getRegionLocations(regionInfoRow);
+            locations = MetaTableAccessor.getRegionLocations(regionInfoRow);
             if (locations == null || locations.getRegionLocation(replicaId) == null) {
               throw new IOException("RegionInfo null in " + tableName + ", row=" + regionInfoRow);
             }
@@ -938,6 +1006,10 @@ class ConnectionImplementation implements ClusterConnection, Closeable {
         // exist. rethrow the error immediately. this should always be coming
         // from the HTable constructor.
         throw e;
+      } catch (LocalConnectionClosedException cce) {
+        // LocalConnectionClosedException is specialized instance of DoNotRetryIOE.
+        // Thrown when we check if this connection is closed. If it is, don't retry.
+        throw cce;
       } catch (IOException e) {
         ExceptionUtil.rethrowIfInterrupt(e);
         if (e instanceof RemoteException) {
@@ -965,6 +1037,19 @@ class ConnectionImplementation implements ClusterConnection, Closeable {
         throw new InterruptedIOException("Giving up trying to location region in " +
           "meta: thread is interrupted.");
       }
+    }
+  }
+
+  void takeUserRegionLock() throws IOException {
+    try {
+      long waitTime = connectionConfig.getMetaOperationTimeout();
+      if (!userRegionLock.tryLock(waitTime, TimeUnit.MILLISECONDS)) {
+        throw new LockTimeoutException("Failed to get user region lock in"
+            + waitTime + " ms. " + " for accessing meta region server.");
+      }
+    } catch (InterruptedException ie) {
+      LOG.error("Interrupted while waiting for a lock", ie);
+      throw ExceptionUtil.asInterrupt(ie);
     }
   }
 
@@ -1171,7 +1256,7 @@ class ConnectionImplementation implements ClusterConnection, Closeable {
       }
       // Use the security info interface name as our stub key
       String key =
-          getStubKey(MasterProtos.MasterService.getDescriptor().getName(), sn, hostnamesCanChange);
+          getStubKey(MasterProtos.MasterService.getDescriptor().getName(), sn);
       MasterProtos.MasterService.BlockingInterface stub =
           (MasterProtos.MasterService.BlockingInterface) computeIfAbsentEx(stubs, key, () -> {
             BlockingRpcChannel channel = rpcClient.createBlockingRpcChannel(sn, user, rpcTimeout);
@@ -1219,8 +1304,7 @@ class ConnectionImplementation implements ClusterConnection, Closeable {
     if (isDeadServer(serverName)) {
       throw new RegionServerStoppedException(serverName + " is dead.");
     }
-    String key = getStubKey(AdminProtos.AdminService.BlockingInterface.class.getName(), serverName,
-      this.hostnamesCanChange);
+    String key = getStubKey(AdminProtos.AdminService.BlockingInterface.class.getName(), serverName);
     return (AdminProtos.AdminService.BlockingInterface) computeIfAbsentEx(stubs, key, () -> {
       BlockingRpcChannel channel =
           this.rpcClient.createBlockingRpcChannel(serverName, user, rpcTimeout);
@@ -1235,7 +1319,7 @@ class ConnectionImplementation implements ClusterConnection, Closeable {
       throw new RegionServerStoppedException(serverName + " is dead.");
     }
     String key = getStubKey(ClientProtos.ClientService.BlockingInterface.class.getName(),
-      serverName, this.hostnamesCanChange);
+      serverName);
     return (ClientProtos.ClientService.BlockingInterface) computeIfAbsentEx(stubs, key, () -> {
       BlockingRpcChannel channel =
           this.rpcClient.createBlockingRpcChannel(serverName, user, rpcTimeout);
@@ -1825,6 +1909,12 @@ class ConnectionImplementation implements ClusterConnection, Closeable {
           HasUserPermissionsRequest request) throws ServiceException {
         return stub.hasUserPermissions(controller, request);
       }
+
+      @Override
+      public HBaseProtos.LogEntry getLogEntries(RpcController controller,
+          HBaseProtos.LogRequest request) throws ServiceException {
+        return stub.getLogEntries(controller, request);
+      }
     };
   }
 
@@ -1958,6 +2048,13 @@ class ConnectionImplementation implements ClusterConnection, Closeable {
       metrics.incrCacheDroppingExceptions(exception);
     }
 
+    // Tell metaReplicaSelector that the location is stale. It will create a stale entry
+    // with timestamp internally. Next time the client looks up the same location,
+    // it will pick a different meta replica region.
+    if (this.metaReplicaMode == CatalogReplicaMode.LOAD_BALANCE) {
+      metaReplicaSelector.onError(oldLocation);
+    }
+
     // If we're here, it means that can cannot be sure about the location, so we remove it from
     // the cache. Do not send the source because source can be a new server in the same host:port
     metaCache.clearCache(regionInfo);
@@ -1982,7 +2079,6 @@ class ConnectionImplementation implements ClusterConnection, Closeable {
    * Return the number of cached region for a table. It will only be called
    * from a unit test.
    */
-  @VisibleForTesting
   int getNumberOfCachedRegionLocations(final TableName tableName) {
     return metaCache.getNumberOfCachedRegionLocations(tableName);
   }
@@ -2028,8 +2124,8 @@ class ConnectionImplementation implements ClusterConnection, Closeable {
     if (rpcClient != null) {
       rpcClient.close();
     }
-    if (authService != null) {
-      authService.shutdown();
+    if (choreService != null) {
+      choreService.shutdown();
     }
   }
 

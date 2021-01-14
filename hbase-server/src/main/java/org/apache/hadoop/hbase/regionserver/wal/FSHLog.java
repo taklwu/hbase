@@ -44,6 +44,7 @@ import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FSDataOutputStream;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.hbase.Abortable;
 import org.apache.hadoop.hbase.HConstants;
 import org.apache.hadoop.hbase.client.RegionInfo;
 import org.apache.hadoop.hbase.trace.TraceUtil;
@@ -59,11 +60,11 @@ import org.apache.hadoop.hdfs.DFSOutputStream;
 import org.apache.hadoop.hdfs.client.HdfsDataOutputStream;
 import org.apache.hadoop.hdfs.protocol.DatanodeInfo;
 import org.apache.htrace.core.TraceScope;
+import org.apache.hbase.thirdparty.com.google.common.util.concurrent.ThreadFactoryBuilder;
 import org.apache.yetus.audience.InterfaceAudience;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import org.apache.hbase.thirdparty.com.google.common.annotations.VisibleForTesting;
 import org.apache.hbase.thirdparty.com.google.common.util.concurrent.ThreadFactoryBuilder;
 
 /**
@@ -202,10 +203,21 @@ public class FSHLog extends AbstractFSWAL<Writer> {
    * @param logDir dir where wals are stored
    * @param conf configuration to use
    */
-  @VisibleForTesting
   public FSHLog(final FileSystem fs, final Path root, final String logDir, final Configuration conf)
       throws IOException {
     this(fs, root, logDir, HConstants.HREGION_OLDLOGDIR_NAME, conf, null, true, null, null);
+  }
+
+  public FSHLog(final FileSystem fs, Abortable abortable, final Path root, final String logDir,
+      final Configuration conf) throws IOException {
+    this(fs, abortable, root, logDir, HConstants.HREGION_OLDLOGDIR_NAME, conf, null, true, null,
+        null);
+  }
+
+  public FSHLog(final FileSystem fs, final Path rootDir, final String logDir,
+      final String archiveDir, final Configuration conf, final List<WALActionsListener> listeners,
+      final boolean failIfWALExists, final String prefix, final String suffix) throws IOException {
+    this(fs, null, rootDir, logDir, archiveDir, conf, listeners, failIfWALExists, prefix, suffix);
   }
 
   /**
@@ -226,10 +238,12 @@ public class FSHLog extends AbstractFSWAL<Writer> {
    * @param suffix will be url encoded. null is treated as empty. non-empty must start with
    *          {@link org.apache.hadoop.hbase.wal.AbstractFSWALProvider#WAL_FILE_NAME_DELIMITER}
    */
-  public FSHLog(final FileSystem fs, final Path rootDir, final String logDir,
-      final String archiveDir, final Configuration conf, final List<WALActionsListener> listeners,
-      final boolean failIfWALExists, final String prefix, final String suffix) throws IOException {
-    super(fs, rootDir, logDir, archiveDir, conf, listeners, failIfWALExists, prefix, suffix);
+  public FSHLog(final FileSystem fs, final Abortable abortable, final Path rootDir,
+      final String logDir, final String archiveDir, final Configuration conf,
+      final List<WALActionsListener> listeners, final boolean failIfWALExists, final String prefix,
+      final String suffix) throws IOException {
+    super(fs, abortable, rootDir, logDir, archiveDir, conf, listeners, failIfWALExists, prefix,
+        suffix);
     this.minTolerableReplication = conf.getInt(TOLERABLE_LOW_REPLICATION,
       CommonFSUtils.getDefaultReplication(fs, this.walDir));
     this.lowReplicationRollLimit = conf.getInt(LOW_REPLICATION_ROLL_LIMIT, DEFAULT_LOW_REPLICATION_ROLL_LIMIT);
@@ -241,10 +255,9 @@ public class FSHLog extends AbstractFSWAL<Writer> {
     String hostingThreadName = Thread.currentThread().getName();
     // Using BlockingWaitStrategy. Stuff that is going on here takes so long it makes no sense
     // spinning as other strategies do.
-    this.disruptor = new Disruptor<>(RingBufferTruck::new,
-      getPreallocatedEventCount(),
+    this.disruptor = new Disruptor<>(RingBufferTruck::new, getPreallocatedEventCount(),
       new ThreadFactoryBuilder().setNameFormat(hostingThreadName + ".append-pool-%d")
-        .setUncaughtExceptionHandler(Threads.LOGGING_EXCEPTION_HANDLER).build(),
+        .setDaemon(true).setUncaughtExceptionHandler(Threads.LOGGING_EXCEPTION_HANDLER).build(),
       ProducerType.MULTI, new BlockingWaitStrategy());
     // Advance the ring buffer sequence so that it starts from 1 instead of 0,
     // because SyncFuture.NOT_DONE = 0.
@@ -266,7 +279,6 @@ public class FSHLog extends AbstractFSWAL<Writer> {
    * removed.
    * @return null if underlying stream is not ready.
    */
-  @VisibleForTesting
   OutputStream getOutputStream() {
     FSDataOutputStream fsdos = this.hdfs_out;
     return fsdos != null ? fsdos.getWrappedStream() : null;
@@ -304,14 +316,12 @@ public class FSHLog extends AbstractFSWAL<Writer> {
    * Used to manufacture race condition reliably. For testing only.
    * @see #beforeWaitOnSafePoint()
    */
-  @VisibleForTesting
   protected void afterCreatingZigZagLatch() {
   }
 
   /**
    * @see #afterCreatingZigZagLatch()
    */
-  @VisibleForTesting
   protected void beforeWaitOnSafePoint() {
   };
 
@@ -756,7 +766,6 @@ public class FSHLog extends AbstractFSWAL<Writer> {
     return logRollNeeded;
   }
 
-  @VisibleForTesting
   protected long getSequenceOnRingBuffer() {
     return this.disruptor.getRingBuffer().next();
   }
@@ -766,7 +775,6 @@ public class FSHLog extends AbstractFSWAL<Writer> {
     return publishSyncOnRingBuffer(sequence, forceSync);
   }
 
-  @VisibleForTesting
   protected SyncFuture publishSyncOnRingBuffer(long sequence, boolean forceSync) {
     // here we use ring buffer sequence as transaction id
     SyncFuture syncFuture = getSyncFuture(sequence, forceSync);
@@ -793,7 +801,6 @@ public class FSHLog extends AbstractFSWAL<Writer> {
    * patch.
    */
   @Override
-  @VisibleForTesting
   int getLogReplication() {
     try {
       // in standalone mode, it will return 0
@@ -834,7 +841,6 @@ public class FSHLog extends AbstractFSWAL<Writer> {
     }
   }
 
-  @VisibleForTesting
   boolean isLowReplicationRollEnabled() {
     return lowReplicationRollEnabled;
   }
@@ -1190,12 +1196,10 @@ public class FSHLog extends AbstractFSWAL<Writer> {
     return new DatanodeInfo[0];
   }
 
-  @VisibleForTesting
   Writer getWriter() {
     return this.writer;
   }
 
-  @VisibleForTesting
   void setWriter(Writer writer) {
     this.writer = writer;
   }

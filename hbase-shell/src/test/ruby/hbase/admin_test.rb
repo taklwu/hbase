@@ -17,13 +17,12 @@
 # limitations under the License.
 #
 
-require 'shell'
+require 'hbase_shell'
 require 'stringio'
 require 'hbase_constants'
 require 'hbase/hbase'
 require 'hbase/table'
 
-include HBaseConstants
 
 module Hbase
   class AdminHelpersTest < Test::Unit::TestCase
@@ -63,6 +62,8 @@ module Hbase
   # rubocop:disable Metrics/ClassLength
   class AdminMethodsTest < Test::Unit::TestCase
     include TestHelpers
+    include HBaseConstants
+    include HBaseQuotasConstants
 
     def setup
       setup_hbase
@@ -386,8 +387,8 @@ module Hbase
     #-------------------------------------------------------------------------------
 
     define_test 'get slowlog responses should work' do
-      output = capture_stdout { command(:get_slowlog_responses, '*', {}) }
-      assert(output.include?('Retrieved SlowLog Responses from RegionServers'))
+      output = command(:get_slowlog_responses, '*', {})
+      assert(output.nil?)
     end
 
     #-------------------------------------------------------------------------------
@@ -540,9 +541,9 @@ module Hbase
       ns = @create_test_name
       command(:create_namespace, ns)
       command(:set_quota,
-              TYPE => SPACE,
+              TYPE => ::HBaseQuotasConstants::SPACE,
               LIMIT => '1G',
-              POLICY => NO_INSERTS,
+              POLICY => ::HBaseQuotasConstants::NO_INSERTS,
               NAMESPACE => ns)
       output = capture_stdout { command(:describe_namespace, ns) }
       puts output
@@ -557,8 +558,8 @@ module Hbase
       assert(output.include?('1 row(s)'))
 
       command(:set_quota,
-              TYPE => SPACE,
-              LIMIT => NONE,
+              TYPE => ::HBaseQuotasConstants::SPACE,
+              LIMIT => ::HBaseConstants::NONE,
               NAMESPACE => ns)
       output = capture_stdout { command(:describe_namespace, ns) }
       assert(output.include?('0 row(s)'))
@@ -665,6 +666,8 @@ module Hbase
   # Simple administration methods tests
   class AdminCloneTableSchemaTest < Test::Unit::TestCase
     include TestHelpers
+    include HBaseConstants
+
     def setup
       setup_hbase
       # Create table test table name
@@ -748,6 +751,8 @@ module Hbase
   # Simple administration methods tests
   class AdminRegionTest < Test::Unit::TestCase
     include TestHelpers
+    include HBaseConstants
+
     def setup
       setup_hbase
       # Create test table if it does not exist
@@ -836,6 +841,7 @@ module Hbase
   # rubocop:disable Metrics/ClassLength
   class AdminAlterTableTest < Test::Unit::TestCase
     include TestHelpers
+    include HBaseConstants
 
     def setup
       setup_hbase

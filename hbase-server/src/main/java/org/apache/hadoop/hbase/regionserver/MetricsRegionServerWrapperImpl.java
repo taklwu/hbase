@@ -488,6 +488,11 @@ class MetricsRegionServerWrapperImpl
   }
 
   @Override
+  public long getRpcFullScanRequestsCount() {
+    return regionServer.rpcServices.rpcFullScanRequestCount.sum();
+  }
+
+  @Override
   public long getRpcMultiRequestsCount() {
     return regionServer.rpcServices.rpcMultiRequestCount.sum();
   }
@@ -835,7 +840,7 @@ class MetricsRegionServerWrapperImpl
         numWALFiles = (provider == null ? 0 : provider.getNumLogFiles()) +
             (metaProvider == null ? 0 : metaProvider.getNumLogFiles());
         walFileSize = (provider == null ? 0 : provider.getLogFileSize()) +
-            (provider == null ? 0 : provider.getLogFileSize());
+          (metaProvider == null ? 0 : metaProvider.getLogFileSize());
         // Copy over computed values so that no thread sees half computed values.
         numStores = tempNumStores;
         numStoreFiles = tempNumStoreFiles;
@@ -904,6 +909,11 @@ class MetricsRegionServerWrapperImpl
   @Override
   public long getHedgedReadWins() {
     return this.dfsHedgedReadMetrics == null? 0: this.dfsHedgedReadMetrics.getHedgedReadWins();
+  }
+
+  @Override
+  public long getHedgedReadOpsInCurThread() {
+    return this.dfsHedgedReadMetrics == null ? 0 : this.dfsHedgedReadMetrics.getHedgedReadOpsInCurThread();
   }
 
   @Override

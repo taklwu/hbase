@@ -92,28 +92,6 @@ import org.apache.hadoop.hbase.security.access.GetUserPermissionsRequest;
 import org.apache.hadoop.hbase.security.access.Permission;
 import org.apache.hadoop.hbase.security.access.ShadedAccessControlUtil;
 import org.apache.hadoop.hbase.security.access.UserPermission;
-import org.apache.hadoop.hbase.snapshot.ClientSnapshotDescriptionUtils;
-import org.apache.hadoop.hbase.snapshot.HBaseSnapshotException;
-import org.apache.hadoop.hbase.snapshot.RestoreSnapshotException;
-import org.apache.hadoop.hbase.snapshot.SnapshotCreationException;
-import org.apache.hadoop.hbase.snapshot.UnknownSnapshotException;
-import org.apache.hadoop.hbase.util.Addressing;
-import org.apache.hadoop.hbase.util.Bytes;
-import org.apache.hadoop.hbase.util.EnvironmentEdgeManager;
-import org.apache.hadoop.hbase.util.ForeignExceptionUtil;
-import org.apache.hadoop.hbase.util.Pair;
-import org.apache.hadoop.ipc.RemoteException;
-import org.apache.hadoop.util.StringUtils;
-import org.apache.yetus.audience.InterfaceAudience;
-import org.apache.yetus.audience.InterfaceStability;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import org.apache.hbase.thirdparty.com.google.common.annotations.VisibleForTesting;
-import org.apache.hbase.thirdparty.com.google.common.base.Preconditions;
-import org.apache.hbase.thirdparty.com.google.protobuf.ServiceException;
-import org.apache.hbase.thirdparty.org.apache.commons.collections4.CollectionUtils;
-
 import org.apache.hadoop.hbase.shaded.protobuf.ProtobufUtil;
 import org.apache.hadoop.hbase.shaded.protobuf.RequestConverter;
 import org.apache.hadoop.hbase.shaded.protobuf.generated.AccessControlProtos;
@@ -233,6 +211,25 @@ import org.apache.hadoop.hbase.shaded.protobuf.generated.ReplicationProtos.GetRe
 import org.apache.hadoop.hbase.shaded.protobuf.generated.ReplicationProtos.RemoveReplicationPeerResponse;
 import org.apache.hadoop.hbase.shaded.protobuf.generated.ReplicationProtos.UpdateReplicationPeerConfigResponse;
 import org.apache.hadoop.hbase.shaded.protobuf.generated.SnapshotProtos;
+import org.apache.hadoop.hbase.snapshot.ClientSnapshotDescriptionUtils;
+import org.apache.hadoop.hbase.snapshot.HBaseSnapshotException;
+import org.apache.hadoop.hbase.snapshot.RestoreSnapshotException;
+import org.apache.hadoop.hbase.snapshot.SnapshotCreationException;
+import org.apache.hadoop.hbase.snapshot.UnknownSnapshotException;
+import org.apache.hadoop.hbase.util.Addressing;
+import org.apache.hadoop.hbase.util.Bytes;
+import org.apache.hadoop.hbase.util.EnvironmentEdgeManager;
+import org.apache.hadoop.hbase.util.ForeignExceptionUtil;
+import org.apache.hadoop.hbase.util.Pair;
+import org.apache.hadoop.ipc.RemoteException;
+import org.apache.hadoop.util.StringUtils;
+import org.apache.hbase.thirdparty.com.google.common.base.Preconditions;
+import org.apache.hbase.thirdparty.com.google.protobuf.ServiceException;
+import org.apache.hbase.thirdparty.org.apache.commons.collections4.CollectionUtils;
+import org.apache.yetus.audience.InterfaceAudience;
+import org.apache.yetus.audience.InterfaceStability;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * HBaseAdmin is no longer a client API. It is marked InterfaceAudience.Private indicating that
@@ -464,7 +461,7 @@ public class HBaseAdmin implements Admin {
     return executeCallable(new RpcRetryingCallable<Boolean>() {
       @Override
       protected Boolean rpcCall(int callTimeout) throws Exception {
-        return MetaTableAccessor.tableExists(connection, tableName);
+        return MetaTableAccessor.getTableState(getConnection(), tableName) != null;
       }
     });
   }
@@ -1438,14 +1435,14 @@ public class HBaseAdmin implements Admin {
   }
 
   @Override
-  public void unassign(final byte [] regionName, final boolean force) throws IOException {
+  public void unassign(final byte [] regionName) throws IOException {
     final byte[] toBeUnassigned = getRegionName(regionName);
     executeCallable(new MasterCallable<Void>(getConnection(), getRpcControllerFactory()) {
       @Override
       protected Void rpcCall() throws Exception {
         setPriority(regionName);
         UnassignRegionRequest request =
-            RequestConverter.buildUnassignRegionRequest(toBeUnassigned, force);
+            RequestConverter.buildUnassignRegionRequest(toBeUnassigned);
         master.unassignRegion(getRpcController(), request);
         return null;
       }
@@ -1557,18 +1554,13 @@ public class HBaseAdmin implements Admin {
     }
   }
 
-  /**
-   * Invoke region normalizer. Can NOT run for various reasons.  Check logs.
-   *
-   * @return True if region normalizer ran, false otherwise.
-   */
   @Override
-  public boolean normalize() throws IOException {
+  public boolean normalize(NormalizeTableFilterParams ntfp) throws IOException {
     return executeCallable(new MasterCallable<Boolean>(getConnection(), getRpcControllerFactory()) {
       @Override
       protected Boolean rpcCall() throws Exception {
         return master.normalize(getRpcController(),
-            RequestConverter.buildNormalizeRequest()).getNormalizerRan();
+            RequestConverter.buildNormalizeRequest(ntfp)).getNormalizerRan();
       }
     });
   }
@@ -1669,7 +1661,6 @@ public class HBaseAdmin implements Admin {
    *          two adjacent regions
    * @throws IOException if a remote or network exception occurs
    */
-  @VisibleForTesting
   public void mergeRegionsSync(
       final byte[] nameOfRegionA,
       final byte[] nameOfRegionB,
@@ -1787,11 +1778,9 @@ public class HBaseAdmin implements Admin {
    * @param splitPoint key where region splits
    * @throws IOException if a remote or network exception occurs
    */
-  @VisibleForTesting
   public void splitRegionSync(byte[] regionName, byte[] splitPoint) throws IOException {
     splitRegionSync(regionName, splitPoint, syncWaitTimeout, TimeUnit.MILLISECONDS);
   }
-
 
   /**
    * Split one region. Synchronous operation.
@@ -1961,8 +1950,15 @@ public class HBaseAdmin implements Admin {
     }
     Pair<RegionInfo, ServerName> pair = MetaTableAccessor.getRegion(connection, regionName);
     if (pair == null) {
-      final AtomicReference<Pair<RegionInfo, ServerName>> result = new AtomicReference<>(null);
       final String encodedName = Bytes.toString(regionName);
+      // When it is not a valid regionName, it is possible that it could be an encoded regionName.
+      // To match the encoded regionName, it has to scan the meta table and compare entry by entry.
+      // Since it scans meta table, so it has to be the MD5 hash, it can filter out
+      // most of invalid cases.
+      if (!RegionInfo.isMD5Hash(encodedName)) {
+        return null;
+      }
+      final AtomicReference<Pair<RegionInfo, ServerName>> result = new AtomicReference<>(null);
       MetaTableAccessor.Visitor visitor = new MetaTableAccessor.Visitor() {
         @Override
         public boolean visit(Result data) throws IOException {
@@ -2031,7 +2027,7 @@ public class HBaseAdmin implements Admin {
     return executeCallable(new RpcRetryingCallable<TableName>() {
       @Override
       protected TableName rpcCall(int callTimeout) throws Exception {
-        if (!MetaTableAccessor.tableExists(connection, tableName)) {
+        if (MetaTableAccessor.getTableState(getConnection(), tableName) == null) {
           throw new TableNotFoundException(tableName);
         }
         return tableName;
@@ -4375,15 +4371,15 @@ public class HBaseAdmin implements Admin {
 
   }
 
-  @Override
-  public List<OnlineLogRecord> getSlowLogResponses(@Nullable final Set<ServerName> serverNames,
-      final LogQueryFilter logQueryFilter) throws IOException {
+  private List<LogEntry> getSlowLogResponses(
+      final Map<String, Object> filterParams, final Set<ServerName> serverNames, final int limit,
+      final String logType) {
     if (CollectionUtils.isEmpty(serverNames)) {
       return Collections.emptyList();
     }
     return serverNames.stream().map(serverName -> {
         try {
-          return getSlowLogResponseFromServer(serverName, logQueryFilter);
+          return getSlowLogResponseFromServer(serverName, filterParams, limit, logType);
         } catch (IOException e) {
           throw new RuntimeException(e);
         }
@@ -4391,29 +4387,17 @@ public class HBaseAdmin implements Admin {
     ).flatMap(List::stream).collect(Collectors.toList());
   }
 
-  private List<OnlineLogRecord> getSlowLogResponseFromServer(final ServerName serverName,
-      final LogQueryFilter logQueryFilter) throws IOException {
-    return getSlowLogResponsesFromServer(this.connection.getAdmin(serverName), logQueryFilter);
-  }
-
-  private List<OnlineLogRecord> getSlowLogResponsesFromServer(AdminService.BlockingInterface admin,
-      LogQueryFilter logQueryFilter) throws IOException {
-    return executeCallable(new RpcRetryingCallable<List<OnlineLogRecord>>() {
+  private List<LogEntry> getSlowLogResponseFromServer(ServerName serverName,
+      Map<String, Object> filterParams, int limit, String logType) throws IOException {
+    AdminService.BlockingInterface admin = this.connection.getAdmin(serverName);
+    return executeCallable(new RpcRetryingCallable<List<LogEntry>>() {
       @Override
-      protected List<OnlineLogRecord> rpcCall(int callTimeout) throws Exception {
+      protected List<LogEntry> rpcCall(int callTimeout) throws Exception {
         HBaseRpcController controller = rpcControllerFactory.newController();
-        if (logQueryFilter.getType() == null
-            || logQueryFilter.getType() == LogQueryFilter.Type.SLOW_LOG) {
-          AdminProtos.SlowLogResponses slowLogResponses =
-            admin.getSlowLogResponses(controller,
-              RequestConverter.buildSlowLogResponseRequest(logQueryFilter));
-          return ProtobufUtil.toSlowLogPayloads(slowLogResponses);
-        } else {
-          AdminProtos.SlowLogResponses slowLogResponses =
-            admin.getLargeLogResponses(controller,
-              RequestConverter.buildSlowLogResponseRequest(logQueryFilter));
-          return ProtobufUtil.toSlowLogPayloads(slowLogResponses);
-        }
+        HBaseProtos.LogRequest logRequest =
+          RequestConverter.buildSlowLogResponseRequest(filterParams, limit, logType);
+        HBaseProtos.LogEntry logEntry = admin.getLogEntries(controller, logRequest);
+        return ProtobufUtil.toSlowLogPayloads(logEntry);
       }
     });
   }
@@ -4431,6 +4415,39 @@ public class HBaseAdmin implements Admin {
         throw new RuntimeException(e);
       }
     }).collect(Collectors.toList());
+  }
+
+  @Override
+  public List<LogEntry> getLogEntries(Set<ServerName> serverNames, String logType,
+      ServerType serverType, int limit, Map<String, Object> filterParams) throws IOException {
+    if (logType == null || serverType == null) {
+      throw new IllegalArgumentException("logType and/or serverType cannot be empty");
+    }
+    if (logType.equals("SLOW_LOG") || logType.equals("LARGE_LOG")) {
+      if (ServerType.MASTER.equals(serverType)) {
+        throw new IllegalArgumentException("Slow/Large logs are not maintained by HMaster");
+      }
+      return getSlowLogResponses(filterParams, serverNames, limit, logType);
+    } else if (logType.equals("BALANCER_DECISION")) {
+      if (ServerType.REGION_SERVER.equals(serverType)) {
+        throw new IllegalArgumentException(
+          "Balancer Decision logs are not maintained by HRegionServer");
+      }
+      return getBalancerDecisions(limit);
+    }
+    return Collections.emptyList();
+  }
+
+  private List<LogEntry> getBalancerDecisions(final int limit) throws IOException {
+    return executeCallable(new MasterCallable<List<LogEntry>>(getConnection(),
+        getRpcControllerFactory()) {
+      @Override
+      protected List<LogEntry> rpcCall() throws Exception {
+        HBaseProtos.LogEntry logEntry =
+          master.getLogEntries(getRpcController(), ProtobufUtil.toBalancerDecisionRequest(limit));
+        return ProtobufUtil.toBalancerDecisionResponse(logEntry);
+      }
+    });
   }
 
   private Boolean clearSlowLogsResponses(final ServerName serverName) throws IOException {

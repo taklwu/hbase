@@ -29,6 +29,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Queue;
+import java.util.TimeZone;
 import java.util.TreeMap;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hbase.ClusterMetrics;
@@ -48,6 +49,7 @@ import org.apache.hadoop.hbase.master.balancer.StochasticLoadBalancer.ServerLoca
 import org.apache.hadoop.hbase.testclassification.MasterTests;
 import org.apache.hadoop.hbase.testclassification.MediumTests;
 import org.apache.hadoop.hbase.util.Bytes;
+import org.apache.hadoop.hbase.util.EnvironmentEdgeManager;
 import org.junit.ClassRule;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
@@ -149,6 +151,7 @@ public class TestStochasticLoadBalancer extends BalancerTestBase {
     String regionNameAsString = RegionInfo.getRegionNameAsString(Bytes.toBytes(REGION_KEY));
     assertTrue(loadBalancer.loads.get(regionNameAsString) != null);
     assertTrue(loadBalancer.loads.get(regionNameAsString).size() == 15);
+    assertNull(loadBalancer.namedQueueRecorder);
 
     Queue<BalancerRegionLoad> loads = loadBalancer.loads.get(regionNameAsString);
     int i = 0;
@@ -201,6 +204,7 @@ public class TestStochasticLoadBalancer extends BalancerTestBase {
       double expected = 1 - expectedLocalities[test];
       assertEquals(expected, cost, 0.001);
     }
+    assertNull(loadBalancer.namedQueueRecorder);
   }
 
   @Test
@@ -214,9 +218,14 @@ public class TestStochasticLoadBalancer extends BalancerTestBase {
     assertEquals(StochasticLoadBalancer.MoveCostFunction.DEFAULT_MOVE_COST,
       costFunction.getMultiplier(), 0.01);
 
-    //In offpeak hours, the multiplier of move cost should be lower
+    // In offpeak hours, the multiplier of move cost should be lower
     conf.setInt("hbase.offpeak.start.hour",0);
     conf.setInt("hbase.offpeak.end.hour",23);
+    // Set a fixed time which hour is 15, so it will always in offpeak
+    // See HBASE-24898 for more info of the calculation here
+    long deltaFor15 = TimeZone.getDefault().getRawOffset() - 28800000;
+    long timeFor15 = 1597907081000L - deltaFor15;
+    EnvironmentEdgeManager.injectEdge(() -> timeFor15);
     costFunction = new StochasticLoadBalancer.MoveCostFunction(conf);
     costFunction.init(cluster);
     costFunction.cost();

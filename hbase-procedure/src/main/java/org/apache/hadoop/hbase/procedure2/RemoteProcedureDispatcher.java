@@ -102,8 +102,12 @@ public abstract class RemoteProcedureDispatcher<TEnv, TRemote extends Comparable
     // Create the thread pool that will execute RPCs
     threadPool = Threads.getBoundedCachedThreadPool(corePoolSize, 60L, TimeUnit.SECONDS,
       new ThreadFactoryBuilder().setNameFormat(this.getClass().getSimpleName() + "-pool-%d")
-        .setUncaughtExceptionHandler(getUncaughtExceptionHandler()).build());
+        .setDaemon(true).setUncaughtExceptionHandler(getUncaughtExceptionHandler()).build());
     return true;
+  }
+
+  protected void setTimeoutExecutorUncaughtExceptionHandler(UncaughtExceptionHandler eh) {
+    timeoutExecutor.setUncaughtExceptionHandler(eh);
   }
 
   public boolean stop() {

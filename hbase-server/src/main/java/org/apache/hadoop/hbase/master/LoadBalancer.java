@@ -18,7 +18,7 @@
  */
 package org.apache.hadoop.hbase.master;
 
-import edu.umd.cs.findbugs.annotations.Nullable;
+import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
@@ -53,12 +53,20 @@ public interface LoadBalancer extends Configurable, Stoppable, ConfigurationObse
    * Master can carry regions as of hbase-2.0.0.
    * By default, it carries no tables.
    * TODO: Add any | system as flags to indicate what it can do.
+   *
+   * @deprecated since 2.4.0, will be removed in 3.0.0.
+   * @see <a href="https://issues.apache.org/jira/browse/HBASE-15549">HBASE-15549</a>
    */
+  @Deprecated
   String TABLES_ON_MASTER = "hbase.balancer.tablesOnMaster";
 
   /**
    * Master carries system tables.
+   *
+   * @deprecated since 2.4.0, will be removed in 3.0.0.
+   * @see <a href="https://issues.apache.org/jira/browse/HBASE-15549">HBASE-15549</a>
    */
+  @Deprecated
   String SYSTEM_TABLES_ON_MASTER = "hbase.balancer.tablesOnMaster.systemTablesOnly";
 
   // Used to signal to the caller that the region(s) cannot be assigned
@@ -103,10 +111,9 @@ public interface LoadBalancer extends Configurable, Stoppable, ConfigurationObse
    * @param servers
    * @return Map of servername to regioninfos
    */
-  Map<ServerName, List<RegionInfo>> roundRobinAssignment(
-    List<RegionInfo> regions,
-    List<ServerName> servers
-  ) throws HBaseIOException;
+  @NonNull
+  Map<ServerName, List<RegionInfo>> roundRobinAssignment(List<RegionInfo> regions,
+      List<ServerName> servers) throws HBaseIOException;
 
   /**
    * Assign regions to the previously hosting region server
@@ -114,11 +121,9 @@ public interface LoadBalancer extends Configurable, Stoppable, ConfigurationObse
    * @param servers
    * @return List of plans
    */
-  @Nullable
-  Map<ServerName, List<RegionInfo>> retainAssignment(
-    Map<RegionInfo, ServerName> regions,
-    List<ServerName> servers
-  ) throws HBaseIOException;
+  @NonNull
+  Map<ServerName, List<RegionInfo>> retainAssignment(Map<RegionInfo, ServerName> regions,
+      List<ServerName> servers) throws HBaseIOException;
 
   /**
    * Get a random region server from the list
@@ -166,15 +171,28 @@ public interface LoadBalancer extends Configurable, Stoppable, ConfigurationObse
 
   /**
    * @return true if Master carries regions
+   * @deprecated since 2.4.0, will be removed in 3.0.0.
+   * @see <a href="https://issues.apache.org/jira/browse/HBASE-15549">HBASE-15549</a>
    */
+  @Deprecated
   static boolean isTablesOnMaster(Configuration conf) {
     return conf.getBoolean(TABLES_ON_MASTER, false);
   }
 
+  /**
+   * @deprecated since 2.4.0, will be removed in 3.0.0.
+   * @see <a href="https://issues.apache.org/jira/browse/HBASE-15549">HBASE-15549</a>
+   */
+  @Deprecated
   static boolean isSystemTablesOnlyOnMaster(Configuration conf) {
     return conf.getBoolean(SYSTEM_TABLES_ON_MASTER, false);
   }
 
+  /**
+   * @deprecated since 2.4.0, will be removed in 3.0.0.
+   * @see <a href="https://issues.apache.org/jira/browse/HBASE-15549">HBASE-15549</a>
+   */
+  @Deprecated
   static boolean isMasterCanHostUserRegions(Configuration conf) {
     return isTablesOnMaster(conf) && !isSystemTablesOnlyOnMaster(conf);
   }
