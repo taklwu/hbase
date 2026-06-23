@@ -18,6 +18,7 @@
 package org.apache.hadoop.hbase.io.hfile;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -194,6 +195,18 @@ public class TestHFileReaderImpl {
     bucketcache.shutdown();
 
     deleteTestDir(fs);
+  }
+
+  @Test
+  public void testShouldReleaseOffsetLockBeforeFsRead() {
+    assertTrue(HFileReaderImpl.shouldReleaseOffsetLockBeforeFsRead(true, BlockType.BLOOM_CHUNK));
+    assertTrue(HFileReaderImpl.shouldReleaseOffsetLockBeforeFsRead(false, BlockType.BLOOM_CHUNK));
+    assertTrue(HFileReaderImpl.shouldReleaseOffsetLockBeforeFsRead(true, BlockType.DATA));
+    assertTrue(HFileReaderImpl.shouldReleaseOffsetLockBeforeFsRead(true, null));
+    assertTrue(HFileReaderImpl.shouldReleaseOffsetLockBeforeFsRead(false, BlockType.ROOT_INDEX));
+    assertFalse(HFileReaderImpl.shouldReleaseOffsetLockBeforeFsRead(false, BlockType.DATA));
+    assertFalse(HFileReaderImpl.shouldReleaseOffsetLockBeforeFsRead(false, BlockType.ENCODED_DATA));
+    assertFalse(HFileReaderImpl.shouldReleaseOffsetLockBeforeFsRead(false, null));
   }
 
   protected void deleteTestDir(FileSystem fs) throws IOException {

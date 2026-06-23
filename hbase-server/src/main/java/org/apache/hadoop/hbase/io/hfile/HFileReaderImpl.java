@@ -114,6 +114,16 @@ public abstract class HFileReaderImpl implements HFile.Reader, Configurable {
    */
   private IdLock offsetLock = new IdLock();
 
+  /**
+   * Positional reads and non-data blocks (bloom/index/meta) should not hold {@link #offsetLock}
+   * during filesystem I/O. On high-latency storage (for example HBase on Ozone), holding the lock
+   * for the entire remote read serializes concurrent Gets that miss the block cache on the same
+   * bloom chunk.
+   */
+  static boolean shouldReleaseOffsetLockBeforeFsRead(boolean pread, BlockType expectedBlockType) {
+    return pread || (expectedBlockType != null && !expectedBlockType.isData());
+  }
+
   /** Minimum minor version supported by this HFile format */
   static final int MIN_MINOR_VERSION = 0;
 
@@ -1391,6 +1401,10 @@ public abstract class HFileReaderImpl implements HFile.Reader, Configurable {
             continue;
           }
           // Carry on, please load.
+          if (lockEntry != null && shouldReleaseOffsetLockBeforeFsRead(pread, expectedBlockType)) {
+            offsetLock.releaseLockEntry(lockEntry);
+            lockEntry = null;
+          }
         }
 
         span.addEvent("block cache miss", attributes);
@@ -1426,6 +1440,22 @@ public abstract class HFileReaderImpl implements HFile.Reader, Configurable {
         }
         HFileBlock unpacked = hfileBlock.unpack(hfileContext, fsBlockReader);
         HFileBlock unpackedNoChecksum = BlockCacheUtil.getBlockForCaching(cacheConf, unpacked);
+
+        if (lockEntry == null && shouldReleaseOffsetLockBeforeFsRead(pread, expectedBlockType)
+          && cacheBlock && cacheConf.shouldLockOnCacheMiss(expectedBlockType)
+          && cacheConf.shouldReadBlockFromCache(expectedBlockType) && !cacheOnly) {
+          lockEntry = offsetLock.getLockEntry(dataBlockOffset);
+          HFileBlock cachedAfterRead = getCachedBlock(cacheKey, cacheBlock, true, updateCacheMetrics,
+            expectedBlockType, expectedDataBlockEncoding);
+          if (cachedAfterRead != null) {
+            if (unpacked != hfileBlock) {
+              hfileBlock.release();
+            }
+            unpacked.release();
+            return cachedAfterRead;
+          }
+        }
+
         // Cache the block if necessary
         cacheConf.getCacheAccessService().ifEnabled(cache -> {
           if (cacheBlock && cacheOnRead) {
